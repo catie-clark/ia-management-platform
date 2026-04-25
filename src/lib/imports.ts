@@ -1,0 +1,224 @@
+import { z } from "zod";
+
+import { parseCsvDocument } from "@/lib/csv";
+
+export const uploadFieldNames = [
+  "controls",
+  "questions",
+  "requests",
+  "documents",
+  "applications",
+  "thirdParties",
+  "risks",
+  "riskControlLinks",
+  "rcsaRecords",
+  "issues",
+  "monitoringResults",
+  "priorAuditFindings",
+] as const;
+
+export type UploadFieldName = (typeof uploadFieldNames)[number];
+
+export type SourceEntity =
+  | "applications"
+  | "third_parties"
+  | "controls"
+  | "risks"
+  | "risk_control_links"
+  | "rcsa_records"
+  | "issues"
+  | "monitoring_results"
+  | "prior_audit_findings"
+  | "questions"
+  | "requests"
+  | "documents";
+
+const sourceEntitySchema = z.enum([
+  "applications",
+  "third_parties",
+  "controls",
+  "risks",
+  "risk_control_links",
+  "rcsa_records",
+  "issues",
+  "monitoring_results",
+  "prior_audit_findings",
+  "questions",
+  "requests",
+  "documents",
+]);
+
+const uploadMetadataSchema = z.object({
+  auditName: z.string().trim().min(1, "Audit name is required."),
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period start must use YYYY-MM-DD."),
+  periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period end must use YYYY-MM-DD."),
+  sourceSystem: z.string().trim().min(1).default("archer"),
+  uploadedBy: z.string().uuid().optional(),
+});
+
+type UploadFileDescriptor = {
+  fieldName: UploadFieldName;
+  file: File;
+  sourceEntity: SourceEntity;
+};
+
+type ParseError = {
+  fileName: string;
+  fieldName: UploadFieldName;
+  message: string;
+};
+
+type RawImportRowInsert = {
+  import_file_id: string;
+  audit_id?: string | null;
+  row_number: number;
+  source_record_key: string | null;
+  raw_payload: Record<string, string | null>;
+  validation_status: string;
+  validation_errors: unknown[];
+};
+
+export function parseUploadMetadata(formData: FormData) {
+  const parsed = uploadMetadataSchema.safeParse({
+    auditName: formData.get("auditName"),
+    periodStart: formData.get("periodStart"),
+    periodEnd: formData.get("periodEnd"),
+    sourceSystem: formData.get("sourceSystem") ?? "archer",
+    uploadedBy: formData.get("uploadedBy") ?? undefined,
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Upload metadata is invalid.");
+  }
+
+  if (parsed.data.periodStart > parsed.data.periodEnd) {
+    throw new Error("Audit period end must be the same as or later than the start date.");
+  }
+
+  return parsed.data;
+}
+
+export function getUploadFiles(formData: FormData): UploadFileDescriptor[] {
+  const files = uploadFieldNames.flatMap((fieldName) => {
+    const entry = formData.get(fieldName);
+
+    if (!(entry instanceof File) || entry.size === 0) {
+      return [];
+    }
+
+    const explicitSourceEntity = formData.get(`sourceEntity_${fieldName}`);
+    const sourceEntity = sourceEntitySchema.parse(explicitSourceEntity ?? defaultSourceEntityMap[fieldName]);
+
+    return [{ fieldName, file: entry, sourceEntity }];
+  });
+
+  const requiredFields = uploadFieldNames.filter((fieldName) => {
+    if (fieldName === "controls") {
+      return true;
+    }
+
+    return fieldName === "riskControlLinks" && files.some((file) => file.fieldName === "risks");
+  });
+
+  for (const fieldName of requiredFields) {
+    if (!files.find((file) => file.fieldName === fieldName)) {
+      throw new Error(`Missing required upload: ${fieldName}.`);
+    }
+  }
+
+  return files;
+}
+
+export async function parseCsvUpload(file: File) {
+  if (!file.name.toLowerCase().endsWith(".csv")) {
+    throw new Error("Only .csv uploads are supported by this route right now.");
+  }
+
+  const parsed = parseCsvDocument(await file.text());
+  const rawRows = parsed.rows.map((row, rowIndex) => buildRawImportRowPayload(row, parsed.headers, rowIndex + 2));
+
+  return {
+    headers: parsed.headers,
+    rawRows,
+    rowCount: rawRows.length,
+  };
+}
+
+export function toBatchParseError(error: unknown, fileName: string, fieldName: UploadFieldName): ParseError {
+  return {
+    fileName,
+    fieldName,
+    message: error instanceof Error ? error.message : "Unknown parsing error.",
+  };
+}
+
+export function chunkRows<T>(items: T[], chunkSize: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+}
+
+export function hydrateImportRows(importFileId: string, rows: RawImportRowInsert[]) {
+  return rows.map((row) => ({
+    ...row,
+    import_file_id: importFileId,
+  }));
+}
+
+export type ParsedUploadResult = Awaited<ReturnType<typeof parseCsvUpload>>;
+export type ImportParseError = ParseError;
+
+const defaultSourceEntityMap: Record<UploadFieldName, SourceEntity> = {
+  controls: "controls",
+  questions: "questions",
+  requests: "requests",
+  documents: "documents",
+  applications: "applications",
+  thirdParties: "third_parties",
+  risks: "risks",
+  riskControlLinks: "risk_control_links",
+  rcsaRecords: "rcsa_records",
+  issues: "issues",
+  monitoringResults: "monitoring_results",
+  priorAuditFindings: "prior_audit_findings",
+};
+
+function buildRawImportRowPayload(row: string[], headers: string[], rowNumber: number): RawImportRowInsert {
+  const rawPayload = headers.reduce<Record<string, string | null>>((accumulator, header, index) => {
+    const value = row[index] ?? "";
+    accumulator[header] = value.trim().length === 0 ? null : value;
+    return accumulator;
+  }, {});
+
+  return {
+    import_file_id: "",
+    row_number: rowNumber,
+    source_record_key: deriveSourceRecordKey(rawPayload),
+    raw_payload: rawPayload,
+    validation_status: "pending",
+    validation_errors: [],
+  };
+}
+
+function deriveSourceRecordKey(rawPayload: Record<string, string | null>) {
+  const match = Object.entries(rawPayload).find(([header, value]) => {
+    if (!value) {
+      return false;
+    }
+
+    const normalizedHeader = header.replace(/[\s_]+/g, "").toLowerCase();
+    return (
+      normalizedHeader === "id" ||
+      normalizedHeader === "controlid" ||
+      normalizedHeader === "recordid" ||
+      normalizedHeader === "sourcerecordkey" ||
+      normalizedHeader.endsWith("id")
+    );
+  });
+
+  return match?.[1] ?? null;
+}
