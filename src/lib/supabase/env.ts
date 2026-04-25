@@ -6,6 +6,10 @@ if (
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
+if (process.env.NODE_ENV === "production" && process.env.SUPABASE_TLS_INSECURE === "true") {
+  throw new Error("SUPABASE_TLS_INSECURE must never be enabled in production.");
+}
+
 function requireEnv(name: string, value: string | undefined) {
   if (!value) {
     throw new Error(`Missing required Supabase environment variable: ${name}.`);
@@ -29,5 +33,9 @@ export function getSupabasePublishableKey() {
 }
 
 export function getSupabaseServiceRoleKey() {
+  if (typeof window !== "undefined") {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is server-only and cannot be used in the browser.");
+  }
+
   return requireEnv("SUPABASE_SERVICE_ROLE_KEY", process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
