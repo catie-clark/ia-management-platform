@@ -13,8 +13,29 @@ export type DocumentReviewStatus =
   | "DIRECTOR_REVIEW"
   | "APPROVED";
 
+export type AuditFindingStatus =
+  | "OPEN"
+  | "IN_PROGRESS"
+  | "READY_FOR_REPORT"
+  | "FINALIZED"
+  | "CLOSED";
+
+export type ReportArtifactKey = "FINAL_REPORT" | "REPORTING_TOLLGATE";
+export type ReportReviewStageStatus = "PENDING" | "ACTIVE" | "APPROVED" | "SENT_BACK";
+export type ReportReviewCommentStatus = "OPEN" | "RESOLVED";
+
 export type ReviewStatus = "upcoming" | "active" | "complete" | "at_risk";
 export type AuditPhase = "Planning" | "Fieldwork" | "Reporting";
+
+export interface WorkpaperContent {
+  summary: string;
+  objective: string;
+  scope: string;
+  procedures: string;
+  results: string;
+  conclusion: string;
+  nextSteps: string;
+}
 
 export interface User {
   id: string;
@@ -55,7 +76,11 @@ export interface Control {
 
 export interface Question {
   id: string;
+  displayId?: string;
   controlId: string;
+  phaseTag?: AuditPhase;
+  parentQuestionId?: string;
+  parentRequestId?: string;
   askedBy: string;
   assignedTo: string;
   dateSent: string;
@@ -68,19 +93,26 @@ export interface Question {
 
 export interface Request {
   id: string;
+  displayId?: string;
   controlId?: string;
+  phaseTag?: AuditPhase;
+  parentQuestionId?: string;
+  parentRequestId?: string;
   description: string;
   assignedTo: string;
   dateRequested: string;
   dueDate: string;
   status: "OPEN" | "IN_PROGRESS" | "COMPLETED";
+  completedAt?: string;
   receivedDate?: string;
   responseNotes?: string;
 }
 
 export interface AuditDocument {
   id: string;
+  displayId?: string;
   type: "WORKPAPER" | "EVIDENCE" | "REPORT" | "TOLLGATE" | "PLANNING_NARRATIVE";
+  artifactKey?: ReportArtifactKey;
   title: string;
   linkedControlId?: string;
   linkedQuestionId?: string;
@@ -98,6 +130,51 @@ export interface AuditDocument {
     heading: string;
     body: string[];
   }>;
+  workpaperContent?: WorkpaperContent;
+  generatedMarkdown?: string;
+  updatedAt?: string;
+}
+
+export interface AuditFinding {
+  id: string;
+  auditId?: string;
+  displayId?: string;
+  linkedControlId?: string;
+  title: string;
+  summary: string;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  status: AuditFindingStatus;
+  ownerId?: string;
+  dueDate?: string;
+  impactStatement?: string;
+  recommendation?: string;
+  managementResponse?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ReportReviewStage {
+  id: string;
+  artifactKey: ReportArtifactKey;
+  stageOrder: number;
+  reviewerRole: Role;
+  status: ReportReviewStageStatus;
+  actedAt?: string;
+  actedByName?: string;
+  actionComment?: string;
+}
+
+export interface ReportReviewComment {
+  id: string;
+  artifactKey: ReportArtifactKey;
+  reviewStageId?: string;
+  authorRole: Role;
+  authorName: string;
+  comment: string;
+  status: ReportReviewCommentStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedByName?: string;
 }
 
 export interface PlanningSourceSet {
@@ -166,7 +243,7 @@ export interface BudgetByPhase {
   isSet?: boolean;
 }
 
-export type ExternalTimeSource = "Workday";
+export type ExternalTimeSource = "Recorded";
 
 export interface DemoTimeEntry {
   id: string;

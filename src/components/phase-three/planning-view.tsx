@@ -48,6 +48,7 @@ const FADE_IN_DELAY_MS = 120;
 export function PlanningView({
   auditId = null,
   auditLabel = "Prototype Demo Audit",
+  auditPeriodLabel = "Static sample data",
   auditStatus = "prototype",
   currentPhase = "Planning",
   planningSources,
@@ -55,6 +56,7 @@ export function PlanningView({
 }: {
   auditId?: string | null;
   auditLabel?: string;
+  auditPeriodLabel?: string;
   auditStatus?: string;
   currentPhase?: AuditPhase;
   planningSources: PlanningSourceSet[];
@@ -92,6 +94,7 @@ export function PlanningView({
       <PageHeader
         eyebrow="Phase 3"
         title="Planning"
+        scopePeriodLabel={auditPeriodLabel}
         description="Planning consolidates source intelligence, RCSA grounding, static scope recommendations, and the draft outputs needed to move into controlled fieldwork."
         phaseStatus={{ label: currentPhase === "Planning" ? "Active" : `Current phase: ${currentPhase}`, active: currentPhase === "Planning" }}
       />

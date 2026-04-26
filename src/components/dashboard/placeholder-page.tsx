@@ -6,12 +6,14 @@ export function PlaceholderPage({
   eyebrow,
   title,
   description,
+  headerScopePeriodLabel,
   phaseStatus,
   nextDeliverables,
 }: {
   eyebrow: string;
   title: string;
   description: string;
+  headerScopePeriodLabel?: string;
   phaseStatus?: {
     label: string;
     active: boolean;
@@ -20,7 +22,13 @@ export function PlaceholderPage({
 }) {
   return (
     <div>
-      <PageHeader eyebrow={eyebrow} title={title} description={description} phaseStatus={phaseStatus} />
+      <PageHeader
+        eyebrow={eyebrow}
+        title={title}
+        description={description}
+        scopePeriodLabel={headerScopePeriodLabel}
+        phaseStatus={phaseStatus}
+      />
 
       <section className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
         <article className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">

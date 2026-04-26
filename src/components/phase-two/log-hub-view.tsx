@@ -13,6 +13,7 @@ type LogTab = "questions" | "requests";
 export function LogHubView({
   auditId,
   auditLabel,
+  auditPeriodLabel,
   controls,
   documents,
   mode,
@@ -38,6 +39,7 @@ export function LogHubView({
       <PageHeader
         eyebrow="Phase 2"
         title="Question and Request Log"
+        scopePeriodLabel={auditPeriodLabel}
         description={
           mode === "live"
             ? `Live question and request tracking for ${auditLabel}. Imported activity and saved responses are scoped to this audit.`
@@ -79,22 +81,27 @@ export function LogHubView({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {activeTab === "questions" ? (
           <QuestionLogView
+            auditId={auditId}
             auditLabel={auditLabel}
             controls={controls}
             documents={documents}
             embedded
             mode={mode}
             questions={questions}
+            requests={requests}
             users={users}
           />
         ) : (
           <RequestLogView
+            auditId={auditId}
             auditLabel={auditLabel}
             controls={controls}
             documents={documents}
             embedded
             mode={mode}
+            questions={questions}
             requests={requests}
+            users={users}
           />
         )}
       </div>

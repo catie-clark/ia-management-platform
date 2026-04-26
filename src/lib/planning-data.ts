@@ -1,10 +1,13 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { planningSources, rcsaRecords } from "@/lib/data/mock-data";
+import { formatAuditScopePeriod, type AuditRecord } from "@/lib/live-audit";
 import type { AuditPhase, PlanningSourceSet, RCSARecord } from "@/types/audit";
 
 type PlanningAuditRecord = {
   id: string;
   name: string;
+  period_end: string;
+  period_start: string;
   status: string;
   active_phase: string | null;
 };
@@ -119,6 +122,7 @@ type PriorFindingSourceRow = {
 export type PlanningViewModel = {
   auditId: string | null;
   auditLabel: string;
+  auditPeriodLabel: string;
   auditStatus: string;
   currentPhase: AuditPhase;
   planningSources: PlanningSourceSet[];
@@ -138,6 +142,7 @@ export async function getPlanningViewModel({
     return {
       auditId: null,
       auditLabel: auditLabel ?? "Prototype Demo Audit",
+      auditPeriodLabel: "Static sample data",
       auditStatus: "prototype",
       currentPhase: "Planning",
       planningSources,
@@ -157,7 +162,7 @@ export async function getPlanningViewModel({
     monitoringResult,
     priorFindingsResult,
   ] = await Promise.all([
-    supabase.from("audits").select("id, name, status, active_phase").eq("id", auditId).maybeSingle<PlanningAuditRecord>(),
+    getPlanningAuditRecord(supabase, auditId),
     supabase.from("users").select("id, full_name").returns<UserLookupRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitLookupRow[]>(),
     supabase
@@ -236,11 +241,38 @@ export async function getPlanningViewModel({
   return {
     auditId,
     auditLabel: auditResult.data?.name ?? auditLabel ?? "Live audit workspace",
+    auditPeriodLabel:
+      auditResult.data?.period_start && auditResult.data?.period_end
+        ? formatAuditScopePeriod(auditResult.data)
+        : "Saved audit",
     auditStatus: auditResult.data?.status ?? "active",
     currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
     planningSources: liveSources,
     rcsaRecords: liveRcsa,
   };
+}
+
+async function getPlanningAuditRecord(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  auditId: string,
+) {
+  try {
+    return await supabase
+      .from("audits")
+      .select("id, name, period_start, period_end, scope_period_start, scope_period_end, status, active_phase")
+      .eq("id", auditId)
+      .maybeSingle<PlanningAuditRecord & Pick<AuditRecord, "scope_period_start" | "scope_period_end">>();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("scope_period_start")) {
+      throw error;
+    }
+
+    return supabase
+      .from("audits")
+      .select("id, name, period_start, period_end, status, active_phase")
+      .eq("id", auditId)
+      .maybeSingle<PlanningAuditRecord>();
+  }
 }
 
 function mapApplicationSource(

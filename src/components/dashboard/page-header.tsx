@@ -4,6 +4,7 @@ export function PageHeader({
   eyebrow,
   title,
   description,
+  scopePeriodLabel,
   phaseStatus,
   actions,
   align = "bottom",
@@ -11,6 +12,7 @@ export function PageHeader({
   eyebrow: string;
   title: string;
   description: string;
+  scopePeriodLabel?: string;
   phaseStatus?: {
     label: string;
     active: boolean;
@@ -23,6 +25,11 @@ export function PageHeader({
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-indigo-core)]">{eyebrow}</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-[var(--foreground)]">{title}</h1>
+        {scopePeriodLabel ? (
+          <p className="mt-3 text-sm font-medium text-[var(--muted)]">
+            Scope period: <span className="text-[var(--foreground)]">{scopePeriodLabel}</span>
+          </p>
+        ) : null}
       </div>
       <div className="flex max-w-2xl flex-col items-start gap-3 lg:items-end">
         {actions ? <div className="flex w-full justify-start lg:justify-end">{actions}</div> : null}

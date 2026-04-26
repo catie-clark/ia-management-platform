@@ -50,8 +50,15 @@ const sourceEntitySchema = z.enum([
 
 const uploadMetadataSchema = z.object({
   auditName: z.string().trim().min(1, "Audit name is required."),
-  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period start must use YYYY-MM-DD."),
-  periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period end must use YYYY-MM-DD."),
+  auditPeriodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period start must use YYYY-MM-DD."),
+  auditPeriodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period end must use YYYY-MM-DD."),
+  scopePeriodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Scope period start must use YYYY-MM-DD."),
+  scopePeriodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Scope period end must use YYYY-MM-DD."),
+  totalBudgetHours: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
   sourceSystem: z.string().trim().min(1).default("archer"),
   uploadedBy: z.string().uuid().optional(),
 });
@@ -81,8 +88,11 @@ type RawImportRowInsert = {
 export function parseUploadMetadata(formData: FormData) {
   const parsed = uploadMetadataSchema.safeParse({
     auditName: formData.get("auditName"),
-    periodStart: formData.get("periodStart"),
-    periodEnd: formData.get("periodEnd"),
+    auditPeriodStart: formData.get("auditPeriodStart") ?? formData.get("periodStart"),
+    auditPeriodEnd: formData.get("auditPeriodEnd") ?? formData.get("periodEnd"),
+    scopePeriodStart: formData.get("scopePeriodStart") ?? formData.get("periodStart"),
+    scopePeriodEnd: formData.get("scopePeriodEnd") ?? formData.get("periodEnd"),
+    totalBudgetHours: formData.get("totalBudgetHours") ?? undefined,
     sourceSystem: formData.get("sourceSystem") ?? "archer",
     uploadedBy: formData.get("uploadedBy") ?? undefined,
   });
@@ -91,11 +101,25 @@ export function parseUploadMetadata(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Upload metadata is invalid.");
   }
 
-  if (parsed.data.periodStart > parsed.data.periodEnd) {
+  if (parsed.data.auditPeriodStart > parsed.data.auditPeriodEnd) {
     throw new Error("Audit period end must be the same as or later than the start date.");
   }
 
-  return parsed.data;
+  if (parsed.data.scopePeriodStart > parsed.data.scopePeriodEnd) {
+    throw new Error("Scope period end must be the same as or later than the start date.");
+  }
+
+  const totalBudgetHours =
+    parsed.data.totalBudgetHours === undefined ? null : Number(parsed.data.totalBudgetHours);
+
+  if (totalBudgetHours !== null && (!Number.isFinite(totalBudgetHours) || totalBudgetHours < 0)) {
+    throw new Error("Total audit hours must be a non-negative number.");
+  }
+
+  return {
+    ...parsed.data,
+    totalBudgetHours,
+  };
 }
 
 export function getUploadFiles(formData: FormData): UploadFileDescriptor[] {

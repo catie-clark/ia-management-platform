@@ -98,7 +98,7 @@ export function PhaseCompletionCard({
                   const result = (await response.json()) as PhaseUpdateResponse | { error?: string };
 
                   if (!response.ok) {
-                    throw new Error("Unable to update the phase.");
+                    throw new Error(("error" in result && result.error) || "Unable to update the phase.");
                   }
 
                   const successResult = result as PhaseUpdateResponse;
@@ -124,10 +124,10 @@ export function PhaseCompletionCard({
                   }
 
                   router.refresh();
-                } catch {
+                } catch (error) {
                   showNotification({
                     title: "Save failed",
-                    message: "There was an error updating the phase.",
+                    message: error instanceof Error ? error.message : "There was an error updating the phase.",
                     tone: "error",
                   });
                 }

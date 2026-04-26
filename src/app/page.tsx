@@ -55,8 +55,11 @@ type UploadMode = "guided" | "folder";
 
 type AuditForm = {
   auditName: string;
-  periodStart: string;
-  periodEnd: string;
+  auditPeriodStart: string;
+  auditPeriodEnd: string;
+  scopePeriodStart: string;
+  scopePeriodEnd: string;
+  totalBudgetHours: string;
 };
 
 type UploadedFiles = Record<UploadRequirement["id"], File | null>;
@@ -76,6 +79,7 @@ type SavedImportSummary = {
   status: string;
   rowCount: number;
   fileCount: number;
+  totalBudgetHours?: number | null;
   parseErrors: Array<{
     fileName: string;
     fieldName: UploadRequirement["id"];
@@ -298,8 +302,11 @@ export default function HomePage() {
   const [selectedExistingAuditId, setSelectedExistingAuditId] = useState("");
   const [auditForm, setAuditForm] = useState<AuditForm>({
     auditName: "",
-    periodStart: "",
-    periodEnd: "",
+    auditPeriodStart: "",
+    auditPeriodEnd: "",
+    scopePeriodStart: "",
+    scopePeriodEnd: "",
+    totalBudgetHours: "",
   });
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFiles>(emptyUploadedFiles);
   const [uploadMode, setUploadMode] = useState<UploadMode>("guided");
@@ -314,13 +321,24 @@ export default function HomePage() {
   const requiredFilesSelected = requiredRequirementIds.every((requirementId) => uploadedFiles[requirementId] !== null);
   const missingRequiredRequirementIds = requiredRequirementIds.filter((requirementId) => uploadedFiles[requirementId] === null);
 
-  const hasValidPeriod =
-    auditForm.periodStart.length > 0 &&
-    auditForm.periodEnd.length > 0 &&
-    auditForm.periodStart <= auditForm.periodEnd;
+  const hasValidAuditPeriod =
+    auditForm.auditPeriodStart.length > 0 &&
+    auditForm.auditPeriodEnd.length > 0 &&
+    auditForm.auditPeriodStart <= auditForm.auditPeriodEnd;
+  const hasValidScopePeriod =
+    auditForm.scopePeriodStart.length > 0 &&
+    auditForm.scopePeriodEnd.length > 0 &&
+    auditForm.scopePeriodStart <= auditForm.scopePeriodEnd;
+  const hasValidTotalBudget =
+    auditForm.totalBudgetHours.trim().length === 0 ||
+    (Number.isFinite(Number(auditForm.totalBudgetHours)) && Number(auditForm.totalBudgetHours) >= 0);
 
   const canLaunchPlatform =
-    auditForm.auditName.trim().length > 0 && hasValidPeriod && requiredFilesSelected;
+    auditForm.auditName.trim().length > 0 &&
+    hasValidAuditPeriod &&
+    hasValidScopePeriod &&
+    hasValidTotalBudget &&
+    requiredFilesSelected;
   const combinedAuditOptions = useMemo(
     () => [prototypeAuditOption, ...existingAuditOptions],
     [existingAuditOptions],
@@ -332,6 +350,7 @@ export default function HomePage() {
           mode: "live",
           auditId: savedImportSummary.auditId,
           auditLabel: auditForm.auditName.trim(),
+          scopePeriodLabel: `${formatDate(auditForm.scopePeriodStart)} to ${formatDate(auditForm.scopePeriodEnd)}`,
         }
       : null;
   const selectedAuditDashboardQuery = selectedExistingAudit
@@ -339,11 +358,13 @@ export default function HomePage() {
       ? ({
           mode: "prototype",
           auditLabel: selectedExistingAudit.name,
+          scopePeriodLabel: selectedExistingAudit.period,
         } as const)
       : ({
           mode: "live",
           auditId: selectedExistingAudit.id,
           auditLabel: selectedExistingAudit.name,
+          scopePeriodLabel: selectedExistingAudit.period,
         } as const)
     : null;
   const launchDashboardQuery = selectedAuditDashboardQuery ?? liveDashboardQuery;
@@ -361,7 +382,16 @@ export default function HomePage() {
       try {
         const response = await fetch("/api/audits", { cache: "no-store" });
         const payload = (await response.json()) as
-          | Array<{ id: string; name: string; period_start: string; period_end: string; status: string; active_phase: string }>
+          | Array<{
+              active_phase: string;
+              id: string;
+              name: string;
+              period_end: string;
+              period_start: string;
+              scope_period_end?: string;
+              scope_period_start?: string;
+              status: string;
+            }>
           | { error?: string };
 
         if (!response.ok || !Array.isArray(payload) || cancelled) {
@@ -372,7 +402,7 @@ export default function HomePage() {
           payload.map((audit) => ({
             id: audit.id,
             name: audit.name,
-            period: `${formatDate(audit.period_start)} to ${formatDate(audit.period_end)}`,
+            period: `${formatDate(audit.scope_period_start ?? audit.period_start)} to ${formatDate(audit.scope_period_end ?? audit.period_end)}`,
             status: `${audit.status} · ${audit.active_phase}`,
             activePhase: audit.active_phase,
           })),
@@ -466,8 +496,11 @@ export default function HomePage() {
     try {
       const formData = new FormData();
       formData.append("auditName", auditForm.auditName.trim());
-      formData.append("periodStart", auditForm.periodStart);
-      formData.append("periodEnd", auditForm.periodEnd);
+      formData.append("auditPeriodStart", auditForm.auditPeriodStart);
+      formData.append("auditPeriodEnd", auditForm.auditPeriodEnd);
+      formData.append("scopePeriodStart", auditForm.scopePeriodStart);
+      formData.append("scopePeriodEnd", auditForm.scopePeriodEnd);
+      formData.append("totalBudgetHours", auditForm.totalBudgetHours.trim());
       formData.append("sourceSystem", "archer");
 
       for (const requirement of uploadRequirements) {
@@ -518,8 +551,11 @@ export default function HomePage() {
   function resetAuditSetup() {
     setAuditForm({
       auditName: "",
-      periodStart: "",
-      periodEnd: "",
+      auditPeriodStart: "",
+      auditPeriodEnd: "",
+      scopePeriodStart: "",
+      scopePeriodEnd: "",
+      totalBudgetHours: "",
     });
     setUploadedFiles(emptyUploadedFiles);
     setFolderMappedFiles([]);
@@ -544,7 +580,7 @@ export default function HomePage() {
                   Start a new audit engagement
                 </h1>
                 <p className="mt-4 max-w-xl text-sm leading-6 text-[var(--muted-on-dark)] sm:text-base">
-                  Launch the intake flow, capture the engagement period, and load the controls, questions, requests,
+                  Launch the intake flow, capture the audited scope period, and load the controls, questions, requests,
                   and document data that the platform uses downstream.
                 </p>
               </div>
@@ -556,7 +592,7 @@ export default function HomePage() {
                   </p>
                   <h2 className="mt-2 text-xl font-semibold text-white">Popup-guided intake</h2>
                   <p className="mt-2 text-sm leading-5 text-[var(--muted-on-dark)]">
-                    Capture the engagement name and period first, then map incoming audit files to the right operating
+                    Capture the engagement name and scope period first, then map incoming audit files to the right operating
                     screens before importing anything.
                   </p>
                 </div>
@@ -645,7 +681,7 @@ export default function HomePage() {
                 </div>
 
                 <p className="mt-3 text-sm leading-5 text-[var(--muted-on-dark)]">
-                  Click `New Audit` to open a modal where the user enters the audit name, chooses the audit period,
+                  Click `New Audit` to open a modal where the user enters the audit name, chooses the audited scope period,
                   and then works through core intake, workflow data, and advanced reference data with either manual or
                   folder-based mapping.
                 </p>
@@ -676,16 +712,24 @@ export default function HomePage() {
                 <div className="mt-4 rounded-[22px] border border-white/10 bg-[rgba(1,30,65,0.22)] p-4">
                   {hasConfiguredAudit ? (
                     <div className="grid gap-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8af0dd]">
-                            Audit configured
-                          </p>
-                          <h3 className="mt-1.5 text-lg font-semibold text-white">{auditForm.auditName}</h3>
-                          <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
-                            Audit period: {formatDate(auditForm.periodStart)} to {formatDate(auditForm.periodEnd)}
-                          </p>
-                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8af0dd]">
+                              Audit configured
+                            </p>
+                            <h3 className="mt-1.5 text-lg font-semibold text-white">{auditForm.auditName}</h3>
+                            <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
+                              Scope period: {formatDate(auditForm.scopePeriodStart)} to {formatDate(auditForm.scopePeriodEnd)}
+                            </p>
+                            <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
+                              Audit period: {formatDate(auditForm.auditPeriodStart)} to {formatDate(auditForm.auditPeriodEnd)}
+                            </p>
+                            {auditForm.totalBudgetHours.trim().length > 0 ? (
+                              <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
+                                Total audit hours: {auditForm.totalBudgetHours}h
+                              </p>
+                            ) : null}
+                          </div>
                         <CheckCircle2 className="shrink-0 text-[#8af0dd]" size={20} />
                       </div>
 
@@ -979,8 +1023,8 @@ function NewAuditModal({
                       <input
                         required
                         type="date"
-                        value={form.periodStart}
-                        onChange={(event) => onFormChange((current) => ({ ...current, periodStart: event.target.value }))}
+                        value={form.auditPeriodStart}
+                        onChange={(event) => onFormChange((current) => ({ ...current, auditPeriodStart: event.target.value }))}
                         className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                       />
                     </Field>
@@ -989,16 +1033,62 @@ function NewAuditModal({
                       <input
                         required
                         type="date"
-                        value={form.periodEnd}
-                        onChange={(event) => onFormChange((current) => ({ ...current, periodEnd: event.target.value }))}
+                        value={form.auditPeriodEnd}
+                        onChange={(event) => onFormChange((current) => ({ ...current, auditPeriodEnd: event.target.value }))}
                         className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                       />
                     </Field>
                   </div>
 
-                  {form.periodStart && form.periodEnd && form.periodStart > form.periodEnd ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Scope period start">
+                      <input
+                        required
+                        type="date"
+                        value={form.scopePeriodStart}
+                        onChange={(event) => onFormChange((current) => ({ ...current, scopePeriodStart: event.target.value }))}
+                        className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                      />
+                    </Field>
+
+                    <Field label="Scope period end">
+                      <input
+                        required
+                        type="date"
+                        value={form.scopePeriodEnd}
+                        onChange={(event) => onFormChange((current) => ({ ...current, scopePeriodEnd: event.target.value }))}
+                        className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="Total audit hours">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      value={form.totalBudgetHours}
+                      onChange={(event) => onFormChange((current) => ({ ...current, totalBudgetHours: event.target.value }))}
+                      placeholder="Example: 240"
+                      className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                    />
+                  </Field>
+
+                  {form.auditPeriodStart && form.auditPeriodEnd && form.auditPeriodStart > form.auditPeriodEnd ? (
                     <p className="text-sm font-medium text-[var(--brand-coral)]">
                       Audit period end must be the same as or later than the start date.
+                    </p>
+                  ) : null}
+
+                  {form.scopePeriodStart && form.scopePeriodEnd && form.scopePeriodStart > form.scopePeriodEnd ? (
+                    <p className="text-sm font-medium text-[var(--brand-coral)]">
+                      Scope period end must be the same as or later than the start date.
+                    </p>
+                  ) : null}
+
+                  {form.totalBudgetHours.trim().length > 0 && Number(form.totalBudgetHours) < 0 ? (
+                    <p className="text-sm font-medium text-[var(--brand-coral)]">
+                      Total audit hours must be zero or greater.
                     </p>
                   ) : null}
                 </div>
@@ -1009,7 +1099,9 @@ function NewAuditModal({
                   </div>
                   <h3 className="mt-4 text-lg font-semibold">What this intake captures</h3>
                   <div className="mt-4 grid gap-3 text-sm leading-6 text-[var(--muted)]">
-                    <p>The engagement details define the audit workspace and reporting period.</p>
+                    <p>The audit period defines the actual engagement timeline used for planning and phase dates.</p>
+                    <p>The scope period defines the period being audited and is shown in the app header.</p>
+                    <p>Total audit hours seed the planning-stage hour allocation popup so managers can split work across phases quickly.</p>
                     <p>Core intake is the minimum required to launch the audit. Workflow and advanced data can be layered in when available.</p>
                     <p>Folder import infers likely matches, but required datasets still have to be fully mapped before upload.</p>
                   </div>
@@ -1308,7 +1400,7 @@ function NewAuditModal({
 
             <div className="mt-6 flex flex-col gap-3 border-t border-black/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-[var(--muted)]">
-                Create audit stays disabled until the audit name, valid date range, and all required datasets are provided.
+                Create audit stays disabled until the audit name, valid date range, optional total hours value, and all required datasets are valid.
               </p>
               <div className="flex gap-3">
                 <button

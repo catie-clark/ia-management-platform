@@ -13,10 +13,11 @@ import {
   type RequestRow,
   type UserRow,
   formatAuditPeriod,
+  formatAuditScopePeriod,
   mapControl,
   mapDocument,
-  mapQuestion,
-  mapRequest,
+  mapQuestionsWithDisplayIds,
+  mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
 import type { AuditPhase, BudgetByPhase, KPIProps, RiskRow, TimelineItem, TimeSourceSummary } from "@/types/audit";
@@ -96,10 +97,10 @@ function getPrototypeDashboardViewModel(phaseOverride?: AuditPhase, syncCount = 
     hoursChartData: syncedHours.budgetByPhase,
     hoursChartInsight:
       phase === "Planning"
-        ? "Budgeted hours remain manager-set in the platform while actual hours below are being pulled from the Workday connection."
+        ? "Budgeted hours are managed in the platform while actual hours reflect the recorded control-level totals saved for this audit."
         : phase === "Reporting"
-          ? "Reporting actuals are still synced from Workday, but the main story is closeout readiness rather than raw throughput."
-          : "Fieldwork actuals are being synchronized from Workday so budget pressure feels externally sourced.",
+          ? "Reporting actuals reflect the current recorded totals, but the main story is closeout readiness rather than raw throughput."
+          : "Fieldwork actuals reflect the current recorded totals saved on the audit controls.",
     kpis: getDashboardKpis(phase, context),
     lastSyncedAt: syncedHours.lastSyncedAt,
     milestoneItems: milestones,
@@ -107,7 +108,7 @@ function getPrototypeDashboardViewModel(phaseOverride?: AuditPhase, syncCount = 
     milestoneSetupComplete: true,
     milestoneSetupHref: undefined,
     phase,
-    hoursChartMessage: `Demo sync ${syncCount}: ${formatSourceSummary(syncedHours.sourceSummaries)} · Last synced ${new Date(syncedHours.lastSyncedAt).toLocaleString("en-US", {
+    hoursChartMessage: `Actuals source: ${formatSourceSummary(syncedHours.sourceSummaries)} · Last refreshed ${new Date(syncedHours.lastSyncedAt).toLocaleString("en-US", {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -141,23 +142,7 @@ async function getLiveDashboardViewModel({
     usersResult,
     businessUnitsResult,
   ] = await Promise.all([
-    supabase
-      .from("audits")
-      .select("id, name, status, active_phase, period_start, period_end, planning_start_date, planning_end_date, fieldwork_start_date, fieldwork_end_date, reporting_start_date, reporting_end_date, planning_budget_hours, fieldwork_budget_hours, reporting_budget_hours")
-      .eq("id", auditId)
-      .maybeSingle<
-        AuditRecord & {
-          fieldwork_end_date: string | null;
-          fieldwork_start_date: string | null;
-          planning_budget_hours: number | null;
-          planning_end_date: string | null;
-          planning_start_date: string | null;
-          fieldwork_budget_hours: number | null;
-          reporting_budget_hours: number | null;
-          reporting_end_date: string | null;
-          reporting_start_date: string | null;
-        }
-      >(),
+    getLiveDashboardAuditRecord(supabase, auditId),
     supabase
       .from("controls")
       .select("id, source_record_key, control_name, business_unit_id, control_owner_user_id, assigned_owner_user_id, status, due_date, assigned_due_date, planned_hours, assigned_planned_hours, actual_hours, risk_rating, planning_overridden_at, source_payload")
@@ -165,12 +150,12 @@ async function getLiveDashboardViewModel({
       .returns<ControlRow[]>(),
     supabase
       .from("questions")
-      .select("id, control_id, asked_by_user_id, assigned_to, date_sent, due_date, status, question_text, response_text, response_date")
+      .select("id, control_id, asked_by_user_id, assigned_to, phase_tag, parent_question_id, parent_request_id, created_at, date_sent, due_date, status, question_text, response_text, response_date")
       .eq("audit_id", auditId)
       .returns<QuestionRow[]>(),
     supabase
       .from("requests")
-      .select("id, control_id, description, requested_from, date_requested, due_date, status, response_notes")
+      .select("id, control_id, phase_tag, parent_question_id, parent_request_id, created_at, completed_at, description, requested_from, date_requested, due_date, status, response_notes")
       .eq("audit_id", auditId)
       .returns<RequestRow[]>(),
     supabase
@@ -188,8 +173,8 @@ async function getLiveDashboardViewModel({
 
   const liveUsers = Array.from(userMap.values());
   const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
-  const liveQuestions = (questionsResult.data ?? []).map((question) => mapQuestion(question, userMap));
-  const liveRequests = (requestsResult.data ?? []).map(mapRequest);
+  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
   const liveDocuments = (documentsResult.data ?? []).map(mapDocument);
   const now = new Date().toISOString();
   const phase = phaseOverride ?? normalizeAuditPhaseFromAudit(audit ?? {});
@@ -236,15 +221,15 @@ async function getLiveDashboardViewModel({
   return {
     auditId,
     auditLabel: audit?.name ?? auditLabel ?? "Live audit workspace",
-    auditPeriodLabel: audit ? formatAuditPeriod(audit.period_start, audit.period_end) : "Saved audit",
+    auditPeriodLabel: audit ? formatAuditScopePeriod(audit) : "Saved audit",
     auditStatus: audit?.status ?? "Live mode",
     executiveNarrative: getExecutiveNarrative(phase, context),
     hoursChartData,
     hoursChartInsight:
       phase === "Planning"
-        ? "Budgeted hours remain audit-managed while actuals are being synchronized from Workday."
-        : "Actual hours are being synchronized from Workday to stand in for a real connector sync.",
-    hoursChartMessage: `Demo sync ${syncCount}: ${formatSourceSummary(syncedHours.sourceSummaries)} · Last synced ${new Date(syncedHours.lastSyncedAt).toLocaleString("en-US", {
+        ? "Budgeted hours remain audit-managed while actuals reflect the saved control-level totals."
+        : "Actual hours reflect the current saved totals on the audit controls.",
+    hoursChartMessage: `Actuals source: ${formatSourceSummary(syncedHours.sourceSummaries)} · Last refreshed ${new Date(syncedHours.lastSyncedAt).toLocaleString("en-US", {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -262,6 +247,53 @@ async function getLiveDashboardViewModel({
     sourceSummaries: syncedHours.sourceSummaries,
     syncCount: syncedHours.syncCount,
   };
+}
+
+async function getLiveDashboardAuditRecord(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  auditId: string,
+) {
+  try {
+    return await supabase
+      .from("audits")
+      .select("id, name, status, active_phase, period_start, period_end, scope_period_start, scope_period_end, planning_start_date, planning_end_date, fieldwork_start_date, fieldwork_end_date, reporting_start_date, reporting_end_date, planning_budget_hours, fieldwork_budget_hours, reporting_budget_hours")
+      .eq("id", auditId)
+      .maybeSingle<
+        AuditRecord & {
+          fieldwork_end_date: string | null;
+          fieldwork_start_date: string | null;
+          planning_budget_hours: number | null;
+          planning_end_date: string | null;
+          planning_start_date: string | null;
+          fieldwork_budget_hours: number | null;
+          reporting_budget_hours: number | null;
+          reporting_end_date: string | null;
+          reporting_start_date: string | null;
+        }
+      >();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("scope_period_start")) {
+      throw error;
+    }
+
+    return supabase
+      .from("audits")
+      .select("id, name, status, active_phase, period_start, period_end, planning_start_date, planning_end_date, fieldwork_start_date, fieldwork_end_date, reporting_start_date, reporting_end_date, planning_budget_hours, fieldwork_budget_hours, reporting_budget_hours")
+      .eq("id", auditId)
+      .maybeSingle<
+        AuditRecord & {
+          fieldwork_end_date: string | null;
+          fieldwork_start_date: string | null;
+          planning_budget_hours: number | null;
+          planning_end_date: string | null;
+          planning_start_date: string | null;
+          fieldwork_budget_hours: number | null;
+          reporting_budget_hours: number | null;
+          reporting_end_date: string | null;
+          reporting_start_date: string | null;
+        }
+      >();
+  }
 }
 
 function buildAuditLifecycleMilestones({

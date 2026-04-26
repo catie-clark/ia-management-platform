@@ -16,6 +16,7 @@ export default async function PlanningPage({ searchParams }: PlanningPageProps) 
     <PlanningView
       auditId={planningViewModel.auditId}
       auditLabel={planningViewModel.auditLabel}
+      auditPeriodLabel={planningViewModel.auditPeriodLabel}
       auditStatus={planningViewModel.auditStatus}
       currentPhase={planningViewModel.currentPhase}
       planningSources={planningViewModel.planningSources}

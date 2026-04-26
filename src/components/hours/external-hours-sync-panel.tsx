@@ -32,10 +32,10 @@ export function ExternalHoursSyncPanel({
     <section className="rounded-[24px] border border-black/5 bg-[var(--surface-tint)] p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Workday sync</p>
-          <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Actual hours are coming from the Workday connection</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Recorded actuals</p>
+          <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Actual hours are based on saved audit data</h2>
           <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-            Budgeted hours remain set inside the audit platform. Actual hours below are pulled through the Workday connection so the experience reflects a single external sync source.
+            Budgeted hours remain set inside the audit platform. Actual hours below reflect the current recorded totals saved against the audit.
           </p>
         </div>
 
@@ -65,9 +65,9 @@ export function ExternalHoursSyncPanel({
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <SyncMetric label="Connected source" value={String(sourceSummaries.length)} detail={sourceSummaryLabel} />
-        <SyncMetric label="Last synced" value={formatDateTime(lastSyncedAt)} detail={`Triggered by ${activeUser.name} through the Workday connector`} />
-        <SyncMetric label="Sync sequence" value={`#${syncCount}`} detail="Each refresh adds new external time entries" />
+        <SyncMetric label="Recorded sources" value={String(sourceSummaries.length)} detail={sourceSummaryLabel} />
+        <SyncMetric label="Last refreshed" value={formatDateTime(lastSyncedAt)} detail={`Viewed by ${activeUser.name} from the audit workspace`} />
+        <SyncMetric label="Refresh marker" value={`#${syncCount}`} detail="Refreshes no longer generate simulated external entries" />
       </div>
     </section>
   );

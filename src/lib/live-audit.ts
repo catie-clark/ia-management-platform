@@ -1,4 +1,15 @@
-import type { AuditDocument, Control, Question, Request, User } from "@/types/audit";
+import type {
+  AuditDocument,
+  AuditFinding,
+  AuditPhase,
+  Control,
+  Question,
+  ReportReviewComment,
+  ReportReviewStage,
+  Request,
+  User,
+} from "@/types/audit";
+import { readWorkpaperContent } from "@/lib/workpaper-content";
 
 export type DashboardMode = "prototype" | "live";
 
@@ -7,6 +18,9 @@ export type AuditRecord = {
   name: string;
   period_start: string;
   period_end: string;
+  scope_period_start?: string;
+  scope_period_end?: string;
+  total_budget_hours?: number | null;
   planning_start_date?: string | null;
   planning_end_date?: string | null;
   fieldwork_start_date?: string | null;
@@ -41,6 +55,10 @@ export type QuestionRow = {
   control_id: string | null;
   asked_by_user_id: string | null;
   assigned_to: string;
+  phase_tag?: string | null;
+  parent_question_id?: string | null;
+  parent_request_id?: string | null;
+  created_at?: string | null;
   date_sent: string | null;
   due_date: string | null;
   status: string;
@@ -52,6 +70,11 @@ export type QuestionRow = {
 export type RequestRow = {
   id: string;
   control_id: string | null;
+  phase_tag?: string | null;
+  parent_question_id?: string | null;
+  parent_request_id?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
   description: string;
   requested_from: string;
   date_requested: string | null;
@@ -71,6 +94,50 @@ export type AuditDocumentRow = {
   status: string;
   due_date: string | null;
   template_name: string | null;
+  source_payload?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AuditFindingRow = {
+  id: string;
+  audit_id: string;
+  control_id: string | null;
+  title: string;
+  summary: string;
+  severity: string;
+  status: string;
+  owner_user_id: string | null;
+  due_date: string | null;
+  impact_statement: string | null;
+  recommendation: string | null;
+  management_response: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReportReviewStageRow = {
+  id: string;
+  artifact_key: string;
+  stage_order: number;
+  reviewer_role: string;
+  status: string;
+  acted_at: string | null;
+  acted_by_name: string | null;
+  action_comment: string | null;
+};
+
+export type ReportReviewCommentRow = {
+  id: string;
+  artifact_key: string;
+  review_stage_id: string | null;
+  author_role: string;
+  author_name: string;
+  comment: string;
+  status: string;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by_name: string | null;
 };
 
 export type UserRow = {
@@ -153,6 +220,9 @@ export function mapQuestion(question: QuestionRow, userMap: Map<string, User>): 
   return {
     id: question.id,
     controlId: question.control_id ?? "",
+    phaseTag: normalizeAuditPhaseTag(question.phase_tag),
+    parentQuestionId: question.parent_question_id ?? undefined,
+    parentRequestId: question.parent_request_id ?? undefined,
     askedBy: question.asked_by_user_id ? userMap.get(question.asked_by_user_id)?.name ?? "Unknown auditor" : "Unknown auditor",
     assignedTo: question.assigned_to,
     dateSent: ensureIsoDate(question.date_sent),
@@ -168,27 +238,120 @@ export function mapRequest(request: RequestRow): Request {
   return {
     id: request.id,
     controlId: request.control_id ?? undefined,
+    phaseTag: normalizeAuditPhaseTag(request.phase_tag),
+    parentQuestionId: request.parent_question_id ?? undefined,
+    parentRequestId: request.parent_request_id ?? undefined,
     description: request.description,
     assignedTo: request.requested_from,
     dateRequested: ensureIsoDate(request.date_requested),
     dueDate: ensureIsoDate(request.due_date),
     status: normalizeRequestStatus(request.status),
+    completedAt: request.completed_at ? ensureIsoDate(request.completed_at) : undefined,
     responseNotes: request.response_notes ?? undefined,
   };
 }
 
+export function mapQuestionsWithDisplayIds(questionRows: QuestionRow[], userMap: Map<string, User>) {
+  return questionRows
+    .slice()
+    .sort(compareCreatedRecords)
+    .map((question, index) => ({
+      ...mapQuestion(question, userMap),
+      displayId: formatDisplayId("Q", index),
+    }));
+}
+
+export function mapRequestsWithDisplayIds(requestRows: RequestRow[]) {
+  return requestRows
+    .slice()
+    .sort(compareCreatedRecords)
+    .map((request, index) => ({
+      ...mapRequest(request),
+      displayId: formatDisplayId("R", index),
+    }));
+}
+
 export function mapDocument(document: AuditDocumentRow): AuditDocument {
+  const payload = document.source_payload ?? {};
+  const previewSections = readPreviewSections(payload);
   return {
     id: document.id,
     type: normalizeDocumentType(document.document_type),
+    artifactKey: normalizeArtifactKey(readText(payload, ["artifact_key"])),
     title: document.title,
     linkedControlId: document.control_id ?? undefined,
     linkedQuestionId: document.question_id ?? undefined,
     linkedRequestId: document.request_id ?? undefined,
     ownerId: document.owner_user_id ?? "",
     status: normalizeDocumentStatus(document.status),
+    reviewStatus: normalizeDocumentReviewStatus(readText(payload, ["review_status"])),
     dueDate: document.due_date ? ensureIsoDate(document.due_date) : undefined,
     templateName: document.template_name ?? undefined,
+    reviewComment: readText(payload, ["review_comment"]) ?? undefined,
+    reviewCommentAuthor: readText(payload, ["review_comment_author"]) ?? undefined,
+    reviewCommentDate: readDateText(payload, ["review_comment_date"]),
+    generatedMarkdown: readText(payload, ["generated_markdown"]) ?? undefined,
+    previewSummary: readText(payload, ["preview_summary"]) ?? undefined,
+    previewSections,
+    workpaperContent: normalizeDocumentType(document.document_type) === "WORKPAPER" ? readWorkpaperContent(payload, previewSections) : undefined,
+    updatedAt: document.updated_at ? ensureIsoDate(document.updated_at) : undefined,
+  };
+}
+
+export function mapAuditFinding(row: AuditFindingRow): AuditFinding {
+  return {
+    id: row.id,
+    auditId: row.audit_id,
+    linkedControlId: row.control_id ?? undefined,
+    title: row.title,
+    summary: row.summary,
+    severity: normalizeRiskRating(row.severity),
+    status: normalizeFindingStatus(row.status),
+    ownerId: row.owner_user_id ?? undefined,
+    dueDate: row.due_date ? ensureIsoDate(row.due_date) : undefined,
+    impactStatement: row.impact_statement ?? undefined,
+    recommendation: row.recommendation ?? undefined,
+    managementResponse: row.management_response ?? undefined,
+    createdAt: ensureIsoDate(row.created_at),
+    updatedAt: ensureIsoDate(row.updated_at),
+  };
+}
+
+export function mapFindingsWithDisplayIds(rows: AuditFindingRow[]) {
+  return rows
+    .slice()
+    .sort((left, right) => getRecordTime(left) - getRecordTime(right) || left.id.localeCompare(right.id))
+    .map((finding, index) => ({
+      ...mapAuditFinding(finding),
+      displayId: formatDisplayId("F", index),
+    }));
+}
+
+export function mapReportReviewStage(row: ReportReviewStageRow): ReportReviewStage {
+  return {
+    id: row.id,
+    artifactKey: normalizeArtifactKey(row.artifact_key) ?? "FINAL_REPORT",
+    stageOrder: row.stage_order,
+    reviewerRole: normalizeRole(row.reviewer_role),
+    status: normalizeReportReviewStageStatus(row.status),
+    actedAt: row.acted_at ? ensureIsoDate(row.acted_at) : undefined,
+    actedByName: row.acted_by_name ?? undefined,
+    actionComment: row.action_comment ?? undefined,
+  };
+}
+
+export function mapReportReviewComment(row: ReportReviewCommentRow): ReportReviewComment {
+  return {
+    id: row.id,
+    artifactKey: normalizeArtifactKey(row.artifact_key) ?? "FINAL_REPORT",
+    reviewStageId: row.review_stage_id ?? undefined,
+    authorRole: normalizeRole(row.author_role),
+    authorName: row.author_name,
+    comment: row.comment,
+    status: normalizeReportReviewCommentStatus(row.status),
+    createdAt: ensureIsoDate(row.created_at),
+    resolvedAt: row.resolved_at ? ensureIsoDate(row.resolved_at) : undefined,
+    resolvedByName: row.resolved_by_name ?? undefined,
   };
 }
 
@@ -237,6 +400,20 @@ function normalizeRequestStatus(status: string): Request["status"] {
   }
 }
 
+function normalizeAuditPhaseTag(value: string | null | undefined): AuditPhase {
+  const normalized = value?.trim().toLowerCase();
+
+  if (normalized === "fieldwork") {
+    return "Fieldwork";
+  }
+
+  if (normalized === "reporting") {
+    return "Reporting";
+  }
+
+  return "Planning";
+}
+
 function normalizeDocumentStatus(status: string): AuditDocument["status"] {
   switch (status.trim().toLowerCase()) {
     case "complete":
@@ -264,6 +441,30 @@ function normalizeDocumentType(type: string): AuditDocument["type"] {
   return "WORKPAPER";
 }
 
+function normalizeDocumentReviewStatus(status: string | null | undefined): AuditDocument["reviewStatus"] {
+  const normalized = status?.trim().toUpperCase();
+
+  if (
+    normalized === "NOT_SUBMITTED" ||
+    normalized === "AIC_REVIEW" ||
+    normalized === "MANAGER_REVIEW" ||
+    normalized === "DIRECTOR_REVIEW" ||
+    normalized === "APPROVED"
+  ) {
+    return normalized;
+  }
+
+  return undefined;
+}
+
+function normalizeArtifactKey(value: string | null | undefined): AuditDocument["artifactKey"] {
+  if (value === "FINAL_REPORT" || value === "REPORTING_TOLLGATE") {
+    return value;
+  }
+
+  return undefined;
+}
+
 function normalizeRiskRating(rating: string): Control["riskLevel"] {
   switch (rating.trim().toLowerCase()) {
     case "low":
@@ -273,6 +474,59 @@ function normalizeRiskRating(rating: string): Control["riskLevel"] {
     default:
       return "MEDIUM";
   }
+}
+
+function normalizeFindingStatus(status: string): AuditFinding["status"] {
+  switch (status.trim().toLowerCase()) {
+    case "in_progress":
+      return "IN_PROGRESS";
+    case "ready_for_report":
+      return "READY_FOR_REPORT";
+    case "finalized":
+      return "FINALIZED";
+    case "closed":
+      return "CLOSED";
+    default:
+      return "OPEN";
+  }
+}
+
+function normalizeReportReviewStageStatus(status: string): ReportReviewStage["status"] {
+  switch (status.trim().toLowerCase()) {
+    case "active":
+      return "ACTIVE";
+    case "approved":
+      return "APPROVED";
+    case "sent_back":
+      return "SENT_BACK";
+    default:
+      return "PENDING";
+  }
+}
+
+function normalizeReportReviewCommentStatus(status: string): ReportReviewComment["status"] {
+  return status.trim().toLowerCase() === "resolved" ? "RESOLVED" : "OPEN";
+}
+
+function compareCreatedRecords(left: { created_at?: string | null; date_sent?: string | null; date_requested?: string | null; id: string }, right: { created_at?: string | null; date_sent?: string | null; date_requested?: string | null; id: string }) {
+  const leftTime = getRecordTime(left);
+  const rightTime = getRecordTime(right);
+
+  if (leftTime === rightTime) {
+    return left.id.localeCompare(right.id);
+  }
+
+  return leftTime - rightTime;
+}
+
+function getRecordTime(record: { created_at?: string | null; date_sent?: string | null; date_requested?: string | null; id: string }) {
+  const value = record.created_at ?? record.date_sent ?? record.date_requested ?? record.id;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function formatDisplayId(prefix: "Q" | "R" | "F", index: number) {
+  return `${prefix}-${String(index + 1).padStart(2, "0")}`;
 }
 
 function readText(payload: Record<string, unknown>, keys: string[]) {
@@ -285,6 +539,40 @@ function readText(payload: Record<string, unknown>, keys: string[]) {
   }
 
   return null;
+}
+
+function readPreviewSections(payload: Record<string, unknown>) {
+  const value = payload.preview_sections;
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const sections = value
+    .map((section) => {
+      if (!section || typeof section !== "object") {
+        return null;
+      }
+
+      const candidate = section as { heading?: unknown; body?: unknown };
+
+      if (typeof candidate.heading !== "string" || !Array.isArray(candidate.body)) {
+        return null;
+      }
+
+      return {
+        heading: candidate.heading,
+        body: candidate.body.map((entry) => String(entry)),
+      };
+    })
+    .filter((section): section is { heading: string; body: string[] } => section !== null);
+
+  return sections.length > 0 ? sections : undefined;
+}
+
+function readDateText(payload: Record<string, unknown>, keys: string[]) {
+  const value = readText(payload, keys);
+  return value ? ensureIsoDate(value) : undefined;
 }
 
 function readTextArray(payload: Record<string, unknown>, keys: string[]) {
@@ -341,4 +629,10 @@ export function formatAuditPeriod(periodStart: string, periodEnd: string) {
     day: "numeric",
     year: "numeric",
   })}`;
+}
+
+export function formatAuditScopePeriod(
+  audit: Pick<AuditRecord, "period_start" | "period_end" | "scope_period_start" | "scope_period_end">,
+) {
+  return formatAuditPeriod(audit.scope_period_start ?? audit.period_start, audit.scope_period_end ?? audit.period_end);
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { createNotificationForUserId } from "@/lib/audit-notifications";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const updateControlPlanningSchema = z.object({
@@ -11,6 +12,8 @@ const updateControlPlanningSchema = z.object({
 });
 
 type ExistingControlRecord = {
+  assigned_owner_user_id: string | null;
+  control_name: string;
   id: string;
   audit_id: string | null;
 };
@@ -22,7 +25,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
     const supabase = createSupabaseAdminClient();
     const { data: existingControl, error: lookupError } = await supabase
       .from("controls")
-      .select("id, audit_id")
+      .select("id, audit_id, assigned_owner_user_id, control_name")
       .eq("id", controlId)
       .maybeSingle<ExistingControlRecord>();
 
@@ -53,6 +56,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
       throw new Error(updateError.message);
     }
 
+    if (body.assignedOwnerUserId && body.assignedOwnerUserId !== existingControl.assigned_owner_user_id) {
+      await safelyCreateNotification(() =>
+        createNotificationForUserId({
+          auditId: body.auditId,
+          detail: `${existingControl.control_name} was assigned to you in Control Testing.`,
+          entityId: controlId,
+          entityType: "control",
+          eventType: "CONTROL_ASSIGNED",
+          linkHref: `/control-testing?mode=live&auditId=${body.auditId}`,
+          title: "A control was assigned to you",
+          tone: "warning",
+          userId: body.assignedOwnerUserId!,
+        }),
+      );
+    }
+
     return NextResponse.json({
       controlId,
       assignedOwnerUserId: updatedControl?.assigned_owner_user_id ?? null,
@@ -75,5 +94,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
       },
       { status: 400 },
     );
+  }
+}
+
+async function safelyCreateNotification(callback: () => Promise<void>) {
+  try {
+    await callback();
+  } catch (error) {
+    console.error("Unable to create control notification", error);
   }
 }

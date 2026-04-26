@@ -27,6 +27,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <PageHeader
         eyebrow="Executive Dashboard"
         title="Internal audit command center"
+        scopePeriodLabel={viewModel.auditPeriodLabel}
         description=""
         align="top"
         actions={viewModel.mode === "live" ? <DashboardRefreshButton /> : undefined}
@@ -143,6 +144,7 @@ function getKpiHref({
   const params = new URLSearchParams({
     auditLabel,
     mode,
+    phase,
   });
 
   if (auditId) {

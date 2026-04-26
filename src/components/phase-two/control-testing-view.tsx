@@ -14,6 +14,7 @@ import {
   getControlRiskLevel,
   getControlVariance,
   getDerivedControlStatus,
+  getQuestionDisplayStatus,
   getLinkedDocuments,
   getLinkedQuestions,
   getLinkedRequests,
@@ -40,6 +41,7 @@ type ControlSort =
 type ControlTestingViewProps = {
   auditId: string | null;
   auditLabel: string;
+  auditPeriodLabel: string;
   controls: Control[];
   documents: AuditDocument[];
   mode: DashboardMode;
@@ -70,6 +72,7 @@ const riskRank: Record<Control["riskLevel"], number> = { HIGH: 3, MEDIUM: 2, LOW
 export function ControlTestingView({
   auditId,
   auditLabel,
+  auditPeriodLabel,
   controls,
   documents,
   mode,
@@ -196,6 +199,7 @@ export function ControlTestingView({
       <PageHeader
         eyebrow="Phase 2"
         title="Control Testing"
+        scopePeriodLabel={auditPeriodLabel}
         description={
           mode === "live"
             ? `Live control planning for ${auditLabel}. Owners, budgeted hours, and due dates can be set in the control detail panel and saved back to Supabase.`
@@ -499,9 +503,9 @@ export function ControlTestingView({
               {getLinkedQuestions(selectedControl.id, questions).map((question) => (
                 <LinkedRow
                   key={question.id}
-                  title={`${question.id} - ${question.assignedTo}`}
+                  title={`${question.displayId ?? question.id} - ${question.assignedTo}`}
                   meta={question.questionText}
-                  overdue={question.status === "OVERDUE"}
+                  overdue={getQuestionDisplayStatus(question, currentNow) === "OVERDUE"}
                   onClick={() => router.push(buildWorkspacePath("/question-log", workspaceQuery, { questionId: question.id }))}
                 />
               ))}
@@ -511,7 +515,7 @@ export function ControlTestingView({
               {getLinkedRequests(selectedControl.id, requests).map((request) => (
                 <LinkedRow
                   key={request.id}
-                  title={`${request.id} - ${request.assignedTo}`}
+                  title={`${request.displayId ?? request.id} - ${request.assignedTo}`}
                   meta={request.description}
                   overdue={isRequestOverdue(request, currentNow)}
                   onClick={() => router.push(buildWorkspacePath("/request-log", workspaceQuery, { requestId: request.id }))}

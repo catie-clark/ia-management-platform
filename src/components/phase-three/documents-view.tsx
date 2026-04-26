@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { getQuestionDisplayStatus, getRequestDisplayStatus } from "@/lib/audit-logic";
 import { controls, documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import { formatDateTime, formatShortDate } from "@/lib/utils";
 import type { AuditDocument } from "@/types/audit";
@@ -492,11 +493,13 @@ function getLinkSummary(document: AuditDocument) {
   }
 
   if (document.linkedQuestionId) {
-    return `Question ${document.linkedQuestionId}`;
+    const question = questions.find((item) => item.id === document.linkedQuestionId);
+    return `Question ${question?.displayId ?? document.linkedQuestionId}`;
   }
 
   if (document.linkedRequestId) {
-    return `Request ${document.linkedRequestId}`;
+    const request = requests.find((item) => item.id === document.linkedRequestId);
+    return `Request ${request?.displayId ?? document.linkedRequestId}`;
   }
 
   return "Unlinked";
@@ -523,10 +526,10 @@ function getLinkedContext(document: AuditDocument) {
     if (question) {
       items.push({
         id: question.id,
-        title: "Linked question",
+        title: `Linked question ${question.displayId ?? question.id}`,
         detail: question.questionText,
-        status: question.status,
-        tone: question.status === "RESPONDED" ? "success" : question.status === "OVERDUE" ? "risk" : "warning",
+        status: getQuestionDisplayStatus(question, mockNow),
+        tone: getQuestionDisplayStatus(question, mockNow) === "RESPONDED" ? "success" : getQuestionDisplayStatus(question, mockNow) === "OVERDUE" ? "risk" : "warning",
       });
     }
   }
@@ -536,10 +539,10 @@ function getLinkedContext(document: AuditDocument) {
     if (request) {
       items.push({
         id: request.id,
-        title: "Linked request",
+        title: `Linked request ${request.displayId ?? request.id}`,
         detail: request.description,
-        status: request.status,
-        tone: request.status === "COMPLETED" ? "success" : "warning",
+        status: getRequestDisplayStatus(request, mockNow),
+        tone: getRequestDisplayStatus(request, mockNow) === "COMPLETED" ? "success" : getRequestDisplayStatus(request, mockNow) === "OVERDUE" ? "risk" : "warning",
       });
     }
   }

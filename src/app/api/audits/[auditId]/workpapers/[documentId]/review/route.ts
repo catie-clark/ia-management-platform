@@ -1,0 +1,165 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { createNotificationForUserId, createNotificationsForRole } from "@/lib/audit-notifications";
+import { applyWorkpaperReviewAction } from "@/lib/fieldwork-workpaper-persistence";
+import { getEmptyWorkpaperContent } from "@/lib/workpaper-content";
+
+const workpaperContentSchema = z.object({
+  conclusion: z.string(),
+  nextSteps: z.string(),
+  objective: z.string(),
+  procedures: z.string(),
+  results: z.string(),
+  scope: z.string(),
+  summary: z.string(),
+});
+
+const reviewActionSchema = z
+  .object({
+    action: z.enum(["approve", "send_back", "send_to_review"]),
+    actingRole: z.enum(["AIC", "STAFF", "MANAGER", "DIRECTOR", "CAE"]),
+    actingUserName: z.string().min(1),
+    comment: z.string().optional(),
+    content: workpaperContentSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.action === "send_back" && (!value.comment || value.comment.trim().length === 0)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A send-back comment is required.",
+        path: ["comment"],
+      });
+    }
+  });
+
+export async function PATCH(request: Request, context: { params: Promise<{ auditId: string; documentId: string }> }) {
+  try {
+    const { auditId, documentId } = await context.params;
+    const body = reviewActionSchema.parse(await request.json());
+    const result = await applyWorkpaperReviewAction({
+      action: body.action,
+      actingRole: body.actingRole,
+      actingUserName: body.actingUserName,
+      auditId,
+      comment: body.comment,
+      content: body.content
+        ? {
+            ...getEmptyWorkpaperContent(),
+            ...body.content,
+          }
+        : undefined,
+      documentId,
+    });
+    const nextReviewStatus = typeof result.payload.review_status === "string" ? result.payload.review_status : "NOT_SUBMITTED";
+
+    await safelyCreateNotification(async () => {
+      if (body.action === "send_to_review") {
+        await createNotificationsForRole({
+          auditId,
+          detail: `${result.data?.title ?? "Workpaper"} is waiting for AIC review.`,
+          entityId: documentId,
+          entityType: "workpaper",
+          eventType: "WORKPAPER_AIC_REVIEW",
+          linkHref: `/fieldwork?mode=live&auditId=${auditId}`,
+          role: "AIC",
+          title: "A workpaper is ready for AIC review",
+          tone: "warning",
+        });
+        return;
+      }
+
+      if (body.action === "send_back") {
+        if (result.data?.owner_user_id) {
+          await createNotificationForUserId({
+            auditId,
+            detail: body.comment?.trim() || `${result.data?.title ?? "Workpaper"} was sent back for updates.`,
+            entityId: documentId,
+            entityType: "workpaper",
+            eventType: "WORKPAPER_SENT_BACK",
+            linkHref: `/fieldwork?mode=live&auditId=${auditId}`,
+            title: "A workpaper was sent back to you",
+            tone: "warning",
+            userId: result.data.owner_user_id,
+          });
+        }
+        return;
+      }
+
+      if (nextReviewStatus === "MANAGER_REVIEW") {
+        await createNotificationsForRole({
+          auditId,
+          detail: `${result.data?.title ?? "Workpaper"} is waiting for manager review.`,
+          entityId: documentId,
+          entityType: "workpaper",
+          eventType: "WORKPAPER_MANAGER_REVIEW",
+          linkHref: `/fieldwork?mode=live&auditId=${auditId}`,
+          role: "MANAGER",
+          title: "A workpaper is ready for manager review",
+          tone: "warning",
+        });
+        return;
+      }
+
+      if (nextReviewStatus === "DIRECTOR_REVIEW") {
+        await createNotificationsForRole({
+          auditId,
+          detail: `${result.data?.title ?? "Workpaper"} is waiting for director review.`,
+          entityId: documentId,
+          entityType: "workpaper",
+          eventType: "WORKPAPER_DIRECTOR_REVIEW",
+          linkHref: `/fieldwork?mode=live&auditId=${auditId}`,
+          role: "DIRECTOR",
+          title: "A workpaper is ready for director review",
+          tone: "warning",
+        });
+        return;
+      }
+
+      if (nextReviewStatus === "APPROVED" && result.data?.owner_user_id) {
+        await createNotificationForUserId({
+          auditId,
+          detail: `${result.data?.title ?? "Workpaper"} completed the review workflow.`,
+          entityId: documentId,
+          entityType: "workpaper",
+          eventType: "WORKPAPER_APPROVED",
+          linkHref: `/fieldwork?mode=live&auditId=${auditId}`,
+          title: "Your workpaper was approved",
+          tone: "success",
+          userId: result.data.owner_user_id,
+        });
+      }
+    });
+
+    return NextResponse.json({
+      document: {
+        documentId,
+        reviewComment: result.payload.review_comment ?? null,
+        reviewCommentAuthor: result.payload.review_comment_author ?? null,
+        reviewCommentDate: result.payload.review_comment_date ?? null,
+        reviewStatus: result.payload.review_status ?? "NOT_SUBMITTED",
+        status: result.data?.status ?? "in_progress",
+        updatedAt: result.data?.updated_at ?? new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid review action payload." }, { status: 400 });
+    }
+
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to update the workpaper review workflow.",
+      },
+      { status: 400 },
+    );
+  }
+}
+
+async function safelyCreateNotification(callback: () => Promise<void>) {
+  try {
+    await callback();
+  } catch (error) {
+    console.error("Unable to create workpaper review notification", error);
+  }
+}

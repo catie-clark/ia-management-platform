@@ -15,6 +15,9 @@ type AuditRecord = {
   name: string;
   period_start: string;
   period_end: string;
+  scope_period_start?: string;
+  scope_period_end?: string;
+  total_budget_hours: number | null;
 };
 
 type ImportBatchRecord = {
@@ -34,14 +37,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const metadata = parseUploadMetadata(formData);
     const uploadFiles = getUploadFiles(formData);
-    const audit = await insertSingleRow<AuditRecord>("audits", {
-      name: metadata.auditName,
-      period_start: metadata.periodStart,
-      period_end: metadata.periodEnd,
-      source_system: metadata.sourceSystem,
-      status: "active",
-      active_phase: "Planning",
-    });
+    const audit = await createAuditRecord(metadata);
 
     const batch = await insertSingleRow<ImportBatchRecord>("import_batches", {
       audit_id: audit.id,
@@ -50,8 +46,10 @@ export async function POST(request: Request) {
       original_file_name: `${metadata.auditName}.csv-upload`,
       archive_metadata: {
         auditName: metadata.auditName,
-        periodStart: metadata.periodStart,
-        periodEnd: metadata.periodEnd,
+        auditPeriodStart: metadata.auditPeriodStart,
+        auditPeriodEnd: metadata.auditPeriodEnd,
+        scopePeriodStart: metadata.scopePeriodStart,
+        scopePeriodEnd: metadata.scopePeriodEnd,
         uploadFields: uploadFiles.map((file) => ({
           fieldName: file.fieldName,
           fileName: file.file.name,
@@ -121,8 +119,12 @@ export async function POST(request: Request) {
         auditId: audit.id,
         batchId: batch.id,
         auditName: audit.name,
-        periodStart: audit.period_start,
-        periodEnd: audit.period_end,
+        periodStart: audit.scope_period_start ?? audit.period_start,
+        periodEnd: audit.scope_period_end ?? audit.period_end,
+        totalBudgetHours:
+          audit.total_budget_hours === null || audit.total_budget_hours === undefined
+            ? null
+            : Number(audit.total_budget_hours),
         status: nextStatus,
         rowCount: totalRowCount,
         fileCount: successfulFileCount,
@@ -138,4 +140,58 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+}
+
+async function createAuditRecord(metadata: ReturnType<typeof parseUploadMetadata>) {
+  const basePayload = {
+    name: metadata.auditName,
+    period_start: metadata.auditPeriodStart,
+    period_end: metadata.auditPeriodEnd,
+    scope_period_start: metadata.scopePeriodStart,
+    scope_period_end: metadata.scopePeriodEnd,
+    source_system: metadata.sourceSystem,
+    status: "active",
+    active_phase: "Planning",
+  };
+
+  try {
+    return await insertSingleRow<AuditRecord>("audits", {
+      ...basePayload,
+      total_budget_hours: metadata.totalBudgetHours,
+    });
+  } catch (error) {
+    if (isMissingAuditColumnError(error, "total_budget_hours")) {
+      try {
+        return await insertSingleRow<AuditRecord>("audits", basePayload);
+      } catch (nestedError) {
+        if (!isMissingAuditColumnError(nestedError, "scope_period_start")) {
+          throw nestedError;
+        }
+
+        return insertSingleRow<AuditRecord>("audits", {
+          ...basePayload,
+          scope_period_start: undefined,
+          scope_period_end: undefined,
+        });
+      }
+    }
+
+    if (isMissingAuditColumnError(error, "scope_period_start")) {
+      return insertSingleRow<AuditRecord>("audits", {
+        name: metadata.auditName,
+        period_start: metadata.auditPeriodStart,
+        period_end: metadata.auditPeriodEnd,
+        source_system: metadata.sourceSystem,
+        status: "active",
+        active_phase: "Planning",
+        total_budget_hours: metadata.totalBudgetHours,
+      });
+    }
+
+    throw error;
+  }
+}
+
+function isMissingAuditColumnError(error: unknown, columnName: string) {
+  return error instanceof Error && error.message.includes(columnName);
 }

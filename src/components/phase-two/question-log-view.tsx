@@ -1,46 +1,66 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ArrowDownUp, ArrowRight, Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { ArrowDownUp, ArrowRight, CircleHelp, Plus, Search, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
+import { useActiveUser } from "@/components/layout/active-user-context";
 import { DetailPanel } from "@/components/ui/detail-panel";
+import { useNotification } from "@/components/ui/notification-provider";
 import { ReminderButton } from "@/components/ui/reminder-button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { getQuestionAgeHours, getQuestionRelatedDocuments, shouldShowReminder } from "@/lib/audit-logic";
+import {
+  getQuestionAgeHours,
+  getQuestionChainDelayHours,
+  getQuestionCurrentDelayHours,
+  getQuestionDisplayStatus,
+  getQuestionFollowUps,
+  getQuestionRealizedDelayHours,
+  getQuestionRelatedDocuments,
+  shouldShowReminder,
+} from "@/lib/audit-logic";
 import { getQuestionLogNow } from "@/lib/question-log-data";
 import type { DashboardMode } from "@/lib/live-audit";
-import { formatDateTime, formatShortDate } from "@/lib/utils";
-import type { AuditDocument, Control, Question, User } from "@/types/audit";
+import { formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
+import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
 
 type DueFilter = "ALL" | "OVERDUE" | "NEXT_48_HOURS" | "NEXT_7_DAYS" | "FUTURE";
 type QuestionSort = "DUE_ASC" | "DUE_DESC" | "AGE_DESC" | "ASSIGNED_TO_ASC" | "STATUS_ASC";
+
 const dueFilterOptions: DueFilter[] = ["ALL", "OVERDUE", "NEXT_48_HOURS", "NEXT_7_DAYS", "FUTURE"];
 const questionSortOptions: QuestionSort[] = ["DUE_ASC", "DUE_DESC", "AGE_DESC", "ASSIGNED_TO_ASC", "STATUS_ASC"];
+const phaseTagOptions: AuditPhase[] = ["Planning", "Fieldwork", "Reporting"];
 
 type QuestionLogViewProps = {
+  auditId: string | null;
   auditLabel: string;
   controls: Control[];
   documents: AuditDocument[];
   embedded?: boolean;
   mode: DashboardMode;
   questions: Question[];
+  requests: Request[];
   users: User[];
 };
 
 export function QuestionLogView({
+  auditId,
   auditLabel,
   controls,
   documents,
   embedded = false,
   mode,
   questions,
+  requests,
   users,
 }: QuestionLogViewProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { activeUser } = useActiveUser();
+  const { showNotification } = useNotification();
+  const [isPending, startTransition] = useTransition();
   const [questionRows, setQuestionRows] = useState<Question[]>(questions);
   const [selectedId, setSelectedId] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -48,19 +68,23 @@ export function QuestionLogView({
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
   const [sortBy, setSortBy] = useState<QuestionSort>("DUE_ASC");
   const [isCreating, setIsCreating] = useState(false);
+  const [followUpTarget, setFollowUpTarget] = useState<{ parentQuestionId?: string; parentRequestId?: string } | null>(null);
+  const [responseDraft, setResponseDraft] = useState("");
   const currentNow = useMemo(() => getQuestionLogNow(mode), [mode]);
   const stakeholderOptions = useMemo(
-    () =>
-      Array.from(new Set([...questionRows.map((question) => question.assignedTo), "Compliance Director", "Retail Ops Manager", "Application Support Lead"])),
-    [questionRows],
+    () => Array.from(new Set([...users.map((user) => user.name), ...questionRows.map((question) => question.assignedTo)])),
+    [questionRows, users],
   );
-  const askerOptions = useMemo(() => Array.from(new Set(questionRows.map((question) => question.askedBy))), [questionRows]);
+  const askerOptions = useMemo(() => users, [users]);
   const defaultQuestionForm = useMemo(
     () => ({
       controlId: controls[0]?.id ?? "",
-      askedBy: users[0]?.name ?? "",
+      askedByUserId: users[0]?.id ?? "",
       assignedTo: stakeholderOptions[0] ?? "",
       dueDate: toLocalInputValue(new Date(currentNow)),
+      phaseTag: "Planning" as AuditPhase,
+      parentQuestionId: undefined as string | undefined,
+      parentRequestId: undefined as string | undefined,
       questionText: "",
     }),
     [controls, currentNow, stakeholderOptions, users],
@@ -68,6 +92,8 @@ export function QuestionLogView({
   const [assignedToFilter, setAssignedToFilter] = useState<string>("ALL");
   const [askedByFilter, setAskedByFilter] = useState<string>("ALL");
   const [form, setForm] = useState(defaultQuestionForm);
+  const openCreateMode = searchParams.get("openCreate");
+  const followUpRequestId = searchParams.get("followUpRequestId");
 
   useEffect(() => {
     setQuestionRows(questions);
@@ -77,6 +103,29 @@ export function QuestionLogView({
     setForm(defaultQuestionForm);
   }, [defaultQuestionForm]);
 
+  useEffect(() => {
+    if (openCreateMode !== "question" || !followUpRequestId) {
+      return;
+    }
+
+    const followUpRequest = requests.find((item) => item.id === followUpRequestId);
+
+    if (!followUpRequest) {
+      return;
+    }
+
+    setForm({
+      ...defaultQuestionForm,
+      assignedTo: followUpRequest.assignedTo,
+      controlId: followUpRequest.controlId ?? defaultQuestionForm.controlId,
+      parentQuestionId: undefined,
+      parentRequestId: followUpRequest.id,
+      phaseTag: followUpRequest.phaseTag ?? defaultQuestionForm.phaseTag,
+    });
+    setFollowUpTarget({ parentRequestId: followUpRequest.id });
+    setIsCreating(true);
+  }, [defaultQuestionForm, followUpRequestId, openCreateMode, requests]);
+
   const filteredQuestions = useMemo(() => {
     return questionRows
       .filter((question) => {
@@ -84,6 +133,7 @@ export function QuestionLogView({
         const matchesSearch =
           !q ||
           question.id.toLowerCase().includes(q) ||
+          getQuestionLabel(question).toLowerCase().includes(q) ||
           question.questionText.toLowerCase().includes(q) ||
           question.assignedTo.toLowerCase().includes(q);
         const hoursToDue = hoursUntil(question.dueDate, currentNow);
@@ -97,7 +147,7 @@ export function QuestionLogView({
         return (
           matchesSearch &&
           matchesDueFilter &&
-          (statusFilter === "ALL" || question.status === statusFilter) &&
+          (statusFilter === "ALL" || getQuestionDisplayStatus(question, currentNow) === statusFilter) &&
           (assignedToFilter === "ALL" || question.assignedTo === assignedToFilter) &&
           (askedByFilter === "ALL" || question.askedBy === askedByFilter)
         );
@@ -122,12 +172,20 @@ export function QuestionLogView({
 
   const selectedQuestion = questionRows.find((question) => question.id === selectedId) ?? null;
   const selectedQuestionIdFromUrl = searchParams.get("questionId");
+  const canCreateInLiveMode = mode === "live" && Boolean(auditId);
+  const canRespondToQuestion = selectedQuestion
+    ? selectedQuestion.assignedTo === activeUser.name || ["MANAGER", "DIRECTOR", "CAE"].includes(activeUser.role)
+    : false;
 
   useEffect(() => {
     if (selectedQuestionIdFromUrl && questionRows.some((question) => question.id === selectedQuestionIdFromUrl)) {
       setSelectedId(selectedQuestionIdFromUrl);
     }
   }, [selectedQuestionIdFromUrl, questionRows]);
+
+  useEffect(() => {
+    setResponseDraft(selectedQuestion?.responseText ?? "");
+  }, [selectedQuestion?.id, selectedQuestion?.responseText]);
 
   function openQuestion(questionId: string) {
     setSelectedId(questionId);
@@ -151,14 +209,80 @@ export function QuestionLogView({
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
+  function clearCreateQueryParams() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openCreate");
+    params.delete("followUpRequestId");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function closeCreateModal() {
+    setIsCreating(false);
+    setFollowUpTarget(null);
+    setForm(defaultQuestionForm);
+    clearCreateQueryParams();
+  }
+
   function handleCreateQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    const askedByUser = users.find((user) => user.id === form.askedByUserId);
+
+    if (!askedByUser) {
+      return;
+    }
+
+    if (canCreateInLiveMode && auditId) {
+      startTransition(async () => {
+        try {
+          const response = await fetch(`/api/audits/${auditId}/questions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              askedByUserId: form.askedByUserId,
+              assignedTo: form.assignedTo,
+              controlId: form.controlId,
+              dueDate: form.dueDate,
+              phaseTag: form.phaseTag,
+              parentQuestionId: form.parentQuestionId,
+              parentRequestId: form.parentRequestId,
+              questionText: form.questionText.trim(),
+            }),
+          });
+          const result = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(result.error ?? "Unable to create question.");
+          }
+
+          setForm(defaultQuestionForm);
+          setFollowUpTarget(null);
+          setIsCreating(false);
+          clearCreateQueryParams();
+          router.refresh();
+        } catch (error) {
+          showNotification({
+            title: "Create failed",
+            message: error instanceof Error ? error.message : "Unable to create question.",
+            tone: "error",
+          });
+        }
+      });
+      return;
+    }
 
     const nextId = `Q-${String(questionRows.length + 1).padStart(2, "0")}`;
     const nextQuestion: Question = {
       id: nextId,
+      displayId: nextId,
       controlId: form.controlId,
-      askedBy: form.askedBy,
+      phaseTag: form.phaseTag,
+      parentQuestionId: form.parentQuestionId,
+      parentRequestId: form.parentRequestId,
+      askedBy: askedByUser.name,
       assignedTo: form.assignedTo,
       dateSent: new Date(currentNow).toISOString(),
       dueDate: new Date(form.dueDate).toISOString(),
@@ -168,7 +292,82 @@ export function QuestionLogView({
 
     setQuestionRows((current) => [...current, nextQuestion]);
     setForm(defaultQuestionForm);
+    setFollowUpTarget(null);
     setIsCreating(false);
+    clearCreateQueryParams();
+  }
+
+  function handleSubmitResponse(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedQuestion || responseDraft.trim().length === 0) {
+      return;
+    }
+
+    if (mode === "live" && auditId) {
+      startTransition(async () => {
+        try {
+          const response = await fetch(`/api/audits/${auditId}/questions/${selectedQuestion.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              responseText: responseDraft.trim(),
+            }),
+          });
+          const result = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(result.error ?? "Unable to save response.");
+          }
+
+          router.refresh();
+        } catch (error) {
+          showNotification({
+            title: "Response failed",
+            message: error instanceof Error ? error.message : "Unable to save response.",
+            tone: "error",
+          });
+        }
+      });
+
+      return;
+    }
+
+    setQuestionRows((current) =>
+      current.map((question) =>
+        question.id === selectedQuestion.id
+          ? {
+              ...question,
+              responseText: responseDraft.trim(),
+              responseDate: new Date(currentNow).toISOString(),
+              status: "RESPONDED",
+            }
+          : question,
+      ),
+    );
+  }
+
+  function openQuestionFollowUp(question: Question) {
+    setForm({
+      ...defaultQuestionForm,
+      assignedTo: question.assignedTo,
+      controlId: question.controlId,
+      parentQuestionId: question.id,
+      parentRequestId: undefined,
+      phaseTag: question.phaseTag ?? defaultQuestionForm.phaseTag,
+    });
+    setFollowUpTarget({ parentQuestionId: question.id });
+    setIsCreating(true);
+  }
+
+  function openCrossTypeFollowUpRequest(question: Question) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "requests");
+    params.set("openCreate", "request");
+    params.set("followUpQuestionId", question.id);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   return (
@@ -231,8 +430,8 @@ export function QuestionLogView({
             >
               <option value="ALL">All askers</option>
               {askerOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+                <option key={option.id} value={option.name}>
+                  {option.name}
                 </option>
               ))}
             </select>
@@ -264,18 +463,19 @@ export function QuestionLogView({
               </select>
             </div>
 
-            {mode === "prototype" ? (
+            {mode === "prototype" || canCreateInLiveMode ? (
               <button
                 type="button"
                 onClick={() => setIsCreating(true)}
-                className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white shadow-[0_14px_28px_rgba(1,30,65,0.18)]"
+                disabled={isPending}
+                className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white shadow-[0_14px_28px_rgba(1,30,65,0.18)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus size={16} />
                 New Question
               </button>
             ) : (
               <div className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                Create/edit flow not wired yet
+                Select a live audit to create questions
               </div>
             )}
           </div>
@@ -286,11 +486,11 @@ export function QuestionLogView({
             <thead>
               <tr className="sticky top-0 z-10 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                 <th className="bg-white px-4 py-2">Question</th>
-                <th className="bg-white px-4 py-2">Business contact</th>
+                <th className="bg-white px-4 py-2">Tagged person</th>
                 <th className="bg-white px-4 py-2">Sent</th>
                 <th className="bg-white px-4 py-2">Due</th>
                 <th className="bg-white px-4 py-2">Answered</th>
-                <th className="bg-white px-4 py-2">Age</th>
+                <th className="bg-white px-4 py-2">Delay impact</th>
                 <th className="bg-white px-4 py-2">Status</th>
                 <th className="bg-white px-4 py-2">Actions</th>
               </tr>
@@ -298,7 +498,11 @@ export function QuestionLogView({
             <tbody>
               {filteredQuestions.map((question) => {
                 const ageHours = getQuestionAgeHours(question, currentNow);
-                const tone = question.status === "RESPONDED" ? "success" : question.status === "OVERDUE" ? "risk" : "warning";
+                const currentDelayHours = getQuestionCurrentDelayHours(question, currentNow);
+                const realizedDelayHours = getQuestionRealizedDelayHours(question);
+                const chainDelayHours = getQuestionChainDelayHours(question, questionRows, requests, currentNow);
+                const displayStatus = getQuestionDisplayStatus(question, currentNow);
+                const tone = displayStatus === "RESPONDED" ? "success" : displayStatus === "OVERDUE" ? "risk" : "warning";
 
                 return (
                   <tr
@@ -307,17 +511,27 @@ export function QuestionLogView({
                     onClick={() => openQuestion(question.id)}
                   >
                     <td className="rounded-l-3xl px-4 py-4">
-                      <p className="text-sm font-semibold text-[var(--foreground)]">{question.id}</p>
+                      <p className="text-sm font-semibold text-[var(--foreground)]">{getQuestionLabel(question)}</p>
                       <p className="mt-1 max-w-md text-sm text-[var(--foreground)]">{question.questionText}</p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">Asked by {question.askedBy} for Control {question.controlId}</p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Asked by {question.askedBy} for Control {question.controlId} · {question.phaseTag ?? "Planning"}
+                      </p>
                     </td>
                     <td className="px-4 py-4 text-sm text-[var(--muted)]">{question.assignedTo}</td>
                     <td className="px-4 py-4 text-sm text-[var(--muted)]">{formatShortDate(question.dateSent)}</td>
                     <td className="px-4 py-4 text-sm text-[var(--muted)]">{formatShortDate(question.dueDate)}</td>
                     <td className="px-4 py-4 text-sm text-[var(--muted)]">{question.responseDate ? formatShortDate(question.responseDate) : "Pending"}</td>
-                    <td className="px-4 py-4 text-sm text-[var(--muted)]">{Math.round(ageHours)}h open</td>
+                    <td className="px-4 py-4 text-sm text-[var(--muted)]">
+                      {formatDelayImpactLabel({
+                        ageHours,
+                        chainDelayHours,
+                        currentDelayHours,
+                        realizedDelayHours,
+                        status: displayStatus,
+                      })}
+                    </td>
                     <td className="px-4 py-4">
-                      <StatusBadge status={question.status} tone={tone} />
+                      <StatusBadge status={displayStatus} tone={tone} />
                     </td>
                     <td className="rounded-r-3xl px-4 py-4">
                       <div className="flex items-center gap-2">
@@ -346,8 +560,12 @@ export function QuestionLogView({
       <FormModal
         open={isCreating}
         title="New Question"
-        subtitle="Create a new auditor inquiry without leaving the question log."
-        onClose={() => setIsCreating(false)}
+        subtitle={
+          followUpTarget
+            ? "Create a linked follow-up question when the prior response was incomplete or incorrect."
+            : "Create a new auditor inquiry and tag the person responsible for responding."
+        }
+        onClose={closeCreateModal}
       >
         <form className="grid gap-4" onSubmit={handleCreateQuestion}>
           <Field label="Question">
@@ -362,7 +580,7 @@ export function QuestionLogView({
           </Field>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Ask to">
+            <Field label="Tag person">
               <select
                 value={form.assignedTo}
                 onChange={(event) => setForm((current) => ({ ...current, assignedTo: event.target.value }))}
@@ -378,12 +596,12 @@ export function QuestionLogView({
 
             <Field label="Asked by">
               <select
-                value={form.askedBy}
-                onChange={(event) => setForm((current) => ({ ...current, askedBy: event.target.value }))}
+                value={form.askedByUserId}
+                onChange={(event) => setForm((current) => ({ ...current, askedByUserId: event.target.value }))}
                 className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
               >
                 {users.map((user) => (
-                  <option key={user.id} value={user.name}>
+                  <option key={user.id} value={user.id}>
                     {user.name}
                   </option>
                 ))}
@@ -394,17 +612,17 @@ export function QuestionLogView({
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Related control">
               <select
-                value={form.controlId}
-                onChange={(event) => setForm((current) => ({ ...current, controlId: event.target.value }))}
-                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
-              >
-                {controls.map((control) => (
-                  <option key={control.id} value={control.id}>
-                    {control.id} - {control.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+              value={form.controlId}
+              onChange={(event) => setForm((current) => ({ ...current, controlId: event.target.value }))}
+              className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+            >
+              {controls.map((control) => (
+                <option key={control.id} value={control.id}>
+                  {getControlLabel(control)} - {control.name}
+                </option>
+              ))}
+            </select>
+          </Field>
 
             <Field label="Response needed by">
               <input
@@ -417,6 +635,20 @@ export function QuestionLogView({
             </Field>
           </div>
 
+          <Field label="Phase">
+            <select
+              value={form.phaseTag}
+              onChange={(event) => setForm((current) => ({ ...current, phaseTag: event.target.value as AuditPhase }))}
+              className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+            >
+              {phaseTagOptions.map((phase) => (
+                <option key={phase} value={phase}>
+                  {phase}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
@@ -427,7 +659,8 @@ export function QuestionLogView({
             </button>
             <button
               type="submit"
-              className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white"
+              disabled={isPending}
+              className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save Question
             </button>
@@ -437,7 +670,7 @@ export function QuestionLogView({
 
       {selectedQuestion ? (
         <DetailPanel
-          title={`${selectedQuestion.id} · ${selectedQuestion.assignedTo}`}
+          title={`${getQuestionLabel(selectedQuestion)} · ${selectedQuestion.assignedTo}`}
           subtitle={selectedQuestion.questionText}
           open={Boolean(selectedQuestion)}
           onClose={closeQuestion}
@@ -446,17 +679,36 @@ export function QuestionLogView({
           <div className="grid gap-6">
             <section className="grid gap-4 md:grid-cols-2">
               <DetailCard label="Asked by" value={selectedQuestion.askedBy} />
-              <DetailCard label="Assigned to" value={selectedQuestion.assignedTo} />
+              <DetailCard label="Tagged person" value={selectedQuestion.assignedTo} />
+              <DetailCard label="Phase" value={selectedQuestion.phaseTag ?? "Planning"} />
               <DetailCard label="Date sent" value={formatDateTime(selectedQuestion.dateSent)} />
               <DetailCard label="Due date" value={formatDateTime(selectedQuestion.dueDate)} />
               <DetailCard label="Date answered" value={selectedQuestion.responseDate ? formatDateTime(selectedQuestion.responseDate) : "Pending"} />
             </section>
 
+            <section className="grid gap-4 md:grid-cols-3">
+              <DetailCard
+                label="Current delay"
+                value={formatHours(getQuestionCurrentDelayHours(selectedQuestion, currentNow))}
+                helpText="Hours currently past the due date for an open or overdue item. This drops to zero once the item is resolved."
+              />
+              <DetailCard
+                label="Realized delay"
+                value={formatHours(getQuestionRealizedDelayHours(selectedQuestion))}
+                helpText="Hours the item ended up late when it was answered, measured from due date to response date."
+              />
+              <DetailCard
+                label="Chain delay impact"
+                value={formatHours(getQuestionChainDelayHours(selectedQuestion, questionRows, requests, currentNow))}
+                helpText="Total delay impact across this item and any linked follow-up questions or requests created because the first response did not fully resolve the issue."
+              />
+            </section>
+
             <section className="rounded-[24px] border border-black/5 bg-white p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Question and response</p>
               <StatusBadge
-                status={selectedQuestion.status}
-                tone={selectedQuestion.status === "RESPONDED" ? "success" : selectedQuestion.status === "OVERDUE" ? "risk" : "warning"}
+                status={getQuestionDisplayStatus(selectedQuestion, currentNow)}
+                tone={getQuestionDisplayStatus(selectedQuestion, currentNow) === "RESPONDED" ? "success" : getQuestionDisplayStatus(selectedQuestion, currentNow) === "OVERDUE" ? "risk" : "warning"}
                 className="mt-4"
               />
               <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
@@ -466,6 +718,64 @@ export function QuestionLogView({
                 Response date: {selectedQuestion.responseDate ? formatDateTime(selectedQuestion.responseDate) : "Pending"}
               </p>
             </section>
+
+            <section className="rounded-[24px] border border-black/5 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Follow-ups</p>
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    Spawn a linked follow-up when the prior response did not fully unblock the audit.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openQuestionFollowUp(selectedQuestion)}
+                    className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
+                  >
+                    Follow-up question
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openCrossTypeFollowUpRequest(selectedQuestion)}
+                    className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Follow-up request
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {renderFollowUpRows(getQuestionFollowUps(selectedQuestion, questionRows, requests))}
+              </div>
+            </section>
+
+            {canRespondToQuestion ? (
+              <section className="rounded-[24px] border border-black/5 bg-white p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Respond</p>
+                <p className="mt-2 text-sm text-[var(--muted)]">
+                  Save the tagged person&apos;s response directly from the question panel.
+                </p>
+                <form className="mt-4 grid gap-4" onSubmit={handleSubmitResponse}>
+                  <textarea
+                    required
+                    rows={5}
+                    value={responseDraft}
+                    onChange={(event) => setResponseDraft(event.target.value)}
+                    className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+                    placeholder="Type the response for this question"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isPending || responseDraft.trim().length === 0}
+                      className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Save Response
+                    </button>
+                  </div>
+                </form>
+              </section>
+            ) : null}
 
             <section className="rounded-[24px] border border-black/5 bg-white p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Related documents</p>
@@ -478,7 +788,7 @@ export function QuestionLogView({
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-[var(--muted)]">No linked evidence has been attached in the prototype yet.</p>
+                  <p className="text-sm text-[var(--muted)]">No linked evidence has been attached yet.</p>
                 )}
               </div>
             </section>
@@ -538,12 +848,31 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function DetailCard({ label, value }: { label: string; value: string }) {
+function DetailCard({ label, value, helpText }: { label: string; value: string; helpText?: string }) {
   return (
     <div className="rounded-[22px] border border-black/5 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+        {helpText ? <HoverInfoCard text={helpText} /> : null}
+      </div>
       <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
     </div>
+  );
+}
+
+function HoverInfoCard({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <span
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-black/10 bg-white text-[var(--muted)] transition-colors hover:text-[var(--brand-indigo-core)]"
+        aria-label="More information"
+      >
+        <CircleHelp size={12} />
+      </span>
+      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+0.65rem)] z-20 w-72 -translate-x-1/2 rounded-[18px] border border-black/5 bg-white px-4 py-3 text-left text-[11px] normal-case tracking-normal text-[var(--foreground)] opacity-0 shadow-[0_18px_40px_rgba(1,30,65,0.14)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -588,4 +917,67 @@ function formatQuestionSortLabel(value: QuestionSort) {
     case "STATUS_ASC":
       return "Sort: status";
   }
+}
+
+function getQuestionLabel(question: Question) {
+  return question.displayId ?? question.id;
+}
+
+function getControlLabel(control: Control) {
+  return control.referenceId ?? control.id;
+}
+
+function formatDelayImpactLabel({
+  ageHours,
+  chainDelayHours,
+  currentDelayHours,
+  realizedDelayHours,
+  status,
+}: {
+  ageHours: number;
+  chainDelayHours: number;
+  currentDelayHours: number;
+  realizedDelayHours: number;
+  status: Question["status"];
+}) {
+  if (chainDelayHours > 0) {
+    return `${formatHours(chainDelayHours)} chain delay`;
+  }
+
+  if (currentDelayHours > 0) {
+    return `${formatHours(currentDelayHours)} overdue`;
+  }
+
+  if (realizedDelayHours > 0) {
+    return `${formatHours(realizedDelayHours)} realized`;
+  }
+
+  if (status === "RESPONDED") {
+    return "On time";
+  }
+
+  return `${Math.round(ageHours)}h open`;
+}
+
+function renderFollowUpRows(followUps: { questions: Question[]; requests: Request[] }) {
+  if (followUps.questions.length === 0 && followUps.requests.length === 0) {
+    return <p className="text-sm text-[var(--muted)]">No linked follow-up items yet.</p>;
+  }
+
+  return (
+    <>
+      {followUps.questions.map((question) => (
+        <div key={`question-${question.id}`} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
+          <p className="text-sm font-semibold text-[var(--foreground)]">{question.displayId ?? question.id} · Question</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">{question.questionText}</p>
+        </div>
+      ))}
+      {followUps.requests.map((request) => (
+        <div key={`request-${request.id}`} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
+          <p className="text-sm font-semibold text-[var(--foreground)]">{request.displayId ?? request.id} · Request</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">{request.description}</p>
+        </div>
+      ))}
+    </>
+  );
 }

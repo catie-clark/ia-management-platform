@@ -1,5 +1,5 @@
 import { ReportingView } from "@/components/phase-three/reporting-view";
-import { getAuditPhaseViewModel } from "@/lib/audit-phase-data";
+import { getReportingViewModel } from "@/lib/reporting-data";
 
 type ReportingPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -10,16 +10,9 @@ export default async function ReportingPage({ searchParams }: ReportingPageProps
   const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
   const auditId = getSingleValue(resolvedParams.auditId);
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
-  const phaseViewModel = await getAuditPhaseViewModel({ auditId, auditLabel, mode, prototypePhase: "Reporting" });
+  const viewModel = await getReportingViewModel({ auditId, auditLabel, mode });
 
-  return (
-    <ReportingView
-      auditId={phaseViewModel.auditId}
-      auditLabel={phaseViewModel.auditLabel}
-      auditStatus={phaseViewModel.auditStatus}
-      currentPhase={phaseViewModel.currentPhase}
-    />
-  );
+  return <ReportingView viewModel={viewModel} />;
 }
 
 function getSingleValue(value: string | string[] | undefined) {

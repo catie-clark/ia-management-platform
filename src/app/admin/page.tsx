@@ -9,7 +9,7 @@ export default function AdminPage() {
       nextDeliverables={[
         "Default reviewer chain configuration view",
         "Reminder threshold settings and template selectors",
-        "Future integration placeholder cards for Workday and OpenAI",
+        "Future integration placeholder cards for external systems and OpenAI",
         "User and role overview for audit ownership patterns",
       ]}
     />

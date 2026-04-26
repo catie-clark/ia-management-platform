@@ -95,7 +95,7 @@ export function isDocumentOverdue(document: AuditDocument, now = defaultContext.
 }
 
 export function hasOverdueLinkedItems(control: Control, context: AuditLogicContext = defaultContext) {
-  const hasOverdueQuestions = getLinkedQuestions(control.id, context.questions).some((question) => question.status === "OVERDUE");
+  const hasOverdueQuestions = getLinkedQuestions(control.id, context.questions).some((question) => isQuestionOverdue(question, context.now));
   const hasOverdueRequests = getLinkedRequests(control.id, context.requests).some((request) => isRequestOverdue(request, context.now));
   const hasOverdueDocuments = getLinkedDocuments(control.id, context.documents).some((document) => isDocumentOverdue(document, context.now));
 
@@ -130,8 +130,8 @@ export function getControlRiskLevel(control: Control, context: AuditLogicContext
     score += variance >= 3 ? 2 : 1;
   }
 
-  const overdueQuestions = getLinkedQuestions(control.id, context.questions).filter((question) => question.status === "OVERDUE").length;
-  const openQuestions = getLinkedQuestions(control.id, context.questions).filter((question) => question.status === "OPEN").length;
+  const overdueQuestions = getLinkedQuestions(control.id, context.questions).filter((question) => isQuestionOverdue(question, context.now)).length;
+  const openQuestions = getLinkedQuestions(control.id, context.questions).filter((question) => getQuestionDisplayStatus(question, context.now) === "OPEN").length;
   const overdueRequests = getLinkedRequests(control.id, context.requests).filter((request) => isRequestOverdue(request, context.now)).length;
   const incompleteDocuments = getLinkedDocuments(control.id, context.documents).filter((document) => document.reviewStatus !== "APPROVED").length;
 
@@ -169,6 +169,84 @@ export function getQuestionAgeHours(question: Question, now = defaultContext.now
 
 export function isRequestOverdue(request: Request, now = defaultContext.now) {
   return new Date(request.dueDate).getTime() < getNow(now).getTime() && request.status !== "COMPLETED";
+}
+
+export function isQuestionOverdue(question: Question, now = defaultContext.now) {
+  return new Date(question.dueDate).getTime() < getNow(now).getTime() && question.status !== "RESPONDED";
+}
+
+export function getQuestionDisplayStatus(question: Question, now = defaultContext.now): Question["status"] {
+  return isQuestionOverdue(question, now) ? "OVERDUE" : question.status;
+}
+
+export function getRequestDisplayStatus(request: Request, now = defaultContext.now) {
+  return isRequestOverdue(request, now) ? "OVERDUE" : request.status;
+}
+
+export function getQuestionCurrentDelayHours(question: Question, now = defaultContext.now) {
+  if (question.status !== "OPEN" && question.status !== "OVERDUE") {
+    return 0;
+  }
+
+  return Math.max(0, hourDiff(now, question.dueDate));
+}
+
+export function getQuestionRealizedDelayHours(question: Question) {
+  if (!question.responseDate) {
+    return 0;
+  }
+
+  return Math.max(0, hourDiff(question.responseDate, question.dueDate));
+}
+
+export function getRequestCurrentDelayHours(request: Request, now = defaultContext.now) {
+  if (request.status === "COMPLETED") {
+    return 0;
+  }
+
+  return Math.max(0, hourDiff(now, request.dueDate));
+}
+
+export function getRequestRealizedDelayHours(request: Request) {
+  const resolvedAt = request.completedAt ?? request.receivedDate;
+
+  if (!resolvedAt) {
+    return 0;
+  }
+
+  return Math.max(0, hourDiff(resolvedAt, request.dueDate));
+}
+
+export function getQuestionChainDelayHours(
+  question: Question,
+  questionPool: Question[],
+  requestPool: Request[],
+  now = defaultContext.now,
+) {
+  return getChainDelayHours({ question, questionPool, requestPool, now, visitedKeys: new Set<string>() });
+}
+
+export function getRequestChainDelayHours(
+  request: Request,
+  questionPool: Question[],
+  requestPool: Request[],
+  now = defaultContext.now,
+) {
+  return getChainDelayHours({ request, questionPool, requestPool, now, visitedKeys: new Set<string>() });
+}
+
+export function getQuestionFollowUps(question: Question, questionPool: Question[], requestPool: Request[]) {
+  return {
+    questions: questionPool.filter((entry) => entry.parentQuestionId === question.id),
+    requests: requestPool.filter((entry) => entry.parentQuestionId === question.id),
+  };
+}
+
+export function getRequestFollowUps(request: Request, questionPool: Question[], requestPool: Request[]) {
+  return {
+    questions: questionPool.filter((entry) => entry.parentRequestId === request.id),
+    requests: requestPool.filter((entry) => entry.parentRequestId === request.id),
+  };
 }
 
 export function getLinkedQuestions(controlId: string, questionPool = defaultContext.questions) {
@@ -482,14 +560,14 @@ export function getRiskRows(phase: AuditPhase, context: AuditLogicContext = defa
     }));
 
   const questionRows: RiskRow[] = context.questions
-    .filter((question) => shouldShowReminder(question, context.now) || question.status === "OVERDUE")
+    .filter((question) => shouldShowReminder(question, context.now) || isQuestionOverdue(question, context.now))
     .map((question) => ({
       id: question.id,
       area: "Question" as const,
       title: question.questionText,
       owner: question.assignedTo,
-      status: question.status,
-      trigger: question.status === "OVERDUE" ? "Response overdue" : "Awaiting response > 48h",
+      status: getQuestionDisplayStatus(question, context.now),
+      trigger: isQuestionOverdue(question, context.now) ? "Response overdue" : "Awaiting response > 48h",
       dueDate: question.dueDate,
       severity: "risk" as const,
     }));
@@ -642,7 +720,7 @@ export function getPhaseSpotlight(phase: AuditPhase, context: AuditLogicContext 
 
   const blockedControls = context.controls.filter((control) => getDerivedControlStatus(control, context) === "BLOCKED").length;
   const overdueFollowUps =
-    context.questions.filter((question) => question.status === "OVERDUE").length +
+    context.questions.filter((question) => isQuestionOverdue(question, context.now)).length +
     context.requests.filter((request) => isRequestOverdue(request, context.now)).length;
   const controlsDueSoon = context.controls.filter((control) => {
     const hoursToDue = control.dueDate ? hourDiff(control.dueDate, context.now) : Number.POSITIVE_INFINITY;
@@ -720,6 +798,55 @@ function summarizePlanningGaps(gaps: string[]) {
   }
 
   return `${capitalize(gaps[0])} pending`;
+}
+
+function getChainDelayHours({
+  question,
+  request,
+  questionPool,
+  requestPool,
+  now,
+  visitedKeys,
+}: {
+  question?: Question;
+  request?: Request;
+  questionPool: Question[];
+  requestPool: Request[];
+  now: string;
+  visitedKeys: Set<string>;
+}): number {
+  const nodeKey = question ? `question:${question.id}` : request ? `request:${request.id}` : null;
+
+  if (!nodeKey || visitedKeys.has(nodeKey)) {
+    return 0;
+  }
+
+  visitedKeys.add(nodeKey);
+
+  const ownDelay = question
+    ? Math.max(getQuestionCurrentDelayHours(question, now), getQuestionRealizedDelayHours(question))
+    : request
+      ? Math.max(getRequestCurrentDelayHours(request, now), getRequestRealizedDelayHours(request))
+      : 0;
+
+  const followUps = question
+    ? getQuestionFollowUps(question, questionPool, requestPool)
+    : request
+      ? getRequestFollowUps(request, questionPool, requestPool)
+      : { questions: [], requests: [] };
+
+  const questionDelay: number = followUps.questions.reduce(
+    (total, followUp) =>
+      total + getChainDelayHours({ question: followUp, questionPool, requestPool, now, visitedKeys }),
+    0,
+  );
+  const requestDelay: number = followUps.requests.reduce(
+    (total, followUp) =>
+      total + getChainDelayHours({ request: followUp, questionPool, requestPool, now, visitedKeys }),
+    0,
+  );
+
+  return ownDelay + questionDelay + requestDelay;
 }
 
 function capitalize(value: string) {

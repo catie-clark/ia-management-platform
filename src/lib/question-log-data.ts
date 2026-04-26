@@ -9,10 +9,11 @@ import {
   type QuestionRow,
   type RequestRow,
   type UserRow,
+  formatAuditScopePeriod,
   mapControl,
   mapDocument,
-  mapQuestion,
-  mapRequest,
+  mapQuestionsWithDisplayIds,
+  mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
 import type { AuditDocument, Control, Question, Request, User } from "@/types/audit";
@@ -20,6 +21,7 @@ import type { AuditDocument, Control, Question, Request, User } from "@/types/au
 export type QuestionLogViewModel = {
   auditId: string | null;
   auditLabel: string;
+  auditPeriodLabel: string;
   controls: Control[];
   documents: AuditDocument[];
   mode: DashboardMode;
@@ -44,6 +46,7 @@ export async function getQuestionLogViewModel({
   return {
     auditId: null,
     auditLabel: "Prototype Demo Audit",
+    auditPeriodLabel: "Static sample data",
     controls,
     documents,
     mode: "prototype",
@@ -70,7 +73,7 @@ async function getLiveQuestionLogViewModel({
     usersResult,
     businessUnitsResult,
   ] = await Promise.all([
-    supabase.from("audits").select("id, name").eq("id", auditId).maybeSingle<Pick<AuditRecord, "id" | "name">>(),
+    getQuestionLogAuditRecord(supabase, auditId),
     supabase
       .from("controls")
       .select("id, source_record_key, control_name, business_unit_id, control_owner_user_id, assigned_owner_user_id, status, due_date, assigned_due_date, planned_hours, assigned_planned_hours, actual_hours, risk_rating, planning_overridden_at, source_payload")
@@ -78,12 +81,12 @@ async function getLiveQuestionLogViewModel({
       .returns<ControlRow[]>(),
     supabase
       .from("questions")
-      .select("id, control_id, asked_by_user_id, assigned_to, date_sent, due_date, status, question_text, response_text, response_date")
+      .select("id, control_id, asked_by_user_id, assigned_to, phase_tag, parent_question_id, parent_request_id, created_at, date_sent, due_date, status, question_text, response_text, response_date")
       .eq("audit_id", auditId)
       .returns<QuestionRow[]>(),
     supabase
       .from("requests")
-      .select("id, control_id, description, requested_from, date_requested, due_date, status, response_notes")
+      .select("id, control_id, phase_tag, parent_question_id, parent_request_id, created_at, completed_at, description, requested_from, date_requested, due_date, status, response_notes")
       .eq("audit_id", auditId)
       .returns<RequestRow[]>(),
     supabase
@@ -101,13 +104,40 @@ async function getLiveQuestionLogViewModel({
   return {
     auditId,
     auditLabel: auditResult.data?.name ?? auditLabel ?? "Live audit workspace",
+    auditPeriodLabel:
+      auditResult.data?.period_start && auditResult.data?.period_end
+        ? formatAuditScopePeriod(auditResult.data)
+        : "Saved audit",
     controls: (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap)),
     documents: (documentsResult.data ?? []).map(mapDocument),
     mode: "live",
-    questions: (questionsResult.data ?? []).map((question) => mapQuestion(question, userMap)),
-    requests: (requestsResult.data ?? []).map(mapRequest),
+    questions: mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap),
+    requests: mapRequestsWithDisplayIds(requestsResult.data ?? []),
     users: Array.from(userMap.values()),
   };
+}
+
+async function getQuestionLogAuditRecord(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  auditId: string,
+) {
+  try {
+    return await supabase
+      .from("audits")
+      .select("id, name, period_start, period_end, scope_period_start, scope_period_end")
+      .eq("id", auditId)
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end">>();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("scope_period_start")) {
+      throw error;
+    }
+
+    return supabase
+      .from("audits")
+      .select("id, name, period_start, period_end")
+      .eq("id", auditId)
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end">>();
+  }
 }
 
 export function getQuestionLogNow(mode: DashboardMode) {

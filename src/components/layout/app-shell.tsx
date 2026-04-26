@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CheckCircle2,
   BellRing,
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { ActiveUserContext, getUserById } from "@/components/layout/active-user-context";
+import { DashboardPhaseSelector } from "@/components/dashboard/dashboard-phase-selector";
 import { users } from "@/lib/data/mock-data";
 import { cn } from "@/lib/utils";
 
@@ -36,17 +37,116 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const isLandingPage = pathname === "/";
   const [activeUserId, setActiveUserId] = useState("U2");
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [notificationItems, setNotificationItems] = useState<NotificationItem[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const activeUser = getUserById(activeUserId);
   const auditMode = searchParams.get("mode") === "live" ? "live" : "prototype";
   const currentAudit = getCurrentAuditLabel(searchParams);
+  const currentScopePeriod = getCurrentScopePeriodLabel(searchParams);
+  const [resolvedScopePeriod, setResolvedScopePeriod] = useState(currentScopePeriod);
   const currentAuditQuery = buildAuditQuery(searchParams);
-  const switchableUsers = users.filter((user) => ["U2", "U3"].includes(user.id));
-  const notifications = getNotificationsForUser(activeUser.role);
+  const liveAuditId = searchParams.get("mode") === "live" ? searchParams.get("auditId") : null;
+  const switchableUsers = users.filter((user) => ["U1", "U2", "U3", "U4", "U5"].includes(user.id));
+  const notifications = auditMode === "live" ? notificationItems : getNotificationsForUser(activeUser.role);
+
+  useEffect(() => {
+    setResolvedScopePeriod(currentScopePeriod);
+  }, [currentScopePeriod]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAuditSummary() {
+      if (!liveAuditId) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/audits/${liveAuditId}/summary`, { cache: "no-store" });
+        const payload = (await response.json()) as { scopePeriodLabel?: string };
+
+        if (!response.ok || cancelled || !payload.scopePeriodLabel) {
+          return;
+        }
+
+        setResolvedScopePeriod(payload.scopePeriodLabel);
+      } catch {
+        if (!cancelled) {
+          setResolvedScopePeriod((current) => current);
+        }
+      }
+    }
+
+    void loadAuditSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [liveAuditId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotifications() {
+      if (auditMode !== "live") {
+        setNotificationItems([]);
+        setUnreadNotificationCount(0);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/notifications?recipientName=${encodeURIComponent(activeUser.name)}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as {
+          items?: Array<{
+            createdAt: string;
+            detail: string;
+            id: string;
+            linkHref: string | null;
+            status: "read" | "unread";
+            title: string;
+            tone: "success" | "warning";
+          }>;
+          unreadCount?: number;
+        };
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        setNotificationItems(
+          (payload.items ?? []).map((item) => ({
+            detail: item.detail,
+            id: item.id,
+            linkHref: item.linkHref,
+            status: item.status,
+            time: formatNotificationTime(item.createdAt),
+            title: item.title,
+            tone: item.tone,
+          })),
+        );
+        setUnreadNotificationCount(payload.unreadCount ?? 0);
+      } catch {
+        if (!cancelled) {
+          setNotificationItems([]);
+          setUnreadNotificationCount(0);
+        }
+      }
+    }
+
+    void loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUser.name, auditMode]);
 
   if (isLandingPage) {
     return children;
@@ -72,6 +172,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       Current audit
                     </span>
                     <span className="text-sm font-semibold text-white">{currentAudit}</span>
+                    {resolvedScopePeriod ? (
+                      <>
+                        <span className="text-[rgba(255,255,255,0.3)]" aria-hidden="true">
+                          |
+                        </span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
+                          Scope period
+                        </span>
+                        <span className="text-sm font-semibold text-white">{resolvedScopePeriod}</span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
 
@@ -90,7 +201,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       )}
                     >
                       <BellRing size={17} />
-                      <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[var(--brand-amber-bright)]" aria-hidden="true" />
+                      {(auditMode === "live" ? unreadNotificationCount > 0 : notifications.length > 0) ? (
+                        <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[var(--brand-amber-bright)]" aria-hidden="true" />
+                      ) : null}
                     </button>
                     <button
                       type="button"
@@ -123,36 +236,71 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           </p>
                         </div>
                         <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-white">
-                          {notifications.length} new
+                          {auditMode === "live" ? unreadNotificationCount : notifications.length} new
                         </span>
                       </div>
 
                       <div className="mt-4 grid gap-3">
-                        {notifications.map((item) => (
-                          <div key={item.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-3">
-                                <span
-                                  className={cn(
-                                    "mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-xl",
-                                    item.tone === "success"
-                                      ? "bg-[rgba(5,171,140,0.14)] text-[var(--brand-teal-core)]"
-                                      : "bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-bright)]",
-                                  )}
+                        {notifications.length > 0 ? (
+                          notifications.map((item) => (
+                            <div key={item.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (item.linkHref) {
+                                      void handleNotificationAction(item.id, item.linkHref);
+                                    }
+                                  }}
+                                  disabled={!item.linkHref}
+                                  className="flex min-w-0 flex-1 items-start gap-3 text-left disabled:cursor-default"
                                 >
-                                  <CheckCircle2 size={16} />
-                                </span>
-                                <div>
-                                  <p className="text-sm font-semibold text-white">{item.title}</p>
-                                  <p className="mt-1 text-sm leading-6 text-[var(--muted-on-dark)]">{item.detail}</p>
+                                  <span
+                                    className={cn(
+                                      "mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-xl",
+                                      item.tone === "success"
+                                        ? "bg-[rgba(5,171,140,0.14)] text-[var(--brand-teal-core)]"
+                                        : "bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-bright)]",
+                                    )}
+                                  >
+                                    <CheckCircle2 size={16} />
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="text-sm font-semibold text-white">{item.title}</p>
+                                      {item.status === "unread" ? (
+                                        <span className="rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-amber-bright)]">
+                                          Unread
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-1 text-sm leading-6 text-[var(--muted-on-dark)]">{item.detail}</p>
+                                  </div>
+                                </button>
+                                <div className="flex shrink-0 items-start gap-2">
+                                  <span className="whitespace-nowrap text-xs uppercase tracking-[0.14em] text-[rgba(255,255,255,0.44)]">
+                                    {item.time}
+                                  </span>
+                                  {auditMode === "live" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void handleNotificationAction(item.id);
+                                      }}
+                                      className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-on-dark)] transition-colors hover:bg-white/10 hover:text-white"
+                                    >
+                                      Dismiss
+                                    </button>
+                                  ) : null}
                                 </div>
                               </div>
-                              <span className="whitespace-nowrap text-xs uppercase tracking-[0.14em] text-[rgba(255,255,255,0.44)]">
-                                {item.time}
-                              </span>
                             </div>
+                          ))
+                        ) : (
+                          <div className="rounded-[18px] border border-white/10 bg-white/[0.04] p-4 text-sm text-[var(--muted-on-dark)]">
+                            No notifications are waiting for {activeUser.name}.
                           </div>
-                        ))}
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -161,7 +309,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <div className="z-50 w-full min-w-[300px] max-w-[340px] rounded-[24px] border border-white/10 bg-[rgba(7,26,51,0.96)] p-4 shadow-[0_24px_60px_rgba(0,0,0,0.28)] lg:absolute lg:right-0 lg:top-14">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-bright)]">Switch active user</p>
                       <p className="mt-1 text-sm text-[var(--muted-on-dark)]">
-                        Preview the workflow from a staff preparer and manager reviewer perspective.
+                        Preview the workflow from audit preparation and final reporting reviewer perspectives.
                       </p>
                       <div className="mt-4 grid gap-2">
                         {switchableUsers.map((user) => (
@@ -209,6 +357,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       Midwest Financial Corp
                     </span>
                   </div>
+                  <div className="w-full lg:flex lg:justify-end">
+                    <DashboardPhaseSelector
+                      phase={getCurrentPhase(searchParams)}
+                      className="w-full border-white/10 bg-white/[0.04] text-white shadow-none sm:w-auto"
+                      labelClassName="text-[var(--muted-on-dark)]"
+                      selectClassName="border-white/10 bg-[rgba(255,255,255,0.08)] text-white hover:bg-[rgba(255,255,255,0.12)] focus:bg-[rgba(255,255,255,0.12)]"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -218,7 +374,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     const Icon = item.icon;
                     const isActive = pathname === item.href;
 
-                    return (
+  return (
                       <Link
                         key={item.href}
                         href={
@@ -262,23 +418,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </ActiveUserContext.Provider>
   );
+
+  async function handleNotificationAction(notificationId: string, href?: string | null) {
+    const currentNotification = notificationItems.find((item) => item.id === notificationId);
+
+    if (auditMode === "live") {
+      try {
+        await fetch(`/api/notifications/${notificationId}`, {
+          method: "PATCH",
+        });
+      } catch {
+        // Best-effort read state update; do not block navigation.
+      }
+
+      setNotificationItems((current) => current.filter((item) => item.id !== notificationId));
+      setUnreadNotificationCount((current) => Math.max(0, current - (currentNotification?.status === "unread" ? 1 : 0)));
+    }
+
+    if (href) {
+      setShowNotifications(false);
+      router.push(href);
+    }
+  }
 }
 
 function buildAuditQuery(searchParams: ReturnType<typeof useSearchParams>) {
   const mode = searchParams.get("mode");
   const auditId = searchParams.get("auditId");
   const auditLabel = searchParams.get("auditLabel");
+  const scopePeriodLabel = searchParams.get("scopePeriodLabel");
+  const phase = searchParams.get("phase");
   const sync = searchParams.get("sync");
 
   if (mode === "live" && auditId) {
-    const baseQuery = auditLabel ? { mode, auditId, auditLabel } : { mode, auditId };
-    return sync ? { ...baseQuery, sync } : baseQuery;
+    const baseQuery = auditLabel
+      ? scopePeriodLabel
+        ? { mode, auditId, auditLabel, scopePeriodLabel }
+        : { mode, auditId, auditLabel }
+      : scopePeriodLabel
+        ? { mode, auditId, scopePeriodLabel }
+        : { mode, auditId };
+    const queryWithPhase = phase ? { ...baseQuery, phase } : baseQuery;
+    return sync ? { ...queryWithPhase, sync } : queryWithPhase;
   }
 
   if (mode === "prototype") {
-    return sync
-      ? { mode: "prototype", auditLabel: "Prototype Demo Audit", sync }
+    const baseQuery = scopePeriodLabel
+      ? { mode: "prototype", auditLabel: "Prototype Demo Audit", scopePeriodLabel }
       : { mode: "prototype", auditLabel: "Prototype Demo Audit" };
+    const queryWithPhase = phase ? { ...baseQuery, phase } : baseQuery;
+    return sync ? { ...queryWithPhase, sync } : queryWithPhase;
   }
 
   return null;
@@ -292,6 +481,20 @@ function getCurrentAuditLabel(searchParams: ReturnType<typeof useSearchParams>) 
   return searchParams.get("auditLabel")?.trim() || "Live audit workspace";
 }
 
+function getCurrentScopePeriodLabel(searchParams: ReturnType<typeof useSearchParams>) {
+  return searchParams.get("scopePeriodLabel")?.trim() || null;
+}
+
+function getCurrentPhase(searchParams: ReturnType<typeof useSearchParams>) {
+  const phase = searchParams.get("phase");
+
+  if (phase === "Fieldwork" || phase === "Reporting") {
+    return phase;
+  }
+
+  return "Planning";
+}
+
 function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" | "CAE") {
   if (role === "MANAGER") {
     return [
@@ -300,6 +503,8 @@ function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" 
         title: "You have a new workpaper requiring review",
         detail: "D-07 Sanctions Alert Triage Workpaper is waiting on your manager decision.",
         time: "6 min ago",
+        status: "unread",
+        linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
         tone: "warning",
       },
       {
@@ -307,6 +512,8 @@ function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" 
         title: "One manager review item is still open",
         detail: "D-07 remains due today and is still waiting for your approve or send-back decision.",
         time: "24 min ago",
+        status: "unread",
+        linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
         tone: "warning",
       },
     ] as const;
@@ -318,6 +525,8 @@ function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" 
       title: "Your workpaper moved to manager review",
       detail: "D-07 Sanctions Alert Triage Workpaper cleared AIC review and is now waiting on manager sign-off.",
       time: "8 min ago",
+      status: "unread",
+      linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
       tone: "success",
     },
     {
@@ -325,7 +534,35 @@ function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" 
       title: "Your draft workpaper is ready to send",
       detail: "D-01 Access Review Workpaper is still in staff preparation and can be submitted to AIC review.",
       time: "31 min ago",
+      status: "unread",
+      linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
       tone: "warning",
     },
   ] as const;
 }
+
+function formatNotificationTime(value: string) {
+  const minutes = Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+type NotificationItem = {
+  detail: string;
+  id: string;
+  linkHref?: string | null;
+  status: "read" | "unread";
+  time: string;
+  title: string;
+  tone: "success" | "warning";
+};
