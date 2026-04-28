@@ -155,7 +155,7 @@ export function AuditHoursPlanner({
 
       {isModalOpen ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(1,30,65,0.42)] p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="flex min-h-full items-start justify-center py-4 sm:items-center">
+          <div className="flex min-h-full items-start justify-center py-2 sm:py-6">
             <div className="w-full max-w-5xl rounded-[30px] border border-black/5 bg-[#fbfaf7] p-6 text-[var(--foreground)] shadow-[0_24px_80px_rgba(1,30,65,0.22)] sm:p-8">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>

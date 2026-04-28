@@ -26,9 +26,9 @@ import {
 } from "@/lib/audit-logic";
 import {
   canUserSeeAllControls,
-  filterControlsForUser,
   getDefaultControlAudienceFilter,
   getDefaultScopeFilter,
+  isControlInScope,
   type ControlAudienceFilter,
   type ScopeFilter,
 } from "@/lib/control-visibility";
@@ -134,9 +134,20 @@ export function ControlTestingView({
     setScopeFilter(getDefaultScopeFilter(currentPhase));
   }, [currentPhase]);
 
+  useEffect(() => {
+    setOwnerFilter("ALL");
+  }, [activeUser.id]);
+
   const visibleControls = useMemo(
-    () => filterControlsForUser(controlRecords, activeUser, audienceFilter, scopeFilter),
-    [activeUser, audienceFilter, controlRecords, scopeFilter],
+    () =>
+      controlRecords.filter((control) => {
+        const matchesAudience =
+          audienceFilter === "ALL" || canUserSeeAllControls(activeUser) || isControlAssignedToUser(control, activeUser, users);
+        const matchesScope = scopeFilter === "ALL" || isControlInScope(control);
+
+        return matchesAudience && matchesScope;
+      }),
+    [activeUser, audienceFilter, controlRecords, scopeFilter, users],
   );
 
   const filteredControls = useMemo(() => {
@@ -162,7 +173,7 @@ export function ControlTestingView({
           matchesDueFilter &&
           (statusFilter === "ALL" || getDerivedControlStatus(control, getAuditContext(visibleControls, documentRows, questions, requests, users, currentNow)) === statusFilter) &&
           (riskFilter === "ALL" || getControlRiskLevel(control, getAuditContext(visibleControls, documentRows, questions, requests, users, currentNow)) === riskFilter) &&
-          (ownerFilter === "ALL" || control.ownerId === ownerFilter)
+          (ownerFilter === "ALL" || control.ownerId === ownerFilter || control.assignedOwnerId === ownerFilter)
         );
       })
       .sort((left, right) => {
@@ -294,6 +305,8 @@ export function ControlTestingView({
               ) : (
                 <FilterPill label="All audit controls" active />
               )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
               <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
             </div>
@@ -418,7 +431,7 @@ export function ControlTestingView({
           panelClassName="bottom-4 right-4 top-4 h-auto rounded-[20px] border border-black/5 border-l"
         >
           <div className="grid gap-4">
-            {mode === "live" ? (
+            {mode === "live" && canEditPlanningDecisions ? (
               <section className="rounded-[18px] border border-black/5 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -430,20 +443,13 @@ export function ControlTestingView({
                   </div>
                 </div>
 
-                {!canEditPlanningDecisions ? (
-                  <p className="mt-3 rounded-[14px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] text-[var(--muted)]">
-                    Planning decisions are read-only for staff. Switch to a manager, AIC, or director to update this setup.
-                  </p>
-                ) : null}
-
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <label className="grid gap-2">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Control owner</span>
                     <select
-                      disabled={!canEditPlanningDecisions}
                       value={planningForm.ownerId}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, ownerId: event.target.value }))}
-                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
                     >
                       <option value="">Unassigned</option>
                       {users.map((user) => (
@@ -457,34 +463,31 @@ export function ControlTestingView({
                   <label className="grid gap-2">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Due date</span>
                     <input
-                      disabled={!canEditPlanningDecisions}
                       type="date"
                       value={planningForm.dueDate}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, dueDate: event.target.value }))}
-                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
                     />
                   </label>
 
                   <label className="grid gap-2 md:col-span-2">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Budgeted hours</span>
                     <input
-                      disabled={!canEditPlanningDecisions}
                       type="number"
                       min="0"
                       step="0.25"
                       value={planningForm.plannedHours}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, plannedHours: event.target.value }))}
-                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
                     />
                   </label>
 
                   <label className="grid gap-2 md:col-span-2">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Scope decision</span>
                     <select
-                      disabled={!canEditPlanningDecisions}
                       value={planningForm.scopeStatus}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, scopeStatus: event.target.value as ControlScopeStatus }))}
-                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
                     >
                       <option value="IN_SCOPE">In scope</option>
                       <option value="OUT_OF_SCOPE">Out of scope</option>
@@ -506,9 +509,9 @@ export function ControlTestingView({
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    disabled={!canEditPlanningDecisions || isSaving || !auditId}
+                    disabled={isSaving || !auditId}
                     onClick={() => {
-                      if (!auditId || !canEditPlanningDecisions) {
+                      if (!auditId) {
                         return;
                       }
 
@@ -902,6 +905,28 @@ function getOwnerLabel(control: Control | null, users: User[]) {
   }
 
   return getControlOwner(control, users) || "Unassigned";
+}
+
+function isControlAssignedToUser(control: Control, activeUser: User, users: User[]) {
+  const ownerCandidates = [control.ownerId, control.assignedOwnerId].filter(Boolean) as string[];
+  const normalizedActiveName = activeUser.name.trim().toLowerCase();
+  const normalizedActiveEmail = activeUser.email.trim().toLowerCase();
+
+  return ownerCandidates.some((ownerId) => {
+    if (ownerId === activeUser.id) {
+      return true;
+    }
+
+    const matchedUser = users.find((user) => user.id === ownerId);
+    if (!matchedUser) {
+      return false;
+    }
+
+    return (
+      matchedUser.name.trim().toLowerCase() === normalizedActiveName ||
+      matchedUser.email.trim().toLowerCase() === normalizedActiveEmail
+    );
+  });
 }
 
 function toDateInputValue(value?: string) {

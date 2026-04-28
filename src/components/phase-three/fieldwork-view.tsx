@@ -12,15 +12,10 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
 import { getQuestionDisplayStatus, getRequestDisplayStatus } from "@/lib/audit-logic";
 import {
-  canUserSeeAllControls,
   filterControlsForUser,
   filterDocumentsForControls,
   filterQuestionsForControls,
   filterRequestsForControls,
-  getDefaultControlAudienceFilter,
-  getDefaultScopeFilter,
-  type ControlAudienceFilter,
-  type ScopeFilter,
 } from "@/lib/control-visibility";
 import { sanitizeDraftMarkdown, type NarrativePreviewSection } from "@/lib/planning-narrative/format";
 import type { FieldworkViewModel } from "@/lib/fieldwork-data";
@@ -28,6 +23,11 @@ import { formatDateTime, formatShortDate } from "@/lib/utils";
 import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
 
 const workflowStages: DocumentReviewStatus[] = ["NOT_SUBMITTED", "AIC_REVIEW", "MANAGER_REVIEW", "DIRECTOR_REVIEW", "APPROVED"];
+const allAuditUser = {
+  id: "ALL_AUDIT",
+  name: "All Audit Controls",
+  role: "DIRECTOR" as const,
+};
 
 type FieldworkArtifactDraftResponse = {
   draft: {
@@ -65,41 +65,30 @@ export function FieldworkView({
 }: {
   viewModel: FieldworkViewModel;
 }) {
-  const { activeUser } = useActiveUser();
   const { showNotification } = useNotification();
   const [selectedId, setSelectedId] = useState<string>("");
   const [documentRows, setDocumentRows] = useState(viewModel.documents);
-  const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>(getDefaultControlAudienceFilter(activeUser));
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(getDefaultScopeFilter(viewModel.currentPhase));
   const [isTollgateCollapsed, setIsTollgateCollapsed] = useState(true);
 
   useEffect(() => {
     setDocumentRows(viewModel.documents);
   }, [viewModel.documents]);
 
-  useEffect(() => {
-    setAudienceFilter(getDefaultControlAudienceFilter(activeUser));
-  }, [activeUser]);
-
-  useEffect(() => {
-    setScopeFilter(getDefaultScopeFilter(viewModel.currentPhase));
-  }, [viewModel.currentPhase]);
-
   const visibleControls = useMemo(
-    () => filterControlsForUser(viewModel.controls, activeUser, audienceFilter, scopeFilter),
-    [activeUser, audienceFilter, scopeFilter, viewModel.controls],
+    () => filterControlsForUser(viewModel.controls, allAuditUser, "ALL", "IN_SCOPE"),
+    [viewModel.controls],
   );
   const visibleQuestions = useMemo(
-    () => filterQuestionsForControls(viewModel.questions, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, viewModel.questions, visibleControls],
+    () => filterQuestionsForControls(viewModel.questions, visibleControls, allAuditUser, "ALL"),
+    [viewModel.questions, visibleControls],
   );
   const visibleRequests = useMemo(
-    () => filterRequestsForControls(viewModel.requests, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, viewModel.requests, visibleControls],
+    () => filterRequestsForControls(viewModel.requests, visibleControls, allAuditUser, "ALL"),
+    [viewModel.requests, visibleControls],
   );
   const visibleDocuments = useMemo(
-    () => filterDocumentsForControls(documentRows, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, documentRows, visibleControls],
+    () => filterDocumentsForControls(documentRows, visibleControls, allAuditUser, "ALL"),
+    [documentRows, visibleControls],
   );
   const fieldworkDocuments = useMemo(
     () =>
@@ -140,19 +129,6 @@ export function FieldworkView({
         currentPhase={viewModel.currentPhase}
         pagePhase="Fieldwork"
       />
-
-      <section className="flex flex-wrap items-center gap-2">
-        {!canUserSeeAllControls(activeUser) ? (
-          <>
-            <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
-            <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
-          </>
-        ) : (
-          <FilterPill label="All audit controls" active />
-        )}
-        <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
-        <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
-      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<FileSearch size={18} />} label="Tracked documents" value={`${fieldworkDocuments.length}`} detail="Workpapers and evidence currently active in fieldwork." tone="neutral" />
@@ -815,30 +791,6 @@ function FieldworkTollgateCard({
         </>
       ) : null}
     </article>
-  );
-}
-
-function FilterPill({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-        active
-          ? "border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-core)] text-white"
-          : "border-black/5 bg-white text-[var(--muted)]"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 

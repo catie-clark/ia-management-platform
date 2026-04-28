@@ -18,6 +18,7 @@ export const users: User[] = [
   { id: "U5", name: "Mia Chen", email: "mia.chen@mfcorp.com", role: "STAFF", team: "Internal Audit" },
   { id: "U6", name: "Noah Bennett", email: "noah.bennett@mfcorp.com", role: "STAFF", team: "Internal Audit" },
   { id: "U7", name: "Sofia Ramirez", email: "sofia.ramirez@mfcorp.com", role: "STAFF", team: "Internal Audit" },
+  { id: "U8", name: "Avery Collins", email: "avery.collins@mfcorp.com", role: "STAFF", team: "Finance Lead" },
 ];
 
 export const controls: Control[] = [
@@ -171,7 +172,7 @@ export const questions: Question[] = [
     id: "Q-01",
     controlId: "C-101",
     askedBy: "Priya Shah",
-    assignedTo: "Finance Lead",
+    assignedTo: "Avery Collins",
     dateSent: "2026-04-09T14:00:00.000Z",
     dueDate: "2026-04-11T14:00:00.000Z",
     status: "OPEN",
@@ -260,7 +261,7 @@ export const requests: Request[] = [
     id: "R-01",
     controlId: "C-101",
     description: "Provide access review evidence",
-    assignedTo: "Finance Lead",
+    assignedTo: "Avery Collins",
     dateRequested: "2026-04-10T12:00:00.000Z",
     dueDate: "2026-04-14T12:00:00.000Z",
     status: "OPEN",

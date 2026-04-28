@@ -1,12 +1,11 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, Bot, ChevronDown, Copy, FileText, Layers3, ShieldAlert } from "lucide-react";
+import { ArrowRight, Bot, ChevronDown, Copy, FileText, Layers3, ShieldAlert, X } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-card";
-import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { sanitizeDraftMarkdown } from "@/lib/planning-narrative/format";
@@ -162,7 +161,7 @@ export function PlanningView({
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[1.25fr_0.75fr]">
         <section className="grid content-start gap-3 self-start">
-          <section className="flex h-[760px] flex-col rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+          <section className="relative flex h-[760px] flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Planning inputs</p>
@@ -238,6 +237,75 @@ export function PlanningView({
                 </tbody>
               </table>
             </div>
+
+            {selectedSource ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close planning input detail"
+                  onClick={() => setSelectedSourceId("")}
+                  className="absolute inset-0 z-10 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
+                />
+                <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-xl flex-col border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[-24px_0_60px_rgba(1,30,65,0.12)]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Planning input detail</p>
+                      <h3 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{`${selectedSource.id} · ${selectedSource.title}`}</h3>
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        Planning input detail shows what the source actually contains and how the team intends to use it in scope formation.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSourceId("")}
+                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div className="mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
+                    <div className="grid gap-6">
+                      <section className="grid gap-4 md:grid-cols-2">
+                        <InputInfoCard label="Source type" value={selectedSource.sourceType.replaceAll("_", " ")} />
+                        <InputInfoCard label="Document/data kind" value={selectedSource.dataKind.replaceAll("_", " ")} />
+                        <InputInfoCard label="Artifact name" value={selectedSource.artifactName} />
+                        <InputInfoCard label="Owner" value={selectedSource.owner} />
+                        <InputInfoCard label="Refresh cadence" value={formatCadence(selectedSource.refreshCadence)} />
+                        <InputInfoCard label="Last updated" value={formatDateTime(selectedSource.lastUpdated)} />
+                      </section>
+
+                      <section className="rounded-[24px] border border-black/5 bg-white p-5">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Planning use</p>
+                        <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">{selectedSource.planningUse}</p>
+                      </section>
+
+                      <section className="rounded-[24px] border border-black/5 bg-white p-5">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Key fields expected in the input</p>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {selectedSource.keyFields.map((field) => (
+                            <StatusBadge key={field} status={field} tone="neutral" />
+                          ))}
+                        </div>
+                      </section>
+
+                      <section className="rounded-[24px] border border-black/5 bg-white p-5">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+                          {isLiveAudit ? "Loaded input details" : "Generated sample input content"}
+                        </p>
+                        <div className="mt-4 grid gap-3">
+                          {selectedSource.sampleDetails.map((detail) => (
+                            <div key={detail} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+                              {detail}
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </aside>
+              </>
+            ) : null}
           </section>
 
           <PlanningArtifactCard
@@ -384,52 +452,6 @@ export function PlanningView({
         </section>
       </div>
 
-      {selectedSource ? (
-        <DetailPanel
-          title={`${selectedSource.id} Â· ${selectedSource.title}`}
-          subtitle="Planning input detail shows what the source actually contains and how the team intends to use it in scope formation."
-          open={Boolean(selectedSource)}
-          onClose={() => setSelectedSourceId("")}
-        >
-          <div className="grid gap-6">
-            <section className="grid gap-4 md:grid-cols-2">
-              <InputInfoCard label="Source type" value={selectedSource.sourceType.replaceAll("_", " ")} />
-              <InputInfoCard label="Document/data kind" value={selectedSource.dataKind.replaceAll("_", " ")} />
-              <InputInfoCard label="Artifact name" value={selectedSource.artifactName} />
-              <InputInfoCard label="Owner" value={selectedSource.owner} />
-              <InputInfoCard label="Refresh cadence" value={formatCadence(selectedSource.refreshCadence)} />
-              <InputInfoCard label="Last updated" value={formatDateTime(selectedSource.lastUpdated)} />
-            </section>
-
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Planning use</p>
-              <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">{selectedSource.planningUse}</p>
-            </section>
-
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Key fields expected in the input</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {selectedSource.keyFields.map((field) => (
-                  <StatusBadge key={field} status={field} tone="neutral" />
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-                {isLiveAudit ? "Loaded input details" : "Generated sample input content"}
-              </p>
-              <div className="mt-4 grid gap-3">
-                {selectedSource.sampleDetails.map((detail) => (
-                  <div key={detail} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
-                    {detail}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-        </DetailPanel>
-      ) : null}
     </div>
   );
 

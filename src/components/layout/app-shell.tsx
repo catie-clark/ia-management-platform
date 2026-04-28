@@ -29,6 +29,7 @@ const preferredSwitcherUserIds: Partial<Record<(typeof switcherRoleOrder)[number
   DIRECTOR: "U4",
   AIC: "U1",
 };
+const additionalSwitcherUserIds = ["U8"] as const;
 
 const navItems = [
   { href: "/dashboard", label: "Executive Dashboard", icon: LayoutDashboard },
@@ -45,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isLandingPage = pathname === "/";
-  const demoUsers = useMemo(() => selectSwitcherUsers(users), []);
+  const demoUsers = useMemo(() => selectSwitcherUsers(users, users), []);
   const [availableUsers, setAvailableUsers] = useState<User[]>(demoUsers);
   const [activeUserId, setActiveUserId] = useState("U2");
   const [showNotifications, setShowNotifications] = useState(false);
@@ -87,7 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const nextUsers = selectSwitcherUsers(payload.users ?? []);
+        const nextUsers = selectSwitcherUsers(payload.users ?? [], users);
         if (!nextUsers.length) {
           return;
         }
@@ -312,7 +313,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       </span>
                       <span className="hidden sm:block">
                         <span className="block text-[13px] font-semibold text-white">{activeUser.name}</span>
-                        <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">{activeUser.role}</span>
+                        <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">{getUserProfileLabel(activeUser)}</span>
                       </span>
                     </button>
                   </div>
@@ -422,7 +423,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           >
                             <span>
                               <span className="block text-sm font-semibold text-white">{user.name}</span>
-                              <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">{user.role}</span>
+                              <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">{getUserProfileLabel(user)}</span>
                             </span>
                             {activeUser.id === user.id ? (
                               <span className="rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-amber-bright)]">
@@ -593,13 +594,43 @@ function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" 
   ] as const;
 }
 
-function selectSwitcherUsers(userPool: User[]) {
-  return switcherRoleOrder
+function selectSwitcherUsers(userPool: User[], supplementalUsers: User[] = []) {
+  const mergedUsers = [...userPool];
+
+  for (const supplementalUser of supplementalUsers) {
+    const existingIndex = mergedUsers.findIndex((user) => user.id === supplementalUser.id);
+
+    if (existingIndex >= 0) {
+      mergedUsers[existingIndex] = {
+        ...mergedUsers[existingIndex],
+        team: supplementalUser.team ?? mergedUsers[existingIndex]!.team,
+        email: supplementalUser.email || mergedUsers[existingIndex]!.email,
+        name: supplementalUser.name || mergedUsers[existingIndex]!.name,
+      };
+      continue;
+    }
+
+    mergedUsers.push(supplementalUser);
+  }
+
+  const roleBasedUsers = switcherRoleOrder
     .map((role) => {
       const preferredId = preferredSwitcherUserIds[role];
-      return userPool.find((user) => user.role === role && user.id === preferredId) ?? userPool.find((user) => user.role === role);
+      return mergedUsers.find((user) => user.role === role && user.id === preferredId) ?? mergedUsers.find((user) => user.role === role);
     })
     .filter((user): user is User => Boolean(user));
+
+  const additionalUsers = additionalSwitcherUserIds
+    .map((userId) => mergedUsers.find((user) => user.id === userId))
+    .filter((user): user is User => {
+      if (!user) {
+        return false;
+      }
+
+      return !roleBasedUsers.some((existingUser) => existingUser.id === user.id);
+    });
+
+  return [...roleBasedUsers, ...additionalUsers];
 }
 
 function formatNotificationTime(value: string) {
@@ -616,6 +647,14 @@ function formatNotificationTime(value: string) {
 
   const days = Math.round(hours / 24);
   return `${days}d ago`;
+}
+
+function getUserProfileLabel(user: User) {
+  if (user.team && user.team !== "Internal Audit") {
+    return user.team;
+  }
+
+  return user.role;
 }
 
 type NotificationItem = {

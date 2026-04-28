@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowDownUp, ArrowRight, CircleHelp, Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ArrowDownUp, ArrowRight, CircleHelp, Plus, Search, Upload, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -21,16 +21,12 @@ import {
   shouldShowReminder,
 } from "@/lib/audit-logic";
 import {
-  canUserSeeAllControls,
-  filterControlsForUser,
   filterDocumentsForControls,
   filterQuestionsForControls,
   filterRequestsForControls,
-  getDefaultControlAudienceFilter,
-  getDefaultScopeFilter,
-  type ControlAudienceFilter,
-  type ScopeFilter,
+  matchesStakeholderUser,
 } from "@/lib/control-visibility";
+import { mapDocument, type AuditDocumentRow } from "@/lib/live-audit";
 import { getQuestionLogNow } from "@/lib/question-log-data";
 import type { DashboardMode } from "@/lib/live-audit";
 import { formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
@@ -43,7 +39,7 @@ const dueFilterOptions: DueFilter[] = ["ALL", "OVERDUE", "NEXT_48_HOURS", "NEXT_
 const questionSortOptions: QuestionSort[] = ["DUE_ASC", "DUE_DESC", "AGE_DESC", "ASSIGNED_TO_ASC", "STATUS_ASC"];
 const phaseTagOptions: AuditPhase[] = ["Planning", "Fieldwork", "Reporting"];
 const stakeholderRoleOptions = [
-  "Finance Lead",
+  "Avery Collins",
   "IT Ops Lead",
   "Treasury Manager",
   "Consumer Lending Manager",
@@ -87,16 +83,16 @@ export function QuestionLogView({
   const [isPending, startTransition] = useTransition();
   const [questionRows, setQuestionRows] = useState<Question[]>(questions);
   const [requestRows, setRequestRows] = useState<Request[]>(requests);
+  const [documentRows, setDocumentRows] = useState<AuditDocument[]>(documents);
   const [selectedId, setSelectedId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<Question["status"] | "ALL">("ALL");
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
   const [sortBy, setSortBy] = useState<QuestionSort>("DUE_ASC");
-  const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>(getDefaultControlAudienceFilter(activeUser));
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(getDefaultScopeFilter(currentPhase));
   const [isCreating, setIsCreating] = useState(false);
   const [followUpTarget, setFollowUpTarget] = useState<{ parentQuestionId?: string; parentRequestId?: string } | null>(null);
   const [responseDraft, setResponseDraft] = useState("");
+  const questionAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const currentNow = useMemo(() => getQuestionLogNow(mode), [mode]);
   const [assignedToFilter, setAssignedToFilter] = useState<string>("ALL");
   const [askedByFilter, setAskedByFilter] = useState<string>("ALL");
@@ -112,37 +108,24 @@ export function QuestionLogView({
   }, [requests]);
 
   useEffect(() => {
-    setAudienceFilter(getDefaultControlAudienceFilter(activeUser));
-  }, [activeUser]);
+    setDocumentRows(documents);
+  }, [documents]);
 
-  useEffect(() => {
-    setScopeFilter(getDefaultScopeFilter(currentPhase));
-  }, [currentPhase]);
-
-  const visibleControls = useMemo(
-    () => filterControlsForUser(controls, activeUser, audienceFilter, scopeFilter),
-    [activeUser, audienceFilter, controls, scopeFilter],
-  );
+  const visibleControls = useMemo(() => controls, [controls]);
   const visibleRequests = useMemo(
-    () => filterRequestsForControls(requestRows, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, requestRows, visibleControls],
+    () => filterRequestsForControls(requestRows, visibleControls, activeUser, "ALL"),
+    [activeUser, requestRows, visibleControls],
   );
   const visibleQuestions = useMemo(
-    () => filterQuestionsForControls(questionRows, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, questionRows, visibleControls],
+    () => filterQuestionsForControls(questionRows, visibleControls, activeUser, "ALL"),
+    [activeUser, questionRows, visibleControls],
   );
   const visibleDocuments = useMemo(
-    () => filterDocumentsForControls(documents, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, documents, visibleControls],
+    () => filterDocumentsForControls(documentRows, visibleControls, activeUser, "ALL"),
+    [activeUser, documentRows, visibleControls],
   );
   const controlLabelById = useMemo(() => new Map(controls.map((control) => [control.id, getControlLabel(control)])), [controls]);
-  const createControlOptions = useMemo(
-    () =>
-      canUserSeeAllControls(activeUser)
-        ? visibleControls
-        : filterControlsForUser(controls, activeUser, "ASSIGNED", scopeFilter),
-    [activeUser, controls, scopeFilter, visibleControls],
-  );
+  const createControlOptions = useMemo(() => controls, [controls]);
   const stakeholderOptions = useMemo(
     () => Array.from(new Set([...stakeholderRoleOptions, ...visibleQuestions.map((question) => question.assignedTo)])),
     [visibleQuestions],
@@ -180,6 +163,26 @@ export function QuestionLogView({
   const [isCreatingRequest, setIsCreatingRequest] = useState(false);
   const [requestFollowUpTarget, setRequestFollowUpTarget] = useState<{ parentQuestionId?: string; parentRequestId?: string } | null>(null);
   const [requestForm, setRequestForm] = useState(defaultRequestForm);
+  const questionAssigneeOptions = useMemo(
+    () => Array.from(new Set([...stakeholderOptions, form.assignedTo].filter(Boolean))),
+    [form.assignedTo, stakeholderOptions],
+  );
+  const requestAssigneeOptions = useMemo(
+    () => Array.from(new Set([...requestOwners, requestForm.assignedTo].filter(Boolean))),
+    [requestForm.assignedTo, requestOwners],
+  );
+  const questionControlOptions = useMemo(() => {
+    const selectedControl = controls.find((control) => control.id === form.controlId);
+    return selectedControl && !createControlOptions.some((control) => control.id === selectedControl.id)
+      ? [...createControlOptions, selectedControl]
+      : createControlOptions;
+  }, [controls, createControlOptions, form.controlId]);
+  const requestControlOptions = useMemo(() => {
+    const selectedControl = controls.find((control) => control.id === requestForm.controlId);
+    return selectedControl && !createControlOptions.some((control) => control.id === selectedControl.id)
+      ? [...createControlOptions, selectedControl]
+      : createControlOptions;
+  }, [controls, createControlOptions, requestForm.controlId]);
 
   useEffect(() => {
     setForm(defaultQuestionForm);
@@ -262,9 +265,7 @@ export function QuestionLogView({
   const selectedQuestion = visibleQuestions.find((question) => question.id === selectedId) ?? null;
   const selectedQuestionIdFromUrl = searchParams.get("questionId");
   const canCreateInLiveMode = mode === "live" && Boolean(auditId);
-  const canRespondToQuestion = selectedQuestion
-    ? selectedQuestion.assignedTo === activeUser.name || ["MANAGER", "DIRECTOR"].includes(activeUser.role)
-    : false;
+  const canRespondToQuestion = selectedQuestion ? matchesStakeholderUser(activeUser, selectedQuestion.assignedTo) : false;
 
   useEffect(() => {
     if (selectedQuestionIdFromUrl && visibleQuestions.some((question) => question.id === selectedQuestionIdFromUrl)) {
@@ -322,12 +323,6 @@ export function QuestionLogView({
   function handleCreateQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const askedByUser = users.find((user) => user.id === form.askedByUserId);
-
-    if (!askedByUser) {
-      return;
-    }
-
     if (canCreateInLiveMode && auditId) {
       startTransition(async () => {
         try {
@@ -368,6 +363,8 @@ export function QuestionLogView({
       });
       return;
     }
+
+    const askedByUser = users.find((user) => user.id === form.askedByUserId) ?? activeUser;
 
     const nextId = `Q-${String(questionRows.length + 1).padStart(2, "0")}`;
     const nextQuestion: Question = {
@@ -442,6 +439,70 @@ export function QuestionLogView({
           : question,
       ),
     );
+  }
+
+  function triggerQuestionAttachmentUpload() {
+    questionAttachmentInputRef.current?.click();
+  }
+
+  function handleQuestionAttachmentSelection(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+
+    if (!selectedQuestion || files.length === 0) {
+      event.target.value = "";
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const nextDocuments =
+          mode === "live" && auditId
+            ? await Promise.all(
+                files.map(async (file) => {
+                  const payload = new FormData();
+                  payload.set("file", file);
+                  payload.set("controlId", selectedQuestion.controlId);
+                  payload.set("fileName", file.name);
+                  payload.set("ownerUserId", activeUser.id);
+                  payload.set("questionId", selectedQuestion.id);
+                  const response = await fetch(`/api/audits/${auditId}/response-attachments`, {
+                    method: "POST",
+                    body: payload,
+                  });
+                  const result = (await response.json()) as (AuditDocumentRow & { error?: string }) | { error?: string };
+
+                  if (!response.ok) {
+                    throw new Error("error" in result ? result.error ?? "Unable to attach file." : "Unable to attach file.");
+                  }
+
+                  return mapDocument(result as AuditDocumentRow);
+                }),
+              )
+            : files.map((file, index) => createPrototypeResponseAttachmentDocument({
+                file,
+                linkedControlId: selectedQuestion.controlId,
+                linkedQuestionId: selectedQuestion.id,
+                ownerId: activeUser.id,
+                now: currentNow,
+                ordinal: documentRows.length + index,
+              }));
+
+        setDocumentRows((current) => [...current, ...nextDocuments]);
+        showNotification({
+          title: files.length === 1 ? "File attached" : "Files attached",
+          message: files.length === 1 ? `${files[0]?.name} was linked to this question.` : `${files.length} files were linked to this question.`,
+          tone: "success",
+        });
+      } catch (error) {
+        showNotification({
+          title: "Upload failed",
+          message: error instanceof Error ? error.message : "Unable to attach the selected file.",
+          tone: "error",
+        });
+      } finally {
+        event.target.value = "";
+      }
+    });
   }
 
   function openQuestionFollowUp(question: Question) {
@@ -549,18 +610,6 @@ export function QuestionLogView({
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex w-full flex-col gap-3 lg:max-w-xl">
-            <div className="flex flex-wrap items-center gap-2">
-              {!canUserSeeAllControls(activeUser) ? (
-                <>
-                  <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
-                  <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
-                </>
-              ) : (
-                <FilterPill label="All audit controls" active />
-              )}
-              <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
-              <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
-            </div>
             <div className="relative w-full">
               <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
               <input
@@ -758,7 +807,7 @@ export function QuestionLogView({
                 onChange={(event) => setForm((current) => ({ ...current, assignedTo: event.target.value }))}
                 className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
               >
-                {stakeholderOptions.map((option) => (
+                {questionAssigneeOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -782,7 +831,7 @@ export function QuestionLogView({
               onChange={(event) => setForm((current) => ({ ...current, controlId: event.target.value }))}
               className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
             >
-              {createControlOptions.map((control) => (
+              {questionControlOptions.map((control) => (
                 <option key={control.id} value={control.id}>
                   {getControlLabel(control)} - {control.name}
                 </option>
@@ -863,7 +912,7 @@ export function QuestionLogView({
                 onChange={(event) => setRequestForm((current) => ({ ...current, assignedTo: event.target.value }))}
                 className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
               >
-                {requestOwners.map((option) => (
+                {requestAssigneeOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -888,7 +937,7 @@ export function QuestionLogView({
               onChange={(event) => setRequestForm((current) => ({ ...current, controlId: event.target.value }))}
               className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
             >
-              {createControlOptions.map((control) => (
+              {requestControlOptions.map((control) => (
                 <option key={control.id} value={control.id}>
                   {getControlLabel(control)} - {control.name}
                 </option>
@@ -1019,6 +1068,13 @@ export function QuestionLogView({
                   Save the tagged person&apos;s response directly from the question panel.
                 </p>
                 <form className="mt-4 grid gap-4" onSubmit={handleSubmitResponse}>
+                  <input
+                    ref={questionAttachmentInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleQuestionAttachmentSelection}
+                    className="hidden"
+                  />
                   <textarea
                     required
                     rows={5}
@@ -1027,7 +1083,16 @@ export function QuestionLogView({
                     className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
                     placeholder="Type the response for this question"
                   />
-                  <div className="flex justify-end">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={triggerQuestionAttachmentUpload}
+                      disabled={isPending}
+                      className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Upload size={15} />
+                      Upload file
+                    </button>
                     <button
                       type="submit"
                       disabled={isPending || responseDraft.trim().length === 0}
@@ -1289,4 +1354,54 @@ function renderFollowUpRows(followUps: { questions: Question[]; requests: Reques
       ))}
     </>
   );
+}
+
+function createPrototypeResponseAttachmentDocument({
+  file,
+  linkedControlId,
+  linkedQuestionId,
+  ownerId,
+  now,
+  ordinal,
+}: {
+  file: File;
+  linkedControlId?: string;
+  linkedQuestionId?: string;
+  ownerId: string;
+  now: string;
+  ordinal: number;
+}): AuditDocument {
+  return {
+    id: `response-attachment-question-${ordinal + 1}`,
+    type: "EVIDENCE",
+    title: file.name,
+    linkedControlId,
+    linkedQuestionId,
+    ownerId,
+    status: "COMPLETE",
+    previewSummary: `Attached from the question response panel on ${formatDateTime(now)}.`,
+    previewSections: [
+      {
+        heading: "Attachment metadata",
+        body: [
+          `File name: ${file.name}`,
+          `File size: ${formatFileSize(file.size)}`,
+          `File type: ${file.type || "Unknown"}`,
+        ],
+      },
+    ],
+    updatedAt: now,
+  };
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
 }

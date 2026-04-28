@@ -37,7 +37,7 @@ export function filterControlsForUser(
 export function filterQuestionsForControls(
   questions: Question[],
   visibleControls: Control[],
-  user: Pick<User, "name" | "role">,
+  user: Pick<User, "name" | "role" | "team">,
   audienceFilter: ControlAudienceFilter,
 ) {
   if (audienceFilter === "ALL" || canUserSeeAllControls(user)) {
@@ -45,13 +45,18 @@ export function filterQuestionsForControls(
   }
 
   const visibleControlIds = new Set(visibleControls.map((control) => control.id));
-  return questions.filter((question) => visibleControlIds.has(question.controlId) || question.askedBy === user.name || question.assignedTo === user.name);
+  return questions.filter(
+    (question) =>
+      visibleControlIds.has(question.controlId) ||
+      matchesStakeholderUser(user, question.askedBy) ||
+      matchesStakeholderUser(user, question.assignedTo),
+  );
 }
 
 export function filterRequestsForControls(
   requests: Request[],
   visibleControls: Control[],
-  user: Pick<User, "name" | "role">,
+  user: Pick<User, "name" | "role" | "team">,
   audienceFilter: ControlAudienceFilter,
 ) {
   if (audienceFilter === "ALL" || canUserSeeAllControls(user)) {
@@ -59,7 +64,9 @@ export function filterRequestsForControls(
   }
 
   const visibleControlIds = new Set(visibleControls.map((control) => control.id));
-  return requests.filter((request) => (request.controlId ? visibleControlIds.has(request.controlId) : false) || request.assignedTo === user.name);
+  return requests.filter(
+    (request) => (request.controlId ? visibleControlIds.has(request.controlId) : false) || matchesStakeholderUser(user, request.assignedTo),
+  );
 }
 
 export function filterDocumentsForControls(
@@ -78,4 +85,16 @@ export function filterDocumentsForControls(
 
 export function normalizeControlScopeStatus(value: string | null | undefined): ControlScopeStatus {
   return value?.trim().toUpperCase() === "OUT_OF_SCOPE" ? "OUT_OF_SCOPE" : "IN_SCOPE";
+}
+
+export function matchesStakeholderUser(user: Pick<User, "name" | "team">, stakeholderName: string) {
+  const normalizedStakeholder = normalizeStakeholderValue(stakeholderName);
+  const normalizedUserName = normalizeStakeholderValue(user.name);
+  const normalizedUserTeam = normalizeStakeholderValue(user.team);
+
+  return normalizedStakeholder.length > 0 && (normalizedStakeholder === normalizedUserName || normalizedStakeholder === normalizedUserTeam);
+}
+
+function normalizeStakeholderValue(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? "";
 }
