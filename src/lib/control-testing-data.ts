@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import { getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
+import { normalizeAuditPhase } from "@/lib/audit-phase";
 import {
   type AuditDocumentRow,
   type AuditRecord,
@@ -17,8 +18,9 @@ import {
   mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
+import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { controls } from "@/lib/data/mock-data";
-import type { AuditDocument, Control, Question, Request, User } from "@/types/audit";
+import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
 
 type RiskControlLinkRow = {
   control_id: string | null;
@@ -36,6 +38,7 @@ export type ControlTestingViewModel = {
   auditLabel: string;
   auditPeriodLabel: string;
   controls: Control[];
+  currentPhase: AuditPhase;
   documents: AuditDocument[];
   mode: DashboardMode;
   questions: Question[];
@@ -72,7 +75,8 @@ export async function getControlTestingViewModel({
     auditLabel: "Prototype Demo Audit",
     auditPeriodLabel: "Static sample data",
     controls: syncedHours.controls,
-    documents,
+    currentPhase: "Fieldwork",
+    documents: mapControlTestingDocuments(normalizeAuditDocuments({ controls, documents, questions, requests, users })),
     mode: "prototype",
     questions,
     requests,
@@ -124,7 +128,7 @@ async function getLiveControlTestingViewModel({
       .returns<RequestRow[]>(),
     supabase
       .from("audit_documents")
-      .select("id, document_type, title, control_id, question_id, request_id, owner_user_id, status, due_date, template_name")
+      .select("id, document_type, title, control_id, question_id, request_id, owner_user_id, status, due_date, template_name, source_payload, updated_at")
       .eq("audit_id", auditId)
       .returns<AuditDocumentRow[]>(),
     supabase.from("users").select("id, full_name, email, role, team").order("full_name", { ascending: true }).returns<UserRow[]>(),
@@ -162,6 +166,9 @@ async function getLiveControlTestingViewModel({
   }
 
   const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap, relatedRisksByControlId));
+  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const liveUsers = Array.from(userMap.values());
   const syncedHours = getSyncedHoursData({
     budgetByPhase: [],
     controls: liveControls,
@@ -177,11 +184,20 @@ async function getLiveControlTestingViewModel({
         ? formatAuditScopePeriod(auditResult.data)
         : "Saved audit",
     controls: syncedHours.controls,
-    documents: (documentsResult.data ?? []).map(mapDocument),
+    currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
+    documents: mapControlTestingDocuments(
+      normalizeAuditDocuments({
+        controls: liveControls,
+        documents: (documentsResult.data ?? []).map(mapDocument),
+        questions: liveQuestions,
+        requests: liveRequests,
+        users: liveUsers,
+      }),
+    ),
     mode: "live" as const,
-    questions: mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap),
-    requests: mapRequestsWithDisplayIds(requestsResult.data ?? []),
-    users: Array.from(userMap.values()),
+    questions: liveQuestions,
+    requests: liveRequests,
+    users: liveUsers,
   };
 }
 
@@ -192,9 +208,9 @@ async function getControlTestingAuditRecord(
   try {
     return await supabase
       .from("audits")
-      .select("id, name, period_start, period_end, scope_period_start, scope_period_end")
+      .select("id, name, active_phase, period_start, period_end, scope_period_start, scope_period_end")
       .eq("id", auditId)
-      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end">>();
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "active_phase" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end">>();
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("scope_period_start")) {
       throw error;
@@ -202,12 +218,22 @@ async function getControlTestingAuditRecord(
 
     return supabase
       .from("audits")
-      .select("id, name, period_start, period_end")
+      .select("id, name, active_phase, period_start, period_end")
       .eq("id", auditId)
-      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end">>();
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "active_phase" | "period_start" | "period_end">>();
   }
 }
 
 export function getControlTestingNow(mode: DashboardMode) {
   return mode === "prototype" ? mockNow : new Date().toISOString();
+}
+
+function mapControlTestingDocuments(documentRows: AuditDocument[]) {
+  return documentRows
+    .slice()
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((document, index) => ({
+      ...document,
+      displayId: document.displayId ?? `D-${String(index + 1).padStart(2, "0")}`,
+    }));
 }

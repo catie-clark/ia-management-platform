@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getReportingViewModel } from "@/lib/reporting-data";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getReportArtifactSourceRecordKey } from "@/lib/reporting-persistence";
 import { upsertReportArtifactDocument } from "@/lib/reporting-persistence";
 
 const artifactKeySchema = z.enum(["FINAL_REPORT", "REPORTING_TOLLGATE"]);
@@ -82,6 +84,54 @@ export async function PATCH(request: Request, context: { params: Promise<{ audit
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unable to save the reporting artifact.",
+      },
+      { status: 400 },
+    );
+  }
+}
+
+export async function DELETE(_request: Request, context: { params: Promise<{ auditId: string; artifactKey: string }> }) {
+  try {
+    const { auditId, artifactKey: rawArtifactKey } = await context.params;
+    const artifactKey = artifactKeySchema.parse(rawArtifactKey);
+    const supabase = createSupabaseAdminClient();
+    const sourceRecordKey = getReportArtifactSourceRecordKey(artifactKey, auditId);
+
+    const { error: commentError } = await supabase
+      .from("report_review_comments")
+      .delete()
+      .eq("audit_id", auditId)
+      .eq("artifact_key", artifactKey);
+
+    if (commentError) {
+      throw new Error(commentError.message);
+    }
+
+    const { error: stageError } = await supabase
+      .from("report_review_stages")
+      .delete()
+      .eq("audit_id", auditId)
+      .eq("artifact_key", artifactKey);
+
+    if (stageError) {
+      throw new Error(stageError.message);
+    }
+
+    const { error: documentError } = await supabase
+      .from("audit_documents")
+      .delete()
+      .eq("audit_id", auditId)
+      .eq("source_record_key", sourceRecordKey);
+
+    if (documentError) {
+      throw new Error(documentError.message);
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to reset the reporting artifact.",
       },
       { status: 400 },
     );

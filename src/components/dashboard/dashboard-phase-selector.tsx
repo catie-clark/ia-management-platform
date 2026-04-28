@@ -34,7 +34,7 @@ export function DashboardPhaseSelector({
         className,
       )}
     >
-      <span className={cn("text-[10px] uppercase tracking-[0.22em] text-[var(--muted)]", labelClassName)}>Demo phase</span>
+      <span className={cn("text-[10px] uppercase tracking-[0.22em] text-[var(--muted)]", labelClassName)}>Current phase</span>
       <span className="relative min-w-[132px]">
         <select
           value={phase}

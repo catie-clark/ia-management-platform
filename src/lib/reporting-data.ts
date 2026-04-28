@@ -2,7 +2,6 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { controls, documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import {
   type AuditDocumentRow,
-  type AuditFindingRow,
   type AuditRecord,
   type BusinessUnitRow,
   type ControlRow,
@@ -15,18 +14,18 @@ import {
   formatAuditScopePeriod,
   mapControl,
   mapDocument,
-  mapFindingsWithDisplayIds,
   mapQuestionsWithDisplayIds,
   mapReportReviewComment,
   mapReportReviewStage,
   mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
+import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import {
   buildArtifactDraft,
-  buildPrototypeFindings,
   buildPrototypeReviewComments,
   buildPrototypeReviewStages,
+  buildReportingResults,
   createReportDraftMarkdown,
   createReportingTollgateMarkdown,
   defaultReportReviewRoles,
@@ -34,11 +33,11 @@ import {
   getReportReadinessMessage,
   getResultsSummaryCards,
   reportArtifactConfigs,
+  type ReportingResultItem,
 } from "@/lib/reporting";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
 import type {
   AuditDocument,
-  AuditFinding,
   AuditPhase,
   Question,
   ReportArtifactKey,
@@ -80,24 +79,25 @@ export type ReportingViewModel = {
   auditLabel: string;
   auditPeriodLabel: string;
   auditStatus: string;
-  currentPhase: AuditPhase;
-  mode: DashboardMode;
-  users: User[];
   controls: ReturnType<typeof mapControl>[];
-  findings: AuditFinding[];
-  questions: Question[];
-  requests: Request[];
+  currentPhase: AuditPhase;
   documents: AuditDocument[];
-  summaryCards: ReportingSummaryCard[];
   finalReportDraft: ReportingArtifactDraft;
-  reportingTollgateDraft: ReportingArtifactDraft;
-  reportWorkflow: ReportReviewStage[];
-  tollgateWorkflow: ReportReviewStage[];
+  mode: DashboardMode;
+  questions: Question[];
   reportComments: ReportReviewComment[];
-  tollgateComments: ReportReviewComment[];
   reportReadinessMessage: string;
-  tollgateReadinessMessage: string;
+  reportWorkflow: ReportReviewStage[];
+  reportingResults: ReportingResultItem[];
+  reportingTollgateDraft: ReportingArtifactDraft;
   reviewRoles: typeof defaultReportReviewRoles;
+  summaryCards: ReportingSummaryCard[];
+  tollgateComments: ReportReviewComment[];
+  tollgateReadinessMessage: string;
+  tollgateWorkflow: ReportReviewStage[];
+  users: User[];
+  requests: Request[];
+  now: string;
 };
 
 export async function getReportingViewModel({
@@ -117,27 +117,35 @@ export async function getReportingViewModel({
 }
 
 function getPrototypeReportingViewModel(auditLabel?: string): ReportingViewModel {
-  const prototypeFindings = buildPrototypeFindings(controls);
-  const finalReportDocument = getArtifactDocument(documents, "FINAL_REPORT", "REPORT");
-  const reportingTollgateDocument = getArtifactDocument(documents, "REPORTING_TOLLGATE", "TOLLGATE");
-  const summaryCards = getResultsSummaryCards({
+  const prototypeDocuments = mapReportingDocuments(normalizeAuditDocuments({ controls, documents, questions, requests, users }));
+  const reportingResults = buildReportingResults({
     controls,
-    findings: prototypeFindings,
+    documents: prototypeDocuments,
     now: mockNow,
     questions,
     requests,
-    documents,
+    users,
+  });
+  const finalReportDocument = getArtifactDocument(prototypeDocuments, "FINAL_REPORT", "REPORT");
+  const reportingTollgateDocument = getArtifactDocument(prototypeDocuments, "REPORTING_TOLLGATE", "TOLLGATE");
+  const summaryCards = getResultsSummaryCards({
+    documents: prototypeDocuments,
+    now: mockNow,
+    questions,
+    requests,
+    results: reportingResults,
   });
   const finalReportDraft = createArtifactDraft({
     artifactKey: "FINAL_REPORT",
     auditLabel: auditLabel ?? "Prototype Demo Audit",
     controls,
     currentDocument: finalReportDocument,
-    fallbackSummary: "Draft report shell prepared from prototype execution data.",
-    findings: prototypeFindings,
+    documents: prototypeDocuments,
+    fallbackSummary: "Draft final report shell prepared from prototype fieldwork results.",
     now: mockNow,
     questions,
     requests,
+    results: reportingResults,
     titleFallback: reportArtifactConfigs.FINAL_REPORT.title,
     users,
   });
@@ -146,11 +154,12 @@ function getPrototypeReportingViewModel(auditLabel?: string): ReportingViewModel
     auditLabel: auditLabel ?? "Prototype Demo Audit",
     controls,
     currentDocument: reportingTollgateDocument,
-    fallbackSummary: "Draft reporting tollgate shell prepared from prototype execution data.",
-    findings: prototypeFindings,
+    documents: prototypeDocuments,
+    fallbackSummary: "Draft reporting tollgate shell prepared from prototype fieldwork results.",
     now: mockNow,
     questions,
     requests,
+    results: reportingResults,
     titleFallback: reportArtifactConfigs.REPORTING_TOLLGATE.title,
     users,
   });
@@ -164,24 +173,25 @@ function getPrototypeReportingViewModel(auditLabel?: string): ReportingViewModel
     auditLabel: auditLabel ?? "Prototype Demo Audit",
     auditPeriodLabel: "Static sample data",
     auditStatus: "prototype",
-    currentPhase: "Reporting",
-    mode: "prototype",
-    users,
     controls,
-    findings: prototypeFindings,
-    questions,
-    requests,
-    documents,
-    summaryCards,
+    currentPhase: "Reporting",
+    documents: prototypeDocuments,
     finalReportDraft,
-    reportingTollgateDraft,
-    reportWorkflow,
-    tollgateWorkflow,
+    mode: "prototype",
+    questions,
     reportComments,
-    tollgateComments,
     reportReadinessMessage: getReportReadinessMessage(reportWorkflow, reportComments.filter((comment) => comment.status !== "RESOLVED")),
-    tollgateReadinessMessage: getReportReadinessMessage(tollgateWorkflow, []),
+    reportWorkflow,
+    reportingResults,
+    reportingTollgateDraft,
     reviewRoles: defaultReportReviewRoles,
+    summaryCards,
+    tollgateComments,
+    tollgateReadinessMessage: getReportReadinessMessage(tollgateWorkflow, []),
+    tollgateWorkflow,
+    users,
+    requests,
+    now: mockNow,
   };
 }
 
@@ -195,7 +205,6 @@ async function getLiveReportingViewModel(auditId: string, auditLabel?: string): 
     documentsResult,
     usersResult,
     businessUnitsResult,
-    findingsResult,
     reviewStagesResult,
     reviewCommentsResult,
   ] = await Promise.all([
@@ -222,7 +231,6 @@ async function getLiveReportingViewModel(auditId: string, auditLabel?: string): 
       .returns<AuditDocumentRow[]>(),
     supabase.from("users").select("id, full_name, email, role, team").returns<UserRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitRow[]>(),
-    selectAuditFindings(supabase, auditId),
     selectReportReviewStages(supabase, auditId),
     selectReportReviewComments(supabase, auditId),
   ]);
@@ -262,29 +270,44 @@ async function getLiveReportingViewModel(auditId: string, auditLabel?: string): 
   const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
   const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
   const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
-  const liveDocuments = (documentsResult.data ?? []).map(mapDocument);
-  const liveFindings = mapFindingsWithDisplayIds(findingsResult.data ?? []);
+  const liveDocuments = mapReportingDocuments(
+    normalizeAuditDocuments({
+      controls: liveControls,
+      documents: (documentsResult.data ?? []).map(mapDocument),
+      questions: liveQuestions,
+      requests: liveRequests,
+      users: liveUsers,
+    }),
+  );
   const reviewStages = (reviewStagesResult.data ?? []).map(mapReportReviewStage);
   const reviewComments = (reviewCommentsResult.data ?? []).map(mapReportReviewComment);
   const now = new Date().toISOString();
-  const summaryCards = getResultsSummaryCards({
+  const reportingResults = buildReportingResults({
     controls: liveControls,
-    findings: liveFindings,
+    documents: liveDocuments,
     now,
     questions: liveQuestions,
     requests: liveRequests,
+    users: liveUsers,
+  });
+  const summaryCards = getResultsSummaryCards({
     documents: liveDocuments,
+    now,
+    questions: liveQuestions,
+    requests: liveRequests,
+    results: reportingResults,
   });
   const finalReportDraft = createArtifactDraft({
     artifactKey: "FINAL_REPORT",
     auditLabel: audit?.name ?? auditLabel ?? "Live audit workspace",
     controls: liveControls,
     currentDocument: getArtifactDocument(liveDocuments, "FINAL_REPORT", "REPORT"),
-    fallbackSummary: "Draft final report ready to be generated from live audit data.",
-    findings: liveFindings,
+    documents: liveDocuments,
+    fallbackSummary: "Draft final report ready to be generated from current fieldwork results.",
     now,
     questions: liveQuestions,
     requests: liveRequests,
+    results: reportingResults,
     titleFallback: reportArtifactConfigs.FINAL_REPORT.title,
     users: liveUsers,
   });
@@ -293,16 +316,17 @@ async function getLiveReportingViewModel(auditId: string, auditLabel?: string): 
     auditLabel: audit?.name ?? auditLabel ?? "Live audit workspace",
     controls: liveControls,
     currentDocument: getArtifactDocument(liveDocuments, "REPORTING_TOLLGATE", "TOLLGATE"),
-    fallbackSummary: "Draft reporting tollgate ready to be generated from live audit data.",
-    findings: liveFindings,
+    documents: liveDocuments,
+    fallbackSummary: "Draft reporting tollgate ready to be generated from current fieldwork results.",
     now,
     questions: liveQuestions,
     requests: liveRequests,
+    results: reportingResults,
     titleFallback: reportArtifactConfigs.REPORTING_TOLLGATE.title,
     users: liveUsers,
   });
-  const reportWorkflow = ensureWorkflowShape(reviewStages.filter((stage) => stage.artifactKey === "FINAL_REPORT"), "FINAL_REPORT");
-  const tollgateWorkflow = ensureWorkflowShape(reviewStages.filter((stage) => stage.artifactKey === "REPORTING_TOLLGATE"), "REPORTING_TOLLGATE");
+  const reportWorkflow = ensureWorkflowShape(reviewStages.filter((stage) => stage.artifactKey === "FINAL_REPORT"));
+  const tollgateWorkflow = ensureWorkflowShape(reviewStages.filter((stage) => stage.artifactKey === "REPORTING_TOLLGATE"));
   const reportComments = reviewComments.filter((comment) => comment.artifactKey === "FINAL_REPORT");
   const tollgateComments = reviewComments.filter((comment) => comment.artifactKey === "REPORTING_TOLLGATE");
 
@@ -311,24 +335,25 @@ async function getLiveReportingViewModel(auditId: string, auditLabel?: string): 
     auditLabel: audit?.name ?? auditLabel ?? "Live audit workspace",
     auditPeriodLabel: audit ? formatAuditScopePeriod(audit) : "Saved audit",
     auditStatus: audit?.status ?? "active",
-    currentPhase: normalizeAuditPhase(audit?.active_phase),
-    mode: "live",
-    users: liveUsers,
     controls: liveControls,
-    findings: liveFindings,
-    questions: liveQuestions,
-    requests: liveRequests,
+    currentPhase: normalizeAuditPhase(audit?.active_phase),
     documents: liveDocuments,
-    summaryCards,
     finalReportDraft,
-    reportingTollgateDraft,
-    reportWorkflow,
-    tollgateWorkflow,
+    mode: "live",
+    questions: liveQuestions,
     reportComments,
-    tollgateComments,
     reportReadinessMessage: getReportReadinessMessage(reportWorkflow, reportComments.filter((comment) => comment.status !== "RESOLVED")),
-    tollgateReadinessMessage: getReportReadinessMessage(tollgateWorkflow, tollgateComments.filter((comment) => comment.status !== "RESOLVED")),
+    reportWorkflow,
+    reportingResults,
+    reportingTollgateDraft,
     reviewRoles: defaultReportReviewRoles,
+    summaryCards,
+    tollgateComments,
+    tollgateReadinessMessage: getReportReadinessMessage(tollgateWorkflow, tollgateComments.filter((comment) => comment.status !== "RESOLVED")),
+    tollgateWorkflow,
+    users: liveUsers,
+    requests: liveRequests,
+    now,
   };
 }
 
@@ -352,22 +377,6 @@ async function getLiveReportingAuditRecord(
       .select("id, name, status, active_phase, period_start, period_end")
       .eq("id", auditId)
       .maybeSingle<AuditPhaseRecord>();
-  }
-}
-
-async function selectAuditFindings(supabase: ReturnType<typeof createSupabaseAdminClient>, auditId: string) {
-  try {
-    return await supabase
-      .from("audit_findings")
-      .select("id, audit_id, control_id, title, summary, severity, status, owner_user_id, due_date, impact_statement, recommendation, management_response, created_at, updated_at")
-      .eq("audit_id", auditId)
-      .returns<AuditFindingRow[]>();
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("audit_findings")) {
-      return { data: [] as AuditFindingRow[], error: null };
-    }
-
-    throw error;
   }
 }
 
@@ -406,12 +415,8 @@ async function selectReportReviewComments(supabase: ReturnType<typeof createSupa
   }
 }
 
-function ensureWorkflowShape(stages: ReportReviewStage[], artifactKey: ReportArtifactKey) {
-  if (stages.length > 0) {
-    return stages;
-  }
-
-  return buildPrototypeReviewStages(artifactKey);
+function ensureWorkflowShape(stages: ReportReviewStage[]) {
+  return stages;
 }
 
 function createArtifactDraft({
@@ -419,11 +424,12 @@ function createArtifactDraft({
   auditLabel,
   controls,
   currentDocument,
+  documents,
   fallbackSummary,
-  findings,
   now,
   questions,
   requests,
+  results,
   titleFallback,
   users,
 }: {
@@ -431,18 +437,19 @@ function createArtifactDraft({
   auditLabel: string;
   controls: ReturnType<typeof mapControl>[];
   currentDocument?: AuditDocument;
+  documents: AuditDocument[];
   fallbackSummary: string;
-  findings: AuditFinding[];
   now: string;
   questions: Question[];
   requests: Request[];
+  results: ReportingResultItem[];
   titleFallback: string;
   users: User[];
-}): ReportingArtifactDraft {
+}) {
   const generatedMarkdown =
     artifactKey === "FINAL_REPORT"
-      ? createReportDraftMarkdown({ auditLabel, controls, findings, now, questions, requests, users })
-      : createReportingTollgateMarkdown({ auditLabel, controls, findings, now, questions, requests, users });
+      ? createReportDraftMarkdown({ auditLabel, controls, documents, now, questions, requests, results, users })
+      : createReportingTollgateMarkdown({ auditLabel, controls, documents, now, questions, requests, results, users });
   const savedMarkdown = readGeneratedMarkdown(currentDocument);
   const draft = buildArtifactDraft(savedMarkdown || generatedMarkdown, fallbackSummary);
 
@@ -466,4 +473,14 @@ function readGeneratedMarkdown(document?: AuditDocument) {
 
   const candidate = document as AuditDocument & { generatedMarkdown?: string };
   return candidate.generatedMarkdown ?? "";
+}
+
+function mapReportingDocuments(documentRows: AuditDocument[]) {
+  return documentRows
+    .slice()
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((document, index) => ({
+      ...document,
+      displayId: document.displayId ?? (document.type === "WORKPAPER" || document.type === "EVIDENCE" ? `D-${String(index + 1).padStart(2, "0")}` : document.displayId),
+    }));
 }

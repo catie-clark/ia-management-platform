@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowRight, ClipboardCheck, FilePenLine, FileSearch, Link2, Send, Workflow } from "lucide-react";
+import { ArrowRight, ClipboardCheck, FileSearch, Link2, Workflow } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
@@ -10,72 +9,130 @@ import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-c
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
 import { getQuestionDisplayStatus, getRequestDisplayStatus } from "@/lib/audit-logic";
+import {
+  canUserSeeAllControls,
+  filterControlsForUser,
+  filterDocumentsForControls,
+  filterQuestionsForControls,
+  filterRequestsForControls,
+  getDefaultControlAudienceFilter,
+  getDefaultScopeFilter,
+  type ControlAudienceFilter,
+  type ScopeFilter,
+} from "@/lib/control-visibility";
+import { sanitizeDraftMarkdown, type NarrativePreviewSection } from "@/lib/planning-narrative/format";
 import type { FieldworkViewModel } from "@/lib/fieldwork-data";
-import { getEmptyWorkpaperContent } from "@/lib/workpaper-content";
-import { cn, formatDateTime, formatShortDate } from "@/lib/utils";
-import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, User, WorkpaperContent } from "@/types/audit";
+import { formatDateTime, formatShortDate } from "@/lib/utils";
+import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
 
 const workflowStages: DocumentReviewStatus[] = ["NOT_SUBMITTED", "AIC_REVIEW", "MANAGER_REVIEW", "DIRECTOR_REVIEW", "APPROVED"];
+
+type FieldworkArtifactDraftResponse = {
+  draft: {
+    documentId: string | null;
+    generatedAt: string;
+    markdown: string;
+    missingRequiredTokens: string[];
+    ownerName: string | null;
+    ownerRole: string | null;
+    previewSections: NarrativePreviewSection[];
+    previewSummary: string;
+    reviewComment: string | null;
+    reviewCommentAuthor: string | null;
+    reviewCommentDate: string | null;
+    reviewStatus: string;
+    status: string;
+    templateName: string | null;
+    title: string;
+  } | null;
+};
+
+type FieldworkArtifactReviewResponse = {
+  draft: {
+    reviewComment: string | null;
+    reviewCommentAuthor: string | null;
+    reviewCommentDate: string | null;
+    reviewStatus: string;
+    status: string;
+    updatedAt: string;
+  };
+};
 
 export function FieldworkView({
   viewModel,
 }: {
   viewModel: FieldworkViewModel;
 }) {
-  const router = useRouter();
   const { activeUser } = useActiveUser();
   const { showNotification } = useNotification();
-  const [isPending, startUiTransition] = useTransition();
   const [selectedId, setSelectedId] = useState<string>("");
-  const [reviewComment, setReviewComment] = useState("");
   const [documentRows, setDocumentRows] = useState(viewModel.documents);
-  const [workpaperDraft, setWorkpaperDraft] = useState<WorkpaperContent>(getEmptyWorkpaperContent());
+  const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>(getDefaultControlAudienceFilter(activeUser));
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(getDefaultScopeFilter(viewModel.currentPhase));
+  const [isTollgateCollapsed, setIsTollgateCollapsed] = useState(true);
 
   useEffect(() => {
     setDocumentRows(viewModel.documents);
   }, [viewModel.documents]);
 
+  useEffect(() => {
+    setAudienceFilter(getDefaultControlAudienceFilter(activeUser));
+  }, [activeUser]);
+
+  useEffect(() => {
+    setScopeFilter(getDefaultScopeFilter(viewModel.currentPhase));
+  }, [viewModel.currentPhase]);
+
+  const visibleControls = useMemo(
+    () => filterControlsForUser(viewModel.controls, activeUser, audienceFilter, scopeFilter),
+    [activeUser, audienceFilter, scopeFilter, viewModel.controls],
+  );
+  const visibleQuestions = useMemo(
+    () => filterQuestionsForControls(viewModel.questions, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, viewModel.questions, visibleControls],
+  );
+  const visibleRequests = useMemo(
+    () => filterRequestsForControls(viewModel.requests, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, viewModel.requests, visibleControls],
+  );
+  const visibleDocuments = useMemo(
+    () => filterDocumentsForControls(documentRows, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, documentRows, visibleControls],
+  );
   const fieldworkDocuments = useMemo(
     () =>
-      documentRows
+      visibleDocuments
         .filter((document) => document.type === "WORKPAPER" || document.type === "EVIDENCE")
         .sort((left, right) => {
           const leftTime = left.dueDate ? new Date(left.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
           const rightTime = right.dueDate ? new Date(right.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
           return leftTime - rightTime || left.title.localeCompare(right.title);
         }),
-    [documentRows],
+    [visibleDocuments],
   );
   const workpapers = useMemo(() => fieldworkDocuments.filter((document) => document.type === "WORKPAPER"), [fieldworkDocuments]);
   const selectedDocument = fieldworkDocuments.find((document) => document.id === selectedId) ?? null;
-  const linkedBlockers = selectedDocument ? getLinkedBlockers(selectedDocument, viewModel.controls, viewModel.questions, viewModel.requests, viewModel.now) : [];
-  const canPersist = viewModel.mode === "live" && Boolean(viewModel.auditId);
-  const canEditSelectedWorkpaper = Boolean(selectedDocument && selectedDocument.type === "WORKPAPER");
-
-  useEffect(() => {
-    if (!selectedDocument || selectedDocument.type !== "WORKPAPER") {
-      setWorkpaperDraft(getEmptyWorkpaperContent());
-      setReviewComment("");
-      return;
-    }
-
-    setWorkpaperDraft({
-      ...getEmptyWorkpaperContent(),
-      ...selectedDocument.workpaperContent,
-    });
-    setReviewComment("");
-  }, [selectedDocument]);
-
+  const linkedBlockers = selectedDocument ? getLinkedBlockers(selectedDocument, visibleControls, visibleQuestions, visibleRequests, viewModel.now) : [];
   const approvedCount = workpapers.filter((document) => document.reviewStatus === "APPROVED").length;
   const inReviewCount = workpapers.filter((document) => {
     const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
     return reviewStatus !== "APPROVED" && reviewStatus !== "NOT_SUBMITTED";
   }).length;
-  const atRiskCount = fieldworkDocuments.filter((document) => isAtRisk(document, linkedSignalsForDocument(document, viewModel.controls, viewModel.questions, viewModel.requests, viewModel.now), viewModel.now)).length;
+  const atRiskCount = fieldworkDocuments.filter((document) => isAtRisk(document, linkedSignalsForDocument(document, visibleControls, visibleQuestions, visibleRequests, viewModel.now), viewModel.now)).length;
 
   return (
-    <div className="grid gap-6">
+    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
+      <PageHeader
+        title="Fieldwork"
+        description="Fieldwork now keeps workpaper drafting and review inside the app so authors can complete, refine, and route execution support without a file handoff loop."
+        phaseStatus={{
+          label: viewModel.currentPhase === "Fieldwork" ? "Active" : `Current phase: ${viewModel.currentPhase}`,
+          active: viewModel.currentPhase === "Fieldwork",
+        }}
+      />
+
       <PhaseCompletionCard
         auditId={viewModel.auditId}
         auditLabel={viewModel.auditLabel}
@@ -84,16 +141,18 @@ export function FieldworkView({
         pagePhase="Fieldwork"
       />
 
-      <PageHeader
-        eyebrow="Phase 3"
-        title="Fieldwork"
-        scopePeriodLabel={viewModel.auditPeriodLabel}
-        description="Fieldwork now keeps workpaper drafting and review inside the app so authors can complete, refine, and route execution support without a file handoff loop."
-        phaseStatus={{
-          label: viewModel.currentPhase === "Fieldwork" ? "Active" : `Current phase: ${viewModel.currentPhase}`,
-          active: viewModel.currentPhase === "Fieldwork",
-        }}
-      />
+      <section className="flex flex-wrap items-center gap-2">
+        {!canUserSeeAllControls(activeUser) ? (
+          <>
+            <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
+            <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
+          </>
+        ) : (
+          <FilterPill label="All audit controls" active />
+        )}
+        <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
+        <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<FileSearch size={18} />} label="Tracked documents" value={`${fieldworkDocuments.length}`} detail="Workpapers and evidence currently active in fieldwork." tone="neutral" />
@@ -128,7 +187,7 @@ export function FieldworkView({
                           onClick={() => setSelectedId(document.id)}
                           className="rounded-[18px] bg-white px-4 py-3 text-left transition-transform duration-200 hover:-translate-y-0.5"
                         >
-                          <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id} · {document.title}</p>
+                          <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id} - {document.title}</p>
                           <p className="mt-1 text-sm text-[var(--muted)]">{getOwnerName(document.ownerId, viewModel.users)}</p>
                         </button>
                       ))
@@ -196,294 +255,263 @@ export function FieldworkView({
         </section>
       </div>
 
-      {selectedDocument ? (
+      <FieldworkTollgateCard
+        auditId={viewModel.auditId}
+        auditLabel={viewModel.auditLabel}
+        descriptionLive="Generate a fieldwork tollgate draft from the current fieldwork record so leadership can review findings support, evidence sufficiency, scope deviations, and readiness to move into reporting."
+        descriptionPrototype="Generation is only available for saved live audits because the fieldwork tollgate is built from live fieldwork records."
+        emptyPreviewMessage="No fieldwork tollgate has been generated yet. Use the action above to build a draft from the current fieldwork controls, workpapers, evidence, findings, questions, and requests."
+        isCollapsed={isTollgateCollapsed}
+        onToggleCollapsed={() => setIsTollgateCollapsed((current) => !current)}
+      />
+
+      {selectedDocument?.type === "WORKPAPER" ? (
+        <WorkpaperDetailPanel
+          auditId={viewModel.auditId}
+          controls={viewModel.controls}
+          document={selectedDocument}
+          mode={viewModel.mode}
+          now={viewModel.now}
+          onClose={() => setSelectedId("")}
+          onDocumentUpdated={(nextDocument) => {
+            setDocumentRows((current) => current.map((document) => (document.id === nextDocument.id ? nextDocument : document)));
+          }}
+          questions={viewModel.questions}
+          requests={viewModel.requests}
+          users={viewModel.users}
+        />
+      ) : null}
+
+      {selectedDocument?.type === "EVIDENCE" ? (
         <DetailPanel
-          title={`${selectedDocument.displayId ?? selectedDocument.id} · ${selectedDocument.title}`}
-          subtitle={
-            selectedDocument.type === "WORKPAPER"
-              ? "Structured workpaper editing, review routing, and blocker context now stay inside the fieldwork workspace."
-              : "Evidence remains inspectable here, but workpaper drafting and review are handled directly in the app."
-          }
+          title={`${selectedDocument.displayId ?? selectedDocument.id} - ${selectedDocument.title}`}
+          subtitle="Evidence remains inspectable here, but workpaper drafting and review are handled directly in the app."
           open={Boolean(selectedDocument)}
           onClose={() => setSelectedId("")}
-          panelClassName={selectedDocument.type === "WORKPAPER" ? "max-w-[72rem] bg-[#f8f6f1]" : undefined}
         >
-          {selectedDocument.type === "WORKPAPER" ? (
-            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="grid gap-6">
-                <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Structured editor</p>
-                      <p className="mt-2 text-sm text-[var(--muted)]">All authoring stays in this workspace. Save drafts as you go, then route the workpaper into review.</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSaveDraft}
-                        disabled={!canEditSelectedWorkpaper || isPending}
-                        className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <FilePenLine size={15} />
-                        Save draft
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleReviewAction("send_to_review")}
-                        disabled={!canEditSelectedWorkpaper || isPending || (selectedDocument.reviewStatus ?? "NOT_SUBMITTED") !== "NOT_SUBMITTED"}
-                        className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <Send size={15} />
-                        Send to AIC review
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 grid gap-4">
-                    <EditorField
-                      label="Summary"
-                      hint="Short framing statement for what this workpaper covers."
-                      value={workpaperDraft.summary}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, summary: value }))}
-                    />
-                    <EditorField
-                      label="Objective"
-                      value={workpaperDraft.objective}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, objective: value }))}
-                    />
-                    <EditorField
-                      label="Scope or population context"
-                      value={workpaperDraft.scope}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, scope: value }))}
-                    />
-                    <EditorField
-                      label="Procedures performed"
-                      value={workpaperDraft.procedures}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, procedures: value }))}
-                    />
-                    <EditorField
-                      label="Results or observations"
-                      value={workpaperDraft.results}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, results: value }))}
-                    />
-                    <EditorField
-                      label="Conclusion"
-                      value={workpaperDraft.conclusion}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, conclusion: value }))}
-                    />
-                    <EditorField
-                      label="Next step"
-                      value={workpaperDraft.nextSteps}
-                      onChange={(value) => setWorkpaperDraft((current) => ({ ...current, nextSteps: value }))}
-                    />
-                  </div>
-                </section>
-
-                <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Linked blockers and support context</p>
-                  <div className="mt-4 grid gap-3">
-                    {linkedBlockers.length > 0 ? (
-                      linkedBlockers.map((item) => (
-                        <div key={item.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-sm font-semibold text-[var(--foreground)]">{item.id} · {item.title}</p>
-                            <StatusBadge status={item.status} tone={item.tone} />
-                          </div>
-                          <p className="mt-1 text-sm text-[var(--muted)]">{item.detail}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-4 text-sm text-[var(--muted)]">
-                        No open linked blockers are attached to this workpaper.
-                      </div>
-                    )}
-                  </div>
-                </section>
-              </div>
-
-              <div className="grid gap-6">
-                <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Document context</p>
-                  <div className="mt-4 grid gap-4">
-                    <InfoCard label="Owner" value={getOwnerName(selectedDocument.ownerId, viewModel.users)} />
-                    <InfoCard label="Due date" value={selectedDocument.dueDate ? formatDateTime(selectedDocument.dueDate) : "Not set"} />
-                    <InfoCard label="Linked control" value={getLinkedControlLabel(selectedDocument, viewModel.controls)} />
-                    <InfoCard label="Review stage" value={formatReviewStatus(selectedDocument.reviewStatus ?? "NOT_SUBMITTED")} />
-                    <InfoCard label="Last update" value={selectedDocument.updatedAt ? formatDateTime(selectedDocument.updatedAt) : "Not saved yet"} />
-                  </div>
-                </section>
-
-                <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Review workflow</p>
-                  <div className="mt-4 grid gap-2">
-                    {workflowStages.map((stage, index) => {
-                      const currentIndex = workflowStages.indexOf(selectedDocument.reviewStatus ?? "NOT_SUBMITTED");
-                      const tone = index < currentIndex ? "success" : index === currentIndex ? "warning" : "neutral";
-                      return <StatusBadge key={stage} status={formatReviewStatus(stage)} tone={tone} className="justify-center py-2" />;
-                    })}
-                  </div>
-
-                  {canReview(selectedDocument.reviewStatus ?? "NOT_SUBMITTED", activeUser.role) ? (
-                    <div className="mt-4 rounded-[20px] bg-[var(--surface-tint)] p-4">
-                      <p className="text-sm font-semibold text-[var(--foreground)]">Review actions for {activeUser.name}</p>
-                      <textarea
-                        value={reviewComment}
-                        onChange={(event) => setReviewComment(event.target.value)}
-                        rows={4}
-                        placeholder="Optional approval note or required send-back comment."
-                        className="mt-3 w-full resize-none rounded-[18px] border border-black/5 bg-white px-4 py-3 text-sm text-[var(--foreground)] outline-none"
-                      />
-                      <div className="mt-4 flex flex-wrap gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleReviewAction("approve")}
-                          disabled={isPending}
-                          className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Approve and advance
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleReviewAction("send_back")}
-                          disabled={isPending || reviewComment.trim().length === 0}
-                          className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Send back
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {selectedDocument.reviewComment ? (
-                    <div className="mt-4 rounded-[20px] bg-[var(--surface-tint)] p-4">
-                      <p className="text-sm font-semibold text-[var(--foreground)]">Latest review note</p>
-                      <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">{selectedDocument.reviewComment}</p>
-                      <p className="mt-2 text-xs text-[var(--muted)]">
-                        {selectedDocument.reviewCommentAuthor ?? "Reviewer"}
-                        {selectedDocument.reviewCommentDate ? ` · ${formatDateTime(selectedDocument.reviewCommentDate)}` : ""}
-                      </p>
-                    </div>
-                  ) : null}
-                </section>
-              </div>
-            </div>
-          ) : (
-            <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
-          )}
+          <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
         </DetailPanel>
       ) : null}
     </div>
   );
+}
 
-  function handleSaveDraft() {
-    if (!selectedDocument || selectedDocument.type !== "WORKPAPER") {
+function FieldworkTollgateCard({
+  auditId,
+  auditLabel,
+  descriptionLive,
+  descriptionPrototype,
+  emptyPreviewMessage,
+  isCollapsed,
+  onToggleCollapsed,
+}: {
+  auditId: string | null;
+  auditLabel: string;
+  descriptionLive: string;
+  descriptionPrototype: string;
+  emptyPreviewMessage: string;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
+}) {
+  const { activeUser } = useActiveUser();
+  const { showNotification } = useNotification();
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
+  const [documentStatus, setDocumentStatus] = useState("");
+  const [draftDocumentId, setDraftDocumentId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [generatedAt, setGeneratedAt] = useState("");
+  const [markdown, setMarkdown] = useState("");
+  const [missingTokens, setMissingTokens] = useState<string[]>([]);
+  const [ownerName, setOwnerName] = useState<string | null>(null);
+  const [ownerRole, setOwnerRole] = useState<string | null>(null);
+  const [previewSections, setPreviewSections] = useState<NarrativePreviewSection[]>([]);
+  const [previewSummary, setPreviewSummary] = useState("");
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewCommentAuthor, setReviewCommentAuthor] = useState("");
+  const [reviewCommentDate, setReviewCommentDate] = useState("");
+  const [reviewInput, setReviewInput] = useState("");
+  const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus>("NOT_SUBMITTED");
+  const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
+
+  const isReviewLocked = isReviewStageLocked(reviewStatus);
+  const canReset = Boolean(draftTitle || markdown.trim().length > 0 || previewSections.length > 0);
+  const canExport = markdown.trim().length > 0;
+  const canSave = Boolean(auditId) && !isPending && markdown.trim().length > 0 && !isReviewLocked;
+  const hasPersistedDraft = Boolean(draftDocumentId || draftTitle || markdown.trim().length > 0);
+  const canSendToReview = Boolean(
+    auditId && draftDocumentId && activeUser.role === "AIC" && reviewStatus === "NOT_SUBMITTED" && markdown.trim().length > 0,
+  );
+  const canRouteToManagerStage = Boolean(draftDocumentId && reviewStatus === "NOT_SUBMITTED" && markdown.trim().length > 0);
+  const canApprove =
+    (reviewStatus === "MANAGER_REVIEW" && activeUser.role === "MANAGER") ||
+    (reviewStatus === "DIRECTOR_REVIEW" && activeUser.role === "DIRECTOR");
+  const canSendBack = canApprove;
+
+  const resetDraftState = () => {
+    setDocumentStatus("");
+    setDraftDocumentId(null);
+    setDraftTitle("");
+    setGeneratedAt("");
+    setMarkdown("");
+    setMissingTokens([]);
+    setOwnerName(null);
+    setOwnerRole(null);
+    setPreviewSections([]);
+    setPreviewSummary("");
+    setReviewComment("");
+    setReviewCommentAuthor("");
+    setReviewCommentDate("");
+    setReviewInput("");
+    setReviewStatus("NOT_SUBMITTED");
+    setViewMode("preview");
+  };
+
+  useEffect(() => {
+    if (!auditId) {
+      resetDraftState();
       return;
     }
 
-    if (!canPersist || !viewModel.auditId) {
-      setDocumentRows((current) =>
-        current.map((document) =>
-          document.id === selectedDocument.id
-            ? {
-                ...document,
-                previewSummary: workpaperDraft.summary || document.previewSummary,
-                reviewStatus: document.reviewStatus ?? "NOT_SUBMITTED",
-                status: document.status === "COMPLETE" ? "COMPLETE" : "IN_PROGRESS",
-                updatedAt: new Date().toISOString(),
-                workpaperContent: workpaperDraft,
-              }
-            : document,
-        ),
-      );
-      showNotification({
-        title: "Draft saved",
-        message: "The prototype workpaper was updated in local state.",
-        tone: "success",
-      });
-      return;
-    }
-
-    startUiTransition(async () => {
+    startTransition(async () => {
       try {
-        const response = await fetch(`/api/audits/${viewModel.auditId}/workpapers/${selectedDocument.id}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            content: workpaperDraft,
-          }),
-        });
-        const result = (await response.json()) as { error?: string };
+        setError("");
+        const response = await fetch(`/api/audits/${auditId}/fieldwork-tollgate`);
+        const result = (await response.json()) as FieldworkArtifactDraftResponse & { error?: string };
 
         if (!response.ok) {
-          throw new Error(result.error ?? "Unable to save the workpaper draft.");
+          throw new Error(result.error ?? "Unable to load the fieldwork tollgate draft.");
         }
 
-        setDocumentRows((current) =>
-          current.map((document) =>
-            document.id === selectedDocument.id
-              ? {
-                  ...document,
-                  previewSummary: workpaperDraft.summary || document.previewSummary,
-                  status: document.status === "COMPLETE" ? "COMPLETE" : "IN_PROGRESS",
-                  updatedAt: new Date().toISOString(),
-                  workpaperContent: workpaperDraft,
-                }
-              : document,
-          ),
-        );
+        if (!result.draft) {
+          resetDraftState();
+          return;
+        }
+
+        applyDraftState(result.draft);
+      } catch {
+        setError("Unable to load the fieldwork tollgate draft.");
+      }
+    });
+  }, [auditId]);
+
+  function applyDraftState(nextDraft: NonNullable<FieldworkArtifactDraftResponse["draft"]>) {
+    setDraftDocumentId(nextDraft.documentId);
+    setDraftTitle(nextDraft.title);
+    setDocumentStatus(nextDraft.status);
+    setGeneratedAt(nextDraft.generatedAt);
+    setMarkdown(nextDraft.markdown);
+    setMissingTokens(nextDraft.missingRequiredTokens);
+    setOwnerName(nextDraft.ownerName);
+    setOwnerRole(nextDraft.ownerRole);
+    setPreviewSections(nextDraft.previewSections);
+    setPreviewSummary(nextDraft.previewSummary);
+    setReviewComment(nextDraft.reviewComment ?? "");
+    setReviewCommentAuthor(nextDraft.reviewCommentAuthor ?? "");
+    setReviewCommentDate(nextDraft.reviewCommentDate ?? "");
+    setReviewStatus(normalizeDraftReviewStatus(nextDraft.reviewStatus));
+    setReviewInput("");
+    setViewMode("preview");
+  }
+
+  function exportDraft() {
+    try {
+      downloadDraftAsWord({
+        auditLabel,
+        label: "Fieldwork tollgate",
+        markdown: sanitizeDraftMarkdown(markdown),
+        previewSections,
+        previewSummary,
+      });
+      showNotification({
+        title: "Exported",
+        message: "Fieldwork tollgate draft exported as a Word document.",
+        tone: "success",
+      });
+    } catch {
+      showNotification({
+        title: "Export failed",
+        message: "There was an error exporting the fieldwork tollgate draft.",
+        tone: "error",
+      });
+    }
+  }
+
+  function generateDraft() {
+    startTransition(async () => {
+      try {
+        setError("");
+        const response = await fetch(`/api/audits/${auditId}/fieldwork-tollgate`, { method: "POST" });
+        const result = (await response.json()) as FieldworkArtifactDraftResponse & { error?: string };
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "Unable to generate the fieldwork tollgate.");
+        }
+
+        if (!result.draft) {
+          throw new Error("Fieldwork tollgate generation returned no draft.");
+        }
+
+        applyDraftState(result.draft);
         showNotification({
-          title: "Draft saved",
-          message: "The workpaper content was saved in the app.",
+          title: "Saved successfully",
+          message: "Fieldwork tollgate draft generated successfully.",
           tone: "success",
         });
-        router.refresh();
-      } catch (error) {
+      } catch {
+        setError("Unable to generate the fieldwork tollgate.");
         showNotification({
           title: "Save failed",
-          message: error instanceof Error ? error.message : "There was an error saving the workpaper.",
+          message: "There was an error generating the fieldwork tollgate draft.",
           tone: "error",
         });
       }
     });
   }
 
-  function handleReviewAction(action: "approve" | "send_back" | "send_to_review") {
-    if (!selectedDocument || selectedDocument.type !== "WORKPAPER") {
-      return;
-    }
-
-    if (!canPersist || !viewModel.auditId) {
-      const nextReviewStatus = getPrototypeNextReviewStatus(selectedDocument.reviewStatus ?? "NOT_SUBMITTED", action);
-      setDocumentRows((current) =>
-        current.map((document) =>
-          document.id === selectedDocument.id
-            ? {
-                ...document,
-                reviewComment: action === "send_back" ? reviewComment.trim() : undefined,
-                reviewCommentAuthor: action === "send_back" ? activeUser.name : undefined,
-                reviewCommentDate: action === "send_back" ? new Date().toISOString() : undefined,
-                reviewStatus: nextReviewStatus,
-                status: nextReviewStatus === "APPROVED" ? "COMPLETE" : "IN_PROGRESS",
-                updatedAt: new Date().toISOString(),
-                workpaperContent: workpaperDraft,
-              }
-            : document,
-        ),
-      );
-      setReviewComment("");
-      showNotification({
-        title: "Workflow updated",
-        message: getReviewSuccessMessage(action),
-        tone: "success",
-      });
-      return;
-    }
-
-    startUiTransition(async () => {
+  function saveDraftEdits() {
+    startTransition(async () => {
       try {
-        const response = await fetch(`/api/audits/${viewModel.auditId}/workpapers/${selectedDocument.id}/review`, {
+        setError("");
+        const response = await fetch(`/api/audits/${auditId}/fieldwork-tollgate`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ markdown }),
+        });
+        const result = (await response.json()) as FieldworkArtifactDraftResponse & { error?: string };
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "Unable to save the fieldwork tollgate.");
+        }
+
+        if (!result.draft) {
+          throw new Error("Fieldwork tollgate save returned no draft.");
+        }
+
+        applyDraftState(result.draft);
+        showNotification({
+          title: "Saved successfully",
+          message: "The fieldwork tollgate draft was saved successfully.",
+          tone: "success",
+        });
+      } catch {
+        setError("Unable to save the fieldwork tollgate.");
+        showNotification({
+          title: "Save failed",
+          message: "There was an error saving the fieldwork tollgate draft.",
+          tone: "error",
+        });
+      }
+    });
+  }
+
+  function handleReviewAction(action: "approve" | "send_back" | "submit") {
+    startTransition(async () => {
+      try {
+        setError("");
+        const response = await fetch(`/api/audits/${auditId}/fieldwork-tollgate/review`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
@@ -492,49 +520,326 @@ export function FieldworkView({
             action,
             actingRole: activeUser.role,
             actingUserName: activeUser.name,
-            comment: reviewComment,
-            content: workpaperDraft,
+            comment: action === "send_back" ? reviewInput.trim() : undefined,
           }),
         });
-        const result = (await response.json()) as { error?: string };
+        const result = (await response.json()) as FieldworkArtifactReviewResponse & { error?: string };
 
         if (!response.ok) {
-          throw new Error(result.error ?? "Unable to update the workpaper review workflow.");
+          throw new Error(result.error ?? "Unable to update the fieldwork tollgate review workflow.");
         }
 
-        const nextReviewStatus = getPrototypeNextReviewStatus(selectedDocument.reviewStatus ?? "NOT_SUBMITTED", action);
-        setDocumentRows((current) =>
-          current.map((document) =>
-            document.id === selectedDocument.id
-              ? {
-                  ...document,
-                  reviewComment: action === "send_back" ? reviewComment.trim() : undefined,
-                  reviewCommentAuthor: action === "send_back" ? activeUser.name : undefined,
-                  reviewCommentDate: action === "send_back" ? new Date().toISOString() : undefined,
-                  reviewStatus: nextReviewStatus,
-                  status: nextReviewStatus === "APPROVED" ? "COMPLETE" : "IN_PROGRESS",
-                  updatedAt: new Date().toISOString(),
-                  workpaperContent: workpaperDraft,
-                }
-              : document,
-          ),
-        );
-        setReviewComment("");
+        setDocumentStatus(result.draft.status);
+        setGeneratedAt(result.draft.updatedAt);
+        setReviewStatus(normalizeDraftReviewStatus(result.draft.reviewStatus));
+        setReviewComment(result.draft.reviewComment ?? "");
+        setReviewCommentAuthor(result.draft.reviewCommentAuthor ?? "");
+        setReviewCommentDate(result.draft.reviewCommentDate ?? "");
+        setReviewInput("");
+        setViewMode("preview");
         showNotification({
           title: "Workflow updated",
-          message: getReviewSuccessMessage(action),
+          message: getDraftReviewSuccessMessage("Fieldwork tollgate", action),
           tone: "success",
         });
-        router.refresh();
-      } catch (error) {
+      } catch {
+        setError("Unable to update the fieldwork tollgate review workflow.");
         showNotification({
           title: "Workflow update failed",
-          message: error instanceof Error ? error.message : "There was an error updating the workpaper review workflow.",
+          message: "There was an error updating the fieldwork tollgate review workflow.",
           tone: "error",
         });
       }
     });
   }
+
+  return (
+    <article className={`rounded-[28px] border border-black/5 bg-white shadow-[0_18px_50px_rgba(1,30,65,0.08)] ${isCollapsed ? "px-4 py-3" : "p-6"}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Fieldwork tollgate</p>
+          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-3 text-2xl"}`}>Generate fieldwork tollgate draft</h2>
+          <p className={isCollapsed ? "mt-1 text-sm leading-6 text-[var(--foreground)]" : "mt-3 text-sm leading-7 text-[var(--foreground)]"}>
+            {auditId ? descriptionLive : descriptionPrototype}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-start gap-3">
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
+            aria-label={isCollapsed ? "Expand fieldwork tollgate" : "Collapse fieldwork tollgate"}
+            aria-expanded={!isCollapsed}
+          >
+            <ArrowRight size={18} className={`transition-transform duration-200 ${isCollapsed ? "rotate-0" : "rotate-90"}`} />
+          </button>
+          {!isCollapsed ? (
+            <>
+              <button
+                type="button"
+                disabled={!auditId || isPending || isReviewLocked}
+                onClick={generateDraft}
+                className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isPending ? "Generating..." : hasPersistedDraft ? "Re-generate fieldwork tollgate" : "Generate tollgate"}
+              </button>
+              <button
+                type="button"
+                disabled={!auditId || isPending || !canReset || isReviewLocked}
+                onClick={() => {
+                  startTransition(async () => {
+                    try {
+                      setError("");
+                      const response = await fetch(`/api/audits/${auditId}/fieldwork-tollgate`, { method: "DELETE" });
+                      const result = (await response.json()) as FieldworkArtifactDraftResponse & { error?: string };
+
+                      if (!response.ok) {
+                        throw new Error(result.error ?? "Unable to reset the fieldwork tollgate.");
+                      }
+
+                      resetDraftState();
+                      showNotification({
+                        title: "Saved successfully",
+                        message: "The fieldwork tollgate draft was reset successfully.",
+                        tone: "success",
+                      });
+                    } catch {
+                      setError("Unable to reset the fieldwork tollgate draft.");
+                      showNotification({
+                        title: "Save failed",
+                        message: "There was an error resetting the fieldwork tollgate draft.",
+                        tone: "error",
+                      });
+                    }
+                  });
+                }}
+                className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isPending ? "Working..." : "Reset draft"}
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {!isCollapsed ? (
+        <>
+          <div className="mt-5 grid gap-3">
+            {generatedAt || draftTitle || documentStatus || ownerName || ownerRole ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+                {draftTitle ? <span>Saved draft: {draftTitle}</span> : null}
+                {documentStatus ? <span>{documentStatus.replaceAll("_", " ")}</span> : null}
+                {ownerName || ownerRole ? <span>Owner: {ownerName ?? "Assigned AIC"}{ownerRole ? ` (${ownerRole})` : ""}</span> : null}
+                {generatedAt ? <span>Updated {formatDateTime(generatedAt)}</span> : null}
+              </div>
+            ) : null}
+            {missingTokens.length > 0 ? (
+              <div className="rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+                Missing required template tokens: {missingTokens.join(", ")}
+              </div>
+            ) : null}
+            {isReviewLocked ? (
+              <div className="rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+                This draft is locked while it is in review.
+              </div>
+            ) : null}
+            {error ? (
+              <div className="rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
+                {error}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-5 grid gap-5">
+            <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="mr-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Draft workspace</p>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("preview")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      viewMode === "preview" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
+                    }`}
+                  >
+                    Formatted preview
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isReviewLocked}
+                    onClick={() => setViewMode("edit")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      viewMode === "edit" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
+                    }`}
+                  >
+                    Editable draft
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canExport}
+                    onClick={exportDraft}
+                    className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Export Word
+                  </button>
+                  {viewMode === "edit" ? (
+                    <button
+                      type="button"
+                      disabled={!canSave}
+                      onClick={saveDraftEdits}
+                      className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isPending ? "Saving..." : "Save edits"}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {viewMode === "edit" ? (
+                <textarea
+                  value={markdown}
+                  onChange={(event) => setMarkdown(event.target.value)}
+                  rows={18}
+                  placeholder="Generate a draft, then edit it here."
+                  className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none"
+                />
+              ) : previewSections.length > 0 ? (
+                <div className="mt-4 max-h-[520px] overflow-auto">
+                  {previewSummary ? (
+                    <div className="rounded-[18px] bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">
+                      {previewSummary}
+                    </div>
+                  ) : null}
+                  <div className="mt-4 grid gap-4">
+                    {previewSections.map((section, sectionIndex) => (
+                      <div key={`${section.heading}-${sectionIndex}`} className="rounded-[18px] bg-white px-4 py-4">
+                        <h3 className="text-base font-semibold text-[var(--foreground)]">{section.heading}</h3>
+                        <div className="mt-3 grid gap-3">
+                          {section.body.map((entry, entryIndex) =>
+                            entry.startsWith("- ") ? (
+                              <div key={`${section.heading}-${sectionIndex}-${entryIndex}`} className="flex gap-2 text-sm leading-7 text-[var(--foreground)]">
+                                <span className="pt-[0.35rem] text-[var(--muted)]">&bull;</span>
+                                <span>{entry.slice(2)}</span>
+                              </div>
+                            ) : (
+                              <p key={`${section.heading}-${sectionIndex}-${entryIndex}`} className="text-sm leading-7 text-[var(--foreground)]">
+                                {entry}
+                              </p>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{emptyPreviewMessage}</p>
+              )}
+            </section>
+
+            {draftDocumentId ? (
+              <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Review workflow</p>
+                    <p className="mt-2 text-sm text-[var(--foreground)]">
+                      The fieldwork tollgate is assigned to the AIC and routed from Fieldwork for manager and director approval.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <StatusBadge status={reviewStatus.replaceAll("_", " ")} tone={getReviewTone(reviewStatus)} />
+                    {ownerRole ? <StatusBadge status={`Owner ${ownerRole}`} tone="neutral" /> : null}
+                  </div>
+                </div>
+
+                {reviewComment ? (
+                  <div className="mt-4 rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+                    {reviewComment}
+                    {reviewCommentAuthor ? ` | ${reviewCommentAuthor}` : ""}
+                    {reviewCommentDate ? ` | ${formatDateTime(reviewCommentDate)}` : ""}
+                  </div>
+                ) : null}
+
+                {(reviewStatus === "NOT_SUBMITTED" || canSendBack) ? (
+                  <textarea
+                    value={reviewInput}
+                    onChange={(event) => setReviewInput(event.target.value)}
+                    rows={3}
+                    placeholder={reviewStatus === "NOT_SUBMITTED" ? "Optional routing note for the next reviewer." : "Required reviewer comment for send back."}
+                    className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-3 text-sm leading-6 text-[var(--foreground)] outline-none"
+                  />
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {canRouteToManagerStage ? (
+                    <button
+                      type="button"
+                      disabled={isPending || !canSendToReview}
+                      onClick={() => handleReviewAction("submit")}
+                      className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isPending ? "Working..." : "Send to manager review"}
+                    </button>
+                  ) : null}
+                  {canApprove ? (
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleReviewAction("approve")}
+                      className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isPending ? "Working..." : reviewStatus === "MANAGER_REVIEW" ? "Approve to director" : "Approve final"}
+                    </button>
+                  ) : null}
+                  {canSendBack ? (
+                    <button
+                      type="button"
+                      disabled={isPending || reviewInput.trim().length === 0}
+                      onClick={() => handleReviewAction("send_back")}
+                      className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isPending ? "Working..." : "Send back to AIC"}
+                    </button>
+                  ) : null}
+                </div>
+                {canRouteToManagerStage && !canSendToReview ? (
+                  <p className="mt-3 text-xs text-[var(--muted)]">
+                    Switch the active user to the assigned AIC to route this draft to manager review.
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+    </article>
+  );
+}
+
+function FilterPill({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        active
+          ? "border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-core)] text-white"
+          : "border-black/5 bg-white text-[var(--muted)]"
+      }`}
+    >
+      {label}
+    </button>
+  );
 }
 
 function MetricCard({
@@ -562,31 +867,6 @@ function MetricCard({
       </div>
       <p className="mt-3 text-sm text-[var(--muted)]">{detail}</p>
     </article>
-  );
-}
-
-function EditorField({
-  hint,
-  label,
-  onChange,
-  value,
-}: {
-  hint?: string;
-  label: string;
-  onChange: (value: string) => void;
-  value: string;
-}) {
-  return (
-    <label className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</span>
-      {hint ? <span className="text-xs text-[var(--muted)]">{hint}</span> : null}
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={label === "Summary" ? 3 : 5}
-        className="w-full resize-none rounded-[20px] border border-black/5 bg-[#fcfbf8] px-4 py-3 text-sm leading-6 text-[var(--foreground)] outline-none"
-      />
-    </label>
   );
 }
 
@@ -643,7 +923,7 @@ function EvidenceInspectPanel({
             linkedBlockers.map((item) => (
               <div key={item.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-[var(--foreground)]">{item.id} · {item.title}</p>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">{item.id} - {item.title}</p>
                   <StatusBadge status={item.status} tone={item.tone} />
                 </div>
                 <p className="mt-1 text-sm text-[var(--muted)]">{item.detail}</p>
@@ -662,20 +942,6 @@ function EvidenceInspectPanel({
 
 function getOwnerName(ownerId: string, users: User[]) {
   return users.find((user) => user.id === ownerId)?.name ?? ownerId;
-}
-
-function getLinkedControlLabel(document: AuditDocument, controls: Control[]) {
-  if (!document.linkedControlId) {
-    return "No linked control";
-  }
-
-  const control = controls.find((item) => item.id === document.linkedControlId);
-
-  if (!control) {
-    return document.linkedControlId;
-  }
-
-  return `${control.referenceId ?? control.id} · ${control.name}`;
 }
 
 function linkedSignalsForDocument(document: AuditDocument, controls: Control[], questions: Question[], requests: Request[], now: string) {
@@ -755,50 +1021,153 @@ function getReviewTone(status: DocumentReviewStatus): "neutral" | "warning" | "r
   return "warning";
 }
 
-function canReview(reviewStatus: DocumentReviewStatus, role: User["role"]) {
-  if (reviewStatus === "AIC_REVIEW") {
-    return role === "AIC";
+function normalizeDraftReviewStatus(status?: string | null): DocumentReviewStatus {
+  if (
+    status === "NOT_SUBMITTED" ||
+    status === "AIC_REVIEW" ||
+    status === "MANAGER_REVIEW" ||
+    status === "DIRECTOR_REVIEW" ||
+    status === "APPROVED"
+  ) {
+    return status;
   }
 
-  if (reviewStatus === "MANAGER_REVIEW") {
-    return role === "MANAGER";
-  }
-
-  if (reviewStatus === "DIRECTOR_REVIEW") {
-    return role === "DIRECTOR";
-  }
-
-  return false;
+  return "NOT_SUBMITTED";
 }
 
-function getPrototypeNextReviewStatus(currentReviewStatus: DocumentReviewStatus, action: "approve" | "send_back" | "send_to_review"): DocumentReviewStatus {
-  if (action === "send_to_review") {
-    return "AIC_REVIEW";
+function getDraftReviewSuccessMessage(label: string, action: "approve" | "send_back" | "submit") {
+  if (action === "submit") {
+    return `${label} was routed to manager review.`;
   }
 
   if (action === "send_back") {
-    return "NOT_SUBMITTED";
+    return `${label} was sent back to the AIC.`;
   }
 
-  if (currentReviewStatus === "AIC_REVIEW") {
-    return "MANAGER_REVIEW";
-  }
-
-  if (currentReviewStatus === "MANAGER_REVIEW") {
-    return "DIRECTOR_REVIEW";
-  }
-
-  return "APPROVED";
+  return `${label} advanced to the next review step.`;
 }
 
-function getReviewSuccessMessage(action: "approve" | "send_back" | "send_to_review") {
-  if (action === "send_to_review") {
-    return "The workpaper was routed to AIC review.";
-  }
+function isReviewStageLocked(status: DocumentReviewStatus) {
+  return status === "AIC_REVIEW" || status === "MANAGER_REVIEW" || status === "DIRECTOR_REVIEW";
+}
 
-  if (action === "send_back") {
-    return "The workpaper was sent back with reviewer comment.";
-  }
+function downloadDraftAsWord({
+  auditLabel,
+  label,
+  markdown,
+  previewSections,
+  previewSummary,
+}: {
+  auditLabel: string;
+  label: string;
+  markdown: string;
+  previewSections: NarrativePreviewSection[];
+  previewSummary: string;
+}) {
+  const html = buildWordDocumentHtml({
+    auditLabel,
+    label,
+    markdown,
+    previewSections,
+    previewSummary,
+  });
+  const blob = new Blob(["\ufeff", html], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${sanitizeFileName(auditLabel)}-${sanitizeFileName(label)}.doc`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
 
-  return "The workpaper advanced to the next review step.";
+function buildWordDocumentHtml({
+  auditLabel,
+  label,
+  markdown,
+  previewSections,
+  previewSummary,
+}: {
+  auditLabel: string;
+  label: string;
+  markdown: string;
+  previewSections: NarrativePreviewSection[];
+  previewSummary: string;
+}) {
+  const bodyHtml =
+    previewSections.length > 0
+      ? [
+          previewSummary ? `<p class="summary">${escapeHtml(previewSummary)}</p>` : "",
+          ...previewSections.map(
+            (section) => `
+              <section>
+                <h2>${escapeHtml(section.heading)}</h2>
+                ${renderSectionBody(section.body)}
+              </section>
+            `,
+          ),
+        ].join("")
+      : sanitizeDraftMarkdown(markdown)
+          .replace(/\r\n/g, "\n")
+          .split("\n")
+          .map((line) => {
+            const trimmed = line.trim();
+
+            if (trimmed.startsWith("- ")) {
+              return `<p class="bullet">&#8226; ${escapeHtml(trimmed.slice(2))}</p>`;
+            }
+
+            if (trimmed.length === 0) {
+              return `<p class="spacer"></p>`;
+            }
+
+            return `<p>${escapeHtml(trimmed)}</p>`;
+          })
+          .join("");
+
+  return `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(`${auditLabel} ${label}`)}</title>
+    <style>
+      body { font-family: Calibri, Arial, sans-serif; color: #1f2937; margin: 36pt; line-height: 1.5; }
+      h1 { font-size: 20pt; margin: 0 0 18pt; color: #0f2d52; }
+      h2 { font-size: 14pt; margin: 18pt 0 8pt; color: #0f2d52; }
+      h3 { font-size: 12pt; margin: 14pt 0 6pt; color: #0f2d52; }
+      p { font-size: 11pt; margin: 0 0 8pt; }
+      p.summary { margin-bottom: 14pt; }
+      p.bullet { margin-left: 18pt; text-indent: -12pt; }
+      p.spacer { margin: 0 0 8pt; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(label)} - ${escapeHtml(auditLabel)}</h1>
+    ${bodyHtml}
+  </body>
+</html>`;
+}
+
+function renderSectionBody(entries: string[]) {
+  return entries
+    .map((entry) =>
+      entry.startsWith("- ")
+        ? `<p class="bullet">&#8226; ${escapeHtml(entry.slice(2))}</p>`
+        : `<p>${escapeHtml(entry)}</p>`,
+    )
+    .join("");
+}
+
+function sanitizeFileName(value: string) {
+  return value.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "draft";
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }

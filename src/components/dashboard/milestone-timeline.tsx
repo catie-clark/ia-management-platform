@@ -24,18 +24,18 @@ export function MilestoneTimeline({
   const content = (
     <section
       className={cn(
-        "rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)] transition-transform duration-200",
+        "rounded-[20px] border border-black/5 bg-white px-5 py-4 shadow-[0_16px_36px_rgba(1,30,65,0.07)] transition-transform duration-200",
         setupHref ? "cursor-pointer hover:scale-[1.01]" : "",
       )}
     >
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Lifecycle milestones</p>
-          <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">
+          <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">
             {setupComplete ? "Phase gates and report readiness" : "Set up lifecycle milestones"}
           </h2>
         </div>
-        <div className="max-w-sm text-right text-sm text-[var(--muted)]">
+        <div className="max-w-sm text-right text-[13px] leading-5 text-[var(--muted)]">
           <p>
             {setupComplete
               ? "Planning, fieldwork, reporting, and filing dates stay visible so review time is protected."
@@ -46,22 +46,22 @@ export function MilestoneTimeline({
       </div>
 
       {setupComplete ? (
-        <div className="mt-8 grid gap-4 xl:grid-cols-4">
+        <div className="mt-5 grid gap-3 xl:grid-cols-4">
           {items.map((item) => (
             <article
               key={item.id}
               className={cn(
-                "relative rounded-[24px] border p-5 shadow-[0_14px_30px_rgba(1,30,65,0.06)]",
+                "relative rounded-[16px] border px-4 py-3 shadow-[0_10px_24px_rgba(1,30,65,0.05)]",
                 statusStyles[item.status],
               )}
             >
-              <span className="text-xs font-semibold uppercase tracking-[0.22em]">{item.status.replace("_", " ")}</span>
-              <h3 className="mt-4 text-lg font-semibold text-[var(--foreground)]">{item.label}</h3>
-              <p className="mt-2 text-sm text-[var(--muted)]">{formatShortDate(item.date)}</p>
-              <div className="mt-6 h-2 rounded-full bg-black/5">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.18em]">{item.status.replace("_", " ")}</span>
+              <h3 className="mt-3 text-base font-semibold text-[var(--foreground)]">{item.label}</h3>
+              <p className="mt-1 text-[13px] text-[var(--muted)]">{formatShortDate(item.date)}</p>
+              <div className="mt-4 h-1.5 rounded-full bg-black/5">
                 <div
                   className={cn(
-                    "h-2 rounded-full",
+                    "h-1.5 rounded-full",
                     item.status === "complete" && "w-full bg-[var(--brand-teal-core)]",
                     item.status === "active" && "w-3/4 bg-[var(--brand-amber-core)]",
                     item.status === "upcoming" && "w-1/4 bg-[var(--brand-indigo-core)]",
@@ -73,10 +73,10 @@ export function MilestoneTimeline({
           ))}
         </div>
       ) : (
-        <div className="mt-8 rounded-[24px] border border-dashed border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.08)] px-5 py-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-dark)]">Setup needed</p>
-          <p className="mt-3 text-lg font-semibold text-[var(--foreground)]">Open Hours and budget to save the audit start and end dates.</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">Once those dates are saved, this card will derive the planning, fieldwork, reporting, and final audit milestones automatically.</p>
+        <div className="mt-5 rounded-[16px] border border-dashed border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.08)] px-4 py-5">
+          <p className="text-[13px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-amber-dark)]">Setup needed</p>
+          <p className="mt-2 text-base font-semibold text-[var(--foreground)]">Open Hours and budget to save the audit start and end dates.</p>
+          <p className="mt-2 text-[13px] leading-5 text-[var(--muted)]">Once those dates are saved, this card will derive the planning, fieldwork, reporting, and final audit milestones automatically.</p>
         </div>
       )}
     </section>

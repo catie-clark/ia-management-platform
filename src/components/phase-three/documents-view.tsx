@@ -15,7 +15,7 @@ import type { AuditDocument } from "@/types/audit";
 type TypeFilter = AuditDocument["type"] | "ALL";
 type StatusFilter = AuditDocument["status"] | "ALL";
 
-const requiredArtifacts: AuditDocument["type"][] = ["PLANNING_NARRATIVE", "TOLLGATE", "WORKPAPER", "EVIDENCE", "REPORT"];
+const requiredArtifacts: AuditDocument["type"][] = ["PLANNING_NARRATIVE", "PLANNING_TOLLGATE", "WORKPAPER", "EVIDENCE", "REPORT"];
 
 export function DocumentsView() {
   const { activeUser } = useActiveUser();
@@ -112,9 +112,8 @@ export function DocumentsView() {
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-6 xl:h-[calc(100dvh-13.5rem)]">
+    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
       <PageHeader
-        eyebrow="Phase 3"
         title="Documents and audit evidence"
         description="Document governance keeps planning artifacts, workpapers, and evidence visible so missing support becomes obvious before review and reporting bottlenecks build."
       />

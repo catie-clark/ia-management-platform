@@ -51,8 +51,10 @@ export function getSyncedHoursData({
     actualHours: roundToQuarter(Math.max(control.actualHours, 0)),
   }));
 
+  void activePhase;
+
   for (const control of normalizedControls) {
-    actualHoursByPhase.set(activePhase, roundToQuarter((actualHoursByPhase.get(activePhase) ?? 0) + control.actualHours));
+    actualHoursByPhase.set("Planning", roundToQuarter((actualHoursByPhase.get("Planning") ?? 0) + control.actualHours));
   }
 
   const normalizedBudgetByPhase = budgetByPhase.map((phaseBudget) => ({

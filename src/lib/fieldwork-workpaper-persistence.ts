@@ -5,7 +5,7 @@ import type { DocumentReviewStatus, Role, WorkpaperContent } from "@/types/audit
 
 type WorkpaperDocumentRow = Pick<
   AuditDocumentRow,
-  "id" | "document_type" | "title" | "status" | "template_name" | "source_payload" | "updated_at"
+  "id" | "document_type" | "title" | "control_id" | "status" | "template_name" | "source_payload" | "updated_at"
 >;
 
 type WorkpaperDocumentDbRow = WorkpaperDocumentRow & {
@@ -16,7 +16,7 @@ export async function loadWorkpaperDocument(auditId: string, documentId: string)
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("audit_documents")
-    .select("id, document_type, title, owner_user_id, status, template_name, source_payload, updated_at")
+    .select("id, document_type, title, control_id, owner_user_id, status, template_name, source_payload, updated_at")
     .eq("audit_id", auditId)
     .eq("id", documentId)
     .eq("document_type", "WORKPAPER")
@@ -64,11 +64,12 @@ export async function saveWorkpaperDraft({
   const { data, error } = await supabase
     .from("audit_documents")
     .update({
+      owner_user_id: await getDocumentOwnerUserId(auditId, existingDocument.control_id),
       source_payload: nextPayload,
       status: existingDocument.status === "complete" ? "complete" : "in_progress",
     })
     .eq("id", existingDocument.id)
-    .select("id, document_type, title, owner_user_id, status, template_name, source_payload, updated_at")
+    .select("id, document_type, title, control_id, owner_user_id, status, template_name, source_payload, updated_at")
     .maybeSingle<WorkpaperDocumentDbRow>();
 
   if (error) {
@@ -145,11 +146,12 @@ export async function applyWorkpaperReviewAction({
   const { data, error } = await supabase
     .from("audit_documents")
     .update({
+      owner_user_id: await getDocumentOwnerUserId(auditId, existingDocument.control_id),
       source_payload: nextPayload,
       status: nextDocumentStatus,
     })
     .eq("id", existingDocument.id)
-    .select("id, document_type, title, owner_user_id, status, template_name, source_payload, updated_at")
+    .select("id, document_type, title, control_id, owner_user_id, status, template_name, source_payload, updated_at")
     .maybeSingle<WorkpaperDocumentDbRow>();
 
   if (error) {
@@ -188,4 +190,24 @@ function getNextReviewStatus(currentReviewStatus: DocumentReviewStatus): Documen
   }
 
   return "APPROVED";
+}
+
+async function getDocumentOwnerUserId(auditId: string, controlId: string | null | undefined) {
+  if (!controlId) {
+    return null;
+  }
+
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("controls")
+    .select("assigned_owner_user_id, control_owner_user_id")
+    .eq("audit_id", auditId)
+    .eq("id", controlId)
+    .maybeSingle<{ assigned_owner_user_id: string | null; control_owner_user_id: string | null }>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data?.assigned_owner_user_id ?? data?.control_owner_user_id ?? null;
 }

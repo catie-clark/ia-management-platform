@@ -47,9 +47,9 @@ type AuditLogicContext = {
   users: User[];
 };
 
-const planningDocumentTypes = new Set<AuditDocument["type"]>(["PLANNING_NARRATIVE", "TOLLGATE"]);
+const planningDocumentTypes = new Set<AuditDocument["type"]>(["PLANNING_NARRATIVE", "PLANNING_TOLLGATE"]);
 const reportingDocumentTypes = new Set<AuditDocument["type"]>(["REPORT", "TOLLGATE"]);
-const requiredPlanningDocumentTypes: AuditDocument["type"][] = ["PLANNING_NARRATIVE", "TOLLGATE"];
+const requiredPlanningDocumentTypes: AuditDocument["type"][] = ["PLANNING_NARRATIVE", "PLANNING_TOLLGATE"];
 
 export function hourDiff(target: string, source: string) {
   return (new Date(target).getTime() - new Date(source).getTime()) / (1000 * 60 * 60);
@@ -474,7 +474,7 @@ export function getRiskRows(phase: AuditPhase, context: AuditLogicContext = defa
         fallbackId: "planning-tollgate-draft",
         fallbackTitle: "Planning Tollgate Draft",
         trigger: "Planning tollgate draft is not ready for tollgate",
-        type: "TOLLGATE",
+        type: "PLANNING_TOLLGATE",
       },
     ];
 

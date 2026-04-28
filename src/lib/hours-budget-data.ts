@@ -1,10 +1,25 @@
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { controls, users } from "@/lib/data/mock-data";
-import { formatAuditScopePeriod, type AuditRecord, type BusinessUnitRow, type ControlRow, type DashboardMode, type UserRow, mapControl, mapUser } from "@/lib/live-audit";
 import { getControlVariance } from "@/lib/audit-logic";
-import { getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
-import { getPrototypePhaseBudgets, buildLivePhaseBudgetPlan, getCurrentPhaseBudget, sumPhaseActualHours, sumPhasePlannedHours } from "@/lib/phase-budget";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
+import { controls, users } from "@/lib/data/mock-data";
+import { getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
+import {
+  formatAuditScopePeriod,
+  mapControl,
+  mapUser,
+  type AuditRecord,
+  type BusinessUnitRow,
+  type ControlRow,
+  type DashboardMode,
+  type UserRow,
+} from "@/lib/live-audit";
+import {
+  buildLivePhaseBudgetPlan,
+  getCurrentPhaseBudget,
+  getPrototypePhaseBudgets,
+  sumPhaseActualHours,
+  sumPhasePlannedHours,
+} from "@/lib/phase-budget";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { AuditPhase, BudgetByPhase, Control, DemoTimeEntry, TimeSourceSummary, User } from "@/types/audit";
 
 export type HoursByTester = {
@@ -14,6 +29,17 @@ export type HoursByTester = {
   role: User["role"];
 };
 
+export type HoursEntryRow = {
+  controlLabel: string | null;
+  entryDate: string;
+  hours: number;
+  id: string;
+  ownerName: string;
+  ownerRole: User["role"];
+  phase: AuditPhase;
+  workItemLabel: string;
+};
+
 export type HoursBudgetViewModel = {
   auditId: string | null;
   auditLabel: string;
@@ -21,25 +47,39 @@ export type HoursBudgetViewModel = {
   auditPeriodEnd: string | null;
   auditPeriodLabel: string;
   auditPeriodStart: string | null;
-  fieldworkEndDate: string | null;
-  fieldworkStartDate: string | null;
-  planningEndDate: string | null;
-  planningStartDate: string | null;
   controls: Control[];
   currentPhase: "Planning" | "Fieldwork" | "Reporting";
   currentPhaseVariance: number;
+  fieldworkEndDate: string | null;
+  fieldworkStartDate: string | null;
   hoursByTester: HoursByTester[];
+  hoursEntryRows: HoursEntryRow[];
   lastSyncedAt: string;
   mode: DashboardMode;
   phaseBudgets: BudgetByPhase[];
+  planningEndDate: string | null;
+  planningStartDate: string | null;
+  reportingEndDate: string | null;
+  reportingStartDate: string | null;
   sourceSummaries: TimeSourceSummary[];
   syncCount: number;
   timeEntries: DemoTimeEntry[];
   totalActual: number;
   totalPlanned: number;
   variance: number;
-  reportingEndDate: string | null;
-  reportingStartDate: string | null;
+};
+
+type AuditTimeEntryRow = {
+  control_id: string | null;
+  created_at: string;
+  entry_date: string;
+  hours: number;
+  id: string;
+  phase: string;
+  source: string;
+  updated_at: string;
+  user_id: string;
+  work_item_reference: string | null;
 };
 
 export async function getHoursBudgetViewModel({
@@ -78,25 +118,26 @@ export async function getHoursBudgetViewModel({
     auditPeriodEnd: "2026-05-12T17:00:00.000Z",
     auditPeriodLabel: "Static sample data",
     auditPeriodStart: "2026-04-15T17:00:00.000Z",
-    fieldworkEndDate: "2026-05-02T17:00:00.000Z",
-    fieldworkStartDate: "2026-04-21T17:00:00.000Z",
-    planningEndDate: "2026-04-20T17:00:00.000Z",
-    planningStartDate: "2026-04-15T17:00:00.000Z",
     controls: syncedHours.controls,
     currentPhase,
     currentPhaseVariance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
+    fieldworkEndDate: "2026-05-02T17:00:00.000Z",
+    fieldworkStartDate: "2026-04-21T17:00:00.000Z",
     hoursByTester: getHoursByTester(users, syncedHours.controls),
+    hoursEntryRows: getHoursEntryRows(users, syncedHours.timeEntries, syncedHours.controls),
     lastSyncedAt: syncedHours.lastSyncedAt,
     mode: "prototype",
     phaseBudgets: syncedHours.budgetByPhase,
+    planningEndDate: "2026-04-20T17:00:00.000Z",
+    planningStartDate: "2026-04-15T17:00:00.000Z",
+    reportingEndDate: "2026-05-12T17:00:00.000Z",
+    reportingStartDate: "2026-05-03T17:00:00.000Z",
     sourceSummaries: syncedHours.sourceSummaries,
     syncCount: syncedHours.syncCount,
     timeEntries: syncedHours.timeEntries,
     totalActual: sumPhaseActualHours(syncedHours.budgetByPhase),
     totalPlanned: sumPhasePlannedHours(syncedHours.budgetByPhase),
     variance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
-    reportingEndDate: "2026-05-12T17:00:00.000Z",
-    reportingStartDate: "2026-05-03T17:00:00.000Z",
   };
 }
 
@@ -112,7 +153,7 @@ async function getLiveHoursBudgetViewModel({
   syncCount: number;
 }) {
   const supabase = createSupabaseAdminClient();
-  const [auditResult, controlsResult, usersResult, businessUnitsResult] = await Promise.all([
+  const [auditResult, controlsResult, usersResult, businessUnitsResult, timeEntriesResult] = await Promise.all([
     getLiveAuditBudgetRecord(supabase, auditId),
     supabase
       .from("controls")
@@ -121,6 +162,7 @@ async function getLiveHoursBudgetViewModel({
       .returns<ControlRow[]>(),
     supabase.from("users").select("id, full_name, email, role, team").order("full_name", { ascending: true }).returns<UserRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitRow[]>(),
+    selectAuditTimeEntries(supabase, auditId),
   ]);
 
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
@@ -132,14 +174,24 @@ async function getLiveHoursBudgetViewModel({
     fieldwork_budget_hours: auditResult.data?.fieldwork_budget_hours ?? null,
     reporting_budget_hours: auditResult.data?.reporting_budget_hours ?? null,
   });
-  const syncedHours = getSyncedHoursData({
+  const fallbackSyncedHours = getSyncedHoursData({
     activePhase: currentPhase,
     budgetByPhase: phaseBudgetPlan,
     controls: liveControls,
     syncCount,
     syncReferenceTime: new Date().toISOString(),
   });
-  const currentPhaseBudget = getCurrentPhaseBudget(syncedHours.budgetByPhase, currentPhase);
+  const mappedTimeEntries = mapAuditTimeEntries(timeEntriesResult.data ?? []);
+  const hasImportedTimeEntries = mappedTimeEntries.length > 0;
+  const actualHoursByPhase = hasImportedTimeEntries
+    ? sumActualHoursByPhase(mappedTimeEntries)
+    : new Map(fallbackSyncedHours.budgetByPhase.map((phaseBudget) => [phaseBudget.phase, phaseBudget.actualHours] as const));
+  const phaseBudgets = phaseBudgetPlan.map((phaseBudget) => ({
+    ...phaseBudget,
+    actualHours: actualHoursByPhase.get(phaseBudget.phase) ?? 0,
+  }));
+  const currentPhaseBudget = getCurrentPhaseBudget(phaseBudgets, currentPhase);
+  const totalActual = phaseBudgets.reduce((sum, phaseBudget) => sum + phaseBudget.actualHours, 0);
 
   return {
     auditId,
@@ -154,25 +206,28 @@ async function getLiveHoursBudgetViewModel({
         ? formatAuditScopePeriod(auditResult.data)
         : "Saved audit",
     auditPeriodStart: auditResult.data?.period_start ?? null,
-    fieldworkEndDate: auditResult.data?.fieldwork_end_date ?? null,
-    fieldworkStartDate: auditResult.data?.fieldwork_start_date ?? null,
-    planningEndDate: auditResult.data?.planning_end_date ?? null,
-    planningStartDate: auditResult.data?.planning_start_date ?? null,
-    controls: syncedHours.controls,
+    controls: fallbackSyncedHours.controls,
     currentPhase,
     currentPhaseVariance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
-    hoursByTester: getHoursByTester(liveUsers, syncedHours.controls),
-    lastSyncedAt: syncedHours.lastSyncedAt,
+    fieldworkEndDate: auditResult.data?.fieldwork_end_date ?? null,
+    fieldworkStartDate: auditResult.data?.fieldwork_start_date ?? null,
+    hoursByTester: hasImportedTimeEntries ? getHoursByTesterFromEntries(liveUsers, mappedTimeEntries) : getHoursByTester(liveUsers, fallbackSyncedHours.controls),
+    hoursEntryRows: getHoursEntryRows(liveUsers, hasImportedTimeEntries ? mappedTimeEntries : fallbackSyncedHours.timeEntries, fallbackSyncedHours.controls),
+    lastSyncedAt: hasImportedTimeEntries ? getLatestAuditTimeEntryTimestamp(timeEntriesResult.data ?? []) : fallbackSyncedHours.lastSyncedAt,
     mode: "live" as const,
-    phaseBudgets: syncedHours.budgetByPhase,
-    sourceSummaries: syncedHours.sourceSummaries,
-    syncCount: syncedHours.syncCount,
-    timeEntries: syncedHours.timeEntries,
-    totalActual: sumPhaseActualHours(syncedHours.budgetByPhase),
-    totalPlanned: sumPhasePlannedHours(syncedHours.budgetByPhase),
-    variance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
+    phaseBudgets,
+    planningEndDate: auditResult.data?.planning_end_date ?? null,
+    planningStartDate: auditResult.data?.planning_start_date ?? null,
     reportingEndDate: auditResult.data?.reporting_end_date ?? null,
     reportingStartDate: auditResult.data?.reporting_start_date ?? null,
+    sourceSummaries: hasImportedTimeEntries
+      ? [{ source: "Recorded" as const, entryCount: mappedTimeEntries.length, totalHours: totalActual }]
+      : fallbackSyncedHours.sourceSummaries,
+    syncCount: fallbackSyncedHours.syncCount,
+    timeEntries: hasImportedTimeEntries ? mappedTimeEntries : fallbackSyncedHours.timeEntries,
+    totalActual,
+    totalPlanned: sumPhasePlannedHours(phaseBudgets),
+    variance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
   };
 }
 
@@ -273,6 +328,29 @@ async function getLiveAuditBudgetRecord(
   }
 }
 
+async function selectAuditTimeEntries(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  auditId: string,
+) {
+  try {
+    return await supabase
+      .from("audit_time_entries")
+      .select("id, control_id, user_id, phase, source, hours, entry_date, work_item_reference, created_at, updated_at")
+      .eq("audit_id", auditId)
+      .order("entry_date", { ascending: true })
+      .returns<AuditTimeEntryRow[]>();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("audit_time_entries")) {
+      throw error;
+    }
+
+    return {
+      data: [] as AuditTimeEntryRow[],
+      error: null,
+    };
+  }
+}
+
 function getHoursByTester(userPool: User[], controls: Control[]) {
   const actualHoursByUser = controls.reduce<Map<string, number>>((totals, control) => {
     const userId = control.assignedOwnerId ?? control.ownerId;
@@ -294,6 +372,133 @@ function getHoursByTester(userPool: User[], controls: Control[]) {
     }))
     .filter((tester) => tester.actualHours > 0)
     .sort((left, right) => right.actualHours - left.actualHours);
+}
+
+function getHoursByTesterFromEntries(userPool: User[], timeEntries: DemoTimeEntry[]) {
+  const actualHoursByUser = timeEntries.reduce<Map<string, number>>((totals, entry) => {
+    totals.set(entry.userId, roundToQuarter((totals.get(entry.userId) ?? 0) + entry.hours));
+    return totals;
+  }, new Map());
+
+  return userPool
+    .map((user) => ({
+      actualHours: actualHoursByUser.get(user.id) ?? 0,
+      id: user.id,
+      name: user.name,
+      role: user.role,
+    }))
+    .filter((tester) => tester.actualHours > 0)
+    .sort((left, right) => right.actualHours - left.actualHours);
+}
+
+function getHoursEntryRows(userPool: User[], timeEntries: DemoTimeEntry[], controls: Control[]) {
+  const userMap = new Map(userPool.map((user) => [user.id, user]));
+  const controlMap = new Map(controls.map((control) => [control.id, control]));
+
+  return timeEntries
+    .map<HoursEntryRow | null>((entry) => {
+      const owner = userMap.get(entry.userId);
+
+      if (!owner) {
+        return null;
+      }
+
+      const linkedControl = entry.controlId ? controlMap.get(entry.controlId) : undefined;
+      const controlLabel = linkedControl ? `${linkedControl.referenceId ?? linkedControl.id}` : null;
+      const fallbackWorkItem = linkedControl ? `${controlLabel} - ${linkedControl.name}` : "Imported audit hours";
+
+      return {
+        controlLabel,
+        entryDate: entry.entryDate,
+        hours: entry.hours,
+        id: entry.id,
+        ownerName: owner.name,
+        ownerRole: owner.role,
+        phase: entry.phase,
+        workItemLabel: entry.workItemReference?.trim().length ? entry.workItemReference : fallbackWorkItem,
+      };
+    })
+    .filter((entry): entry is HoursEntryRow => entry !== null)
+    .sort((left, right) => {
+      const dateDiff = new Date(right.entryDate).getTime() - new Date(left.entryDate).getTime();
+      if (dateDiff !== 0) {
+        return dateDiff;
+      }
+
+      return left.ownerName.localeCompare(right.ownerName) || left.workItemLabel.localeCompare(right.workItemLabel);
+    });
+}
+
+function mapAuditTimeEntries(rows: AuditTimeEntryRow[]) {
+  return rows
+    .map<DemoTimeEntry | null>((row) => {
+      const phase = normalizePhaseValue(row.phase);
+
+      if (!phase) {
+        return null;
+      }
+
+      return {
+        id: row.id,
+        controlId: row.control_id ?? "",
+        entryDate: row.entry_date.includes("T") ? row.entry_date : `${row.entry_date}T00:00:00.000Z`,
+        hours: roundToQuarter(Number(row.hours ?? 0)),
+        phase: "Planning",
+        source: "Recorded",
+        userId: row.user_id,
+        workItemReference: row.work_item_reference ?? "Imported audit hours",
+      };
+    })
+    .filter((entry): entry is DemoTimeEntry => entry !== null);
+}
+
+function normalizePhaseValue(value: string) {
+  if (value === "Planning" || value === "Fieldwork" || value === "Reporting") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "planning") {
+    return "Planning" as const;
+  }
+
+  if (normalized === "fieldwork") {
+    return "Fieldwork" as const;
+  }
+
+  if (normalized === "reporting") {
+    return "Reporting" as const;
+  }
+
+  return null;
+}
+
+function sumActualHoursByPhase(timeEntries: DemoTimeEntry[]) {
+  const totals = new Map<AuditPhase, number>([
+    ["Planning", 0],
+    ["Fieldwork", 0],
+    ["Reporting", 0],
+  ]);
+
+  for (const entry of timeEntries) {
+    totals.set("Planning", roundToQuarter((totals.get("Planning") ?? 0) + entry.hours));
+  }
+
+  return totals;
+}
+
+function getLatestAuditTimeEntryTimestamp(rows: AuditTimeEntryRow[]) {
+  const latest = rows.reduce((max, row) => {
+    const candidate = row.updated_at || row.created_at;
+    return candidate > max ? candidate : max;
+  }, "");
+
+  return latest || new Date().toISOString();
+}
+
+function roundToQuarter(value: number) {
+  return Math.round(value * 4) / 4;
 }
 
 export { getControlVariance };

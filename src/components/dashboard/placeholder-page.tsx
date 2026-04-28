@@ -6,14 +6,12 @@ export function PlaceholderPage({
   eyebrow,
   title,
   description,
-  headerScopePeriodLabel,
   phaseStatus,
   nextDeliverables,
 }: {
   eyebrow: string;
   title: string;
   description: string;
-  headerScopePeriodLabel?: string;
   phaseStatus?: {
     label: string;
     active: boolean;
@@ -26,7 +24,6 @@ export function PlaceholderPage({
         eyebrow={eyebrow}
         title={title}
         description={description}
-        scopePeriodLabel={headerScopePeriodLabel}
         phaseStatus={phaseStatus}
       />
 

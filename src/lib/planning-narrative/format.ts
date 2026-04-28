@@ -8,8 +8,22 @@ export type NarrativePreview = {
   previewSummary: string;
 };
 
+export function sanitizeDraftMarkdown(markdown: string) {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((rawLine) => {
+      let line = rawLine.replace(/^#{1,6}\s+/, "");
+      line = line.replace(/\*\*(.*?)\*\*/g, "$1");
+      line = line.replace(/__(.*?)__/g, "$1");
+      line = line.replace(/\s{2,}$/g, "");
+      return line;
+    })
+    .join("\n");
+}
+
 export function buildNarrativePreview(markdown: string): NarrativePreview {
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const lines = sanitizeDraftMarkdown(markdown).split("\n");
   const previewSections: NarrativePreviewSection[] = [];
   let currentSection: NarrativePreviewSection | null = null;
   let paragraphBuffer: string[] = [];
@@ -27,7 +41,7 @@ export function buildNarrativePreview(markdown: string): NarrativePreview {
   for (const rawLine of lines) {
     const line = rawLine.trim();
 
-    if (line.startsWith("## ")) {
+    if (isSectionHeading(line)) {
       flushParagraph();
 
       if (currentSection) {
@@ -35,13 +49,13 @@ export function buildNarrativePreview(markdown: string): NarrativePreview {
       }
 
       currentSection = {
-        heading: line.replace(/^##\s+/, "").trim(),
+        heading: line.trim(),
         body: [],
       };
       continue;
     }
 
-    if (line.startsWith("# ")) {
+    if (isDocumentTitle(line, currentSection)) {
       continue;
     }
 
@@ -80,4 +94,12 @@ export function buildNarrativePreview(markdown: string): NarrativePreview {
     previewSections,
     previewSummary,
   };
+}
+
+function isSectionHeading(line: string) {
+  return /^\d+\.\s+/.test(line);
+}
+
+function isDocumentTitle(line: string, currentSection: NarrativePreviewSection | null) {
+  return currentSection === null && /^Internal Audit /i.test(line);
 }

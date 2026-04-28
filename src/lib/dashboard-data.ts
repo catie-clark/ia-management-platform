@@ -20,7 +20,8 @@ import {
   mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
-import type { AuditPhase, BudgetByPhase, KPIProps, RiskRow, TimelineItem, TimeSourceSummary } from "@/types/audit";
+import { normalizeAuditDocuments } from "@/lib/document-normalization";
+import type { AuditDocument, AuditPhase, BudgetByPhase, Control, KPIProps, Question, RiskRow, Request, TimelineItem, TimeSourceSummary, User } from "@/types/audit";
 
 export type DashboardViewModel = {
   auditId: string | null;
@@ -42,6 +43,11 @@ export type DashboardViewModel = {
   riskRows: RiskRow[];
   sourceSummaries: TimeSourceSummary[];
   syncCount: number;
+  controls: Control[];
+  documents: AuditDocument[];
+  questions: Question[];
+  requests: Request[];
+  users: User[];
 };
 
 export { formatAuditPeriod };
@@ -79,7 +85,7 @@ function getPrototypeDashboardViewModel(phaseOverride?: AuditPhase, syncCount = 
   const context = {
     budgetByPhase: syncedHours.budgetByPhase,
     controls: syncedHours.controls,
-    documents,
+    documents: normalizeAuditDocuments({ controls, documents, questions, requests, users }),
     milestones,
     now: mockNow,
     questions,
@@ -118,6 +124,11 @@ function getPrototypeDashboardViewModel(phaseOverride?: AuditPhase, syncCount = 
     riskRows,
     sourceSummaries: syncedHours.sourceSummaries,
     syncCount: syncedHours.syncCount,
+    controls: syncedHours.controls,
+    documents,
+    questions,
+    requests,
+    users,
   };
 }
 
@@ -175,7 +186,13 @@ async function getLiveDashboardViewModel({
   const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
   const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
   const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
-  const liveDocuments = (documentsResult.data ?? []).map(mapDocument);
+  const liveDocuments = normalizeAuditDocuments({
+    controls: liveControls,
+    documents: (documentsResult.data ?? []).map(mapDocument),
+    questions: liveQuestions,
+    requests: liveRequests,
+    users: liveUsers,
+  });
   const now = new Date().toISOString();
   const phase = phaseOverride ?? normalizeAuditPhaseFromAudit(audit ?? {});
   const phaseBudgets = buildLivePhaseBudgetPlan({
@@ -246,6 +263,11 @@ async function getLiveDashboardViewModel({
     riskRows: getRiskRows(phase, context),
     sourceSummaries: syncedHours.sourceSummaries,
     syncCount: syncedHours.syncCount,
+    controls: syncedHours.controls,
+    documents: liveDocuments,
+    questions: liveQuestions,
+    requests: liveRequests,
+    users: liveUsers,
   };
 }
 

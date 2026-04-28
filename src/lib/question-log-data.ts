@@ -16,13 +16,16 @@ import {
   mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
-import type { AuditDocument, Control, Question, Request, User } from "@/types/audit";
+import { normalizeAuditDocuments } from "@/lib/document-normalization";
+import { normalizeAuditPhase } from "@/lib/audit-phase";
+import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
 
 export type QuestionLogViewModel = {
   auditId: string | null;
   auditLabel: string;
   auditPeriodLabel: string;
   controls: Control[];
+  currentPhase: AuditPhase;
   documents: AuditDocument[];
   mode: DashboardMode;
   questions: Question[];
@@ -48,7 +51,8 @@ export async function getQuestionLogViewModel({
     auditLabel: "Prototype Demo Audit",
     auditPeriodLabel: "Static sample data",
     controls,
-    documents,
+    currentPhase: "Planning",
+    documents: normalizeAuditDocuments({ controls, documents, questions, requests, users }),
     mode: "prototype",
     questions,
     requests,
@@ -101,6 +105,11 @@ async function getLiveQuestionLogViewModel({
   const userMap = new Map((usersResult.data ?? []).map((user) => [user.id, mapUser(user)]));
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
 
+  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
+  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const liveUsers = Array.from(userMap.values());
+
   return {
     auditId,
     auditLabel: auditResult.data?.name ?? auditLabel ?? "Live audit workspace",
@@ -108,12 +117,19 @@ async function getLiveQuestionLogViewModel({
       auditResult.data?.period_start && auditResult.data?.period_end
         ? formatAuditScopePeriod(auditResult.data)
         : "Saved audit",
-    controls: (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap)),
-    documents: (documentsResult.data ?? []).map(mapDocument),
+    controls: liveControls,
+    currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
+    documents: normalizeAuditDocuments({
+      controls: liveControls,
+      documents: (documentsResult.data ?? []).map(mapDocument),
+      questions: liveQuestions,
+      requests: liveRequests,
+      users: liveUsers,
+    }),
     mode: "live",
-    questions: mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap),
-    requests: mapRequestsWithDisplayIds(requestsResult.data ?? []),
-    users: Array.from(userMap.values()),
+    questions: liveQuestions,
+    requests: liveRequests,
+    users: liveUsers,
   };
 }
 
@@ -124,9 +140,9 @@ async function getQuestionLogAuditRecord(
   try {
     return await supabase
       .from("audits")
-      .select("id, name, period_start, period_end, scope_period_start, scope_period_end")
+      .select("id, name, period_start, period_end, scope_period_start, scope_period_end, active_phase")
       .eq("id", auditId)
-      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end">>();
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end" | "active_phase">>();
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("scope_period_start")) {
       throw error;
@@ -134,9 +150,9 @@ async function getQuestionLogAuditRecord(
 
     return supabase
       .from("audits")
-      .select("id, name, period_start, period_end")
+      .select("id, name, period_start, period_end, active_phase")
       .eq("id", auditId)
-      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end">>();
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "active_phase">>();
   }
 }
 

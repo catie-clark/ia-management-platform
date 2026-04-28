@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { findPlanningArtifactOwner } from "@/lib/planning-artifact-persistence";
 import { buildArtifactDraft, defaultReportReviewRoles, reportArtifactConfigs } from "@/lib/reporting";
 import type { ReportArtifactKey, ReportReviewStage } from "@/types/audit";
 
@@ -55,6 +56,7 @@ export async function upsertReportArtifactDocument(args: {
   status?: "not_started" | "in_progress" | "complete";
 }) {
   const supabase = createSupabaseAdminClient();
+  const artifactOwner = await findPlanningArtifactOwner(args.auditId);
   const config = reportArtifactConfigs[args.artifactKey];
   const sourceRecordKey = getReportArtifactSourceRecordKey(args.artifactKey, args.auditId);
   const preview = buildArtifactDraft(
@@ -69,6 +71,7 @@ export async function upsertReportArtifactDocument(args: {
       {
         audit_id: args.auditId,
         document_type: config.documentType,
+        owner_user_id: artifactOwner?.id ?? null,
         source_record_key: sourceRecordKey,
         source_system: "platform",
         status: args.status ?? "in_progress",

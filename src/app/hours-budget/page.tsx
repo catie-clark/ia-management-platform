@@ -1,5 +1,6 @@
 import { HoursBarChart } from "@/components/charts/hours-bar-chart";
 import { AuditHoursPlanner } from "@/components/hours/audit-hours-planner";
+import { HoursUploadControls } from "@/components/hours/hours-upload-controls";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getHoursBudgetViewModel } from "@/lib/hours-budget-data";
@@ -24,10 +25,8 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
   return (
     <div>
       <PageHeader
-        eyebrow="Phase 2"
         title="Hours and budget"
-        scopePeriodLabel={viewModel.auditPeriodLabel}
-        description={`Budget pacing for ${viewModel.auditLabel}. Budgeted hours are managed in the platform and actual hours reflect the audit's recorded totals.`}
+        description={`Budget pacing for ${viewModel.auditLabel}. Budgeted hours are managed in the platform and actual hours reflect the audit's saved recorded totals.`}
         phaseStatus={{
           label: `${viewModel.currentPhase} phase · ${viewModel.mode === "live" ? "Live audit budget tracking" : "Prototype budget view"}`,
           active: true,
@@ -71,7 +70,11 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
       <div className="mt-6 grid gap-6 2xl:grid-cols-[1.1fr_0.9fr]">
         <HoursBarChart
           data={viewModel.phaseBudgets}
-          insight="Actual phase totals below reflect the recorded control-level actual hours currently saved for the audit."
+          insight={
+            viewModel.mode === "live" && viewModel.timeEntries.length > 0
+              ? "Actual phase totals below reflect the uploaded recorded hour entries currently saved for this audit."
+              : "Actual phase totals below reflect the current recorded totals available for this audit."
+          }
           message={`Actuals source: recorded audit hours | Last refreshed ${formatDateTime(viewModel.lastSyncedAt)}`}
         />
 
@@ -96,40 +99,84 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Audit staffing</p>
               <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Recorded hours by owner</h2>
             </div>
-            <p className="max-w-sm text-sm text-[var(--muted)]">
-              Team-level actual hours below are derived from the current control assignments and saved control-level actuals.
-            </p>
+            <div className="flex flex-col items-start gap-3 lg:items-end">
+              <p className="max-w-sm text-sm text-[var(--muted)] lg:text-right">
+                {viewModel.mode === "live"
+                  ? "Upload a CSV of recorded hours to save phase-based actuals in Supabase. Re-uploading replaces the audit's previous uploaded hour rows."
+                  : "Prototype mode shows the current sample staffing totals only."}
+              </p>
+              <HoursUploadControls auditId={viewModel.auditId} mode={viewModel.mode} />
+            </div>
           </div>
           <div className="mt-4 rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
             Total recorded actual hours in this staffing view: {formatHours(viewModel.totalActual)}
           </div>
           <div className="mt-6 overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-y-3">
-              <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                  <th className="px-4">Audit owner</th>
-                  <th className="px-4">Role</th>
-                  <th className="px-4">Actual</th>
-                </tr>
-              </thead>
-              <tbody>
-                {viewModel.hoursByTester.map((tester) => (
-                  <tr key={tester.id} className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
-                    <td className="rounded-l-3xl px-4 py-4">
-                      <p className="text-sm font-semibold text-[var(--foreground)]">{tester.name}</p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">Rolled up from assigned control actuals</p>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-[var(--muted)]">{tester.role}</td>
-                    <td className="rounded-r-3xl px-4 py-4 text-sm text-[var(--muted)]">{formatHours(tester.actualHours)}</td>
+            {viewModel.timeEntries.length > 0 ? (
+              <table className="min-w-full border-separate border-spacing-y-3">
+                <thead>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                    <th className="px-4">Audit owner</th>
+                    <th className="px-4">Role</th>
+                    <th className="px-4">Phase</th>
+                    <th className="px-4">Date</th>
+                    <th className="px-4">Hours</th>
                   </tr>
-                ))}
-                <tr className="bg-[var(--surface-tint)]">
-                  <td className="rounded-l-3xl px-4 py-4 text-sm font-semibold text-[var(--foreground)]">Recorded actual total</td>
-                  <td className="px-4 py-4 text-sm text-[var(--muted)]">All team members</td>
-                  <td className="rounded-r-3xl px-4 py-4 text-sm text-[var(--muted)]">{formatHours(viewModel.totalActual)}</td>
-                </tr>
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {viewModel.hoursEntryRows.map((entry, index) => (
+                    <tr key={entry.id} className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
+                      <td className={`${index === viewModel.hoursEntryRows.length - 1 ? "rounded-l-3xl" : "rounded-l-3xl"} px-4 py-4`}>
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{entry.ownerName}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">Uploaded recorded hour entry</p>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-[var(--muted)]">{entry.ownerRole}</td>
+                      <td className="px-4 py-4 text-sm text-[var(--muted)]">{entry.phase}</td>
+                      <td className="px-4 py-4 text-sm text-[var(--muted)]">{formatDateTime(entry.entryDate)}</td>
+                      <td className="rounded-r-3xl px-4 py-4 text-sm text-[var(--muted)]">{formatHours(entry.hours)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[var(--surface-tint)]">
+                    <td className="rounded-l-3xl px-4 py-4 text-sm font-semibold text-[var(--foreground)]">Recorded actual total</td>
+                    <td className="px-4 py-4 text-sm text-[var(--muted)]">All team members</td>
+                    <td className="px-4 py-4 text-sm text-[var(--muted)]">All phases</td>
+                    <td className="px-4 py-4 text-sm text-[var(--muted)]">Current audit</td>
+                    <td className="rounded-r-3xl px-4 py-4 text-sm text-[var(--muted)]">{formatHours(viewModel.totalActual)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <table className="min-w-full border-separate border-spacing-y-3">
+                <thead>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                    <th className="px-4">Audit owner</th>
+                    <th className="px-4">Role</th>
+                    <th className="px-4">Actual</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewModel.hoursByTester.map((tester) => (
+                    <tr key={tester.id} className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
+                      <td className="rounded-l-3xl px-4 py-4">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{tester.name}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          {viewModel.mode === "live"
+                            ? "Current audit totals without uploaded line-item hours"
+                            : "Rolled up from current recorded audit totals"}
+                        </p>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-[var(--muted)]">{tester.role}</td>
+                      <td className="rounded-r-3xl px-4 py-4 text-sm text-[var(--muted)]">{formatHours(tester.actualHours)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[var(--surface-tint)]">
+                    <td className="rounded-l-3xl px-4 py-4 text-sm font-semibold text-[var(--foreground)]">Recorded actual total</td>
+                    <td className="px-4 py-4 text-sm text-[var(--muted)]">All team members</td>
+                    <td className="rounded-r-3xl px-4 py-4 text-sm text-[var(--muted)]">{formatHours(viewModel.totalActual)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
           </div>
         </section>
       </div>

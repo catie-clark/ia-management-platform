@@ -21,7 +21,7 @@ export function KpiCard({ title, value, subtitle, delta, status, href }: KPIProp
       whileHover={{ scale: 1.01 }}
       transition={{ duration: 0.35 }}
       className={cn(
-        "rounded-[26px] border p-5 shadow-[0_20px_40px_rgba(1,30,65,0.08)] transition-transform duration-200",
+        "rounded-[18px] border px-4 py-4 shadow-[0_14px_32px_rgba(1,30,65,0.07)] transition-transform duration-200",
         href ? "cursor-pointer" : "",
         statusTone[status],
         status === "risk" && "animate-pulse-glow",
@@ -29,12 +29,12 @@ export function KpiCard({ title, value, subtitle, delta, status, href }: KPIProp
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-[var(--muted)]">{title}</p>
-          <p className="mt-4 text-4xl font-semibold tracking-tight">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{title}</p>
+          <p className="mt-3 text-[2rem] font-semibold tracking-tight leading-none">{value}</p>
         </div>
         <div
           className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-2xl",
+            "flex h-9 w-9 items-center justify-center rounded-[14px]",
             status === "risk"
               ? "bg-[rgba(229,55,107,0.12)] text-[var(--brand-coral)]"
               : status === "warning"
@@ -42,11 +42,11 @@ export function KpiCard({ title, value, subtitle, delta, status, href }: KPIProp
                 : "bg-[rgba(5,171,140,0.14)] text-[var(--brand-teal-core)]",
           )}
         >
-          {status === "risk" ? <AlertTriangle size={20} /> : <ArrowUpRight size={20} />}
+          {status === "risk" ? <AlertTriangle size={17} /> : <ArrowUpRight size={17} />}
         </div>
       </div>
-      {subtitle ? <p className="mt-4 text-sm text-[var(--muted)]">{subtitle}</p> : null}
-      {delta ? <p className="mt-2 text-xs font-medium uppercase tracking-[0.22em] text-[var(--muted)]">{delta}</p> : null}
+      {subtitle ? <p className="mt-3 text-[13px] leading-5 text-[var(--muted)]">{subtitle}</p> : null}
+      {delta ? <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{delta}</p> : null}
     </motion.article>
   );
 

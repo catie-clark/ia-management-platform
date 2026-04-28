@@ -16,6 +16,7 @@ import {
   mapRequestsWithDisplayIds,
   mapUser,
 } from "@/lib/live-audit";
+import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
 import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
 
@@ -52,7 +53,7 @@ export async function getFieldworkViewModel({
       currentPhase: "Fieldwork",
       mode: "prototype",
       controls,
-      documents: mapFieldworkDocuments(documents),
+      documents: mapFieldworkDocuments(normalizeAuditDocuments({ controls, documents, questions, requests, users })),
       questions,
       requests,
       users,
@@ -124,6 +125,20 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
 
   const userMap = new Map((usersResult.data ?? []).map((user) => [user.id, mapUser(user)]));
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
+  const liveUsers = Array.from(userMap.values());
+  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
+  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+
+  const normalizedDocuments = mapFieldworkDocuments(
+    normalizeAuditDocuments({
+      controls: liveControls,
+      documents: (documentsResult.data ?? []).map(mapDocument),
+      questions: liveQuestions,
+      requests: liveRequests,
+      users: liveUsers,
+    }),
+  );
 
   return {
     auditId,
@@ -133,11 +148,11 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
     auditStatus: auditResult.data?.status ?? "active",
     currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
     mode: "live",
-    controls: (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap)),
-    documents: mapFieldworkDocuments((documentsResult.data ?? []).map(mapDocument)),
-    questions: mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap),
-    requests: mapRequestsWithDisplayIds(requestsResult.data ?? []),
-    users: Array.from(userMap.values()),
+    controls: liveControls,
+    documents: normalizedDocuments,
+    questions: liveQuestions,
+    requests: liveRequests,
+    users: liveUsers,
     now: new Date().toISOString(),
   };
 }

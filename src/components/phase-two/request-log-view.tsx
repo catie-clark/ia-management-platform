@@ -19,6 +19,17 @@ import {
   isRequestOverdue,
   shouldShowReminder,
 } from "@/lib/audit-logic";
+import {
+  canUserSeeAllControls,
+  filterControlsForUser,
+  filterDocumentsForControls,
+  filterQuestionsForControls,
+  filterRequestsForControls,
+  getDefaultControlAudienceFilter,
+  getDefaultScopeFilter,
+  type ControlAudienceFilter,
+  type ScopeFilter,
+} from "@/lib/control-visibility";
 import { getQuestionLogNow } from "@/lib/question-log-data";
 import type { DashboardMode } from "@/lib/live-audit";
 import { formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
@@ -30,11 +41,23 @@ type RequestSort = "DUE_ASC" | "DUE_DESC" | "REQUESTED_DESC" | "ASSIGNED_TO_ASC"
 const dueFilterOptions: DueFilter[] = ["ALL", "OVERDUE", "NEXT_48_HOURS", "NEXT_7_DAYS", "FUTURE"];
 const requestSortOptions: RequestSort[] = ["DUE_ASC", "DUE_DESC", "REQUESTED_DESC", "ASSIGNED_TO_ASC", "STATUS_ASC"];
 const phaseTagOptions: AuditPhase[] = ["Planning", "Fieldwork", "Reporting"];
+const stakeholderRoleOptions = [
+  "Finance Lead",
+  "IT Ops Lead",
+  "Treasury Manager",
+  "Consumer Lending Manager",
+  "Compliance Director",
+  "Vendor Governance Lead",
+  "BSA Operations Lead",
+  "Data Governance Manager",
+  "Operations Manager",
+] as const;
 
 type RequestLogViewProps = {
   auditId: string | null;
   auditLabel: string;
   controls: Control[];
+  currentPhase: AuditPhase;
   documents: AuditDocument[];
   embedded?: boolean;
   mode: DashboardMode;
@@ -47,6 +70,7 @@ export function RequestLogView({
   auditId,
   auditLabel,
   controls,
+  currentPhase,
   documents,
   embedded = false,
   mode,
@@ -67,33 +91,67 @@ export function RequestLogView({
   const [assignedToFilter, setAssignedToFilter] = useState<string>("ALL");
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
   const [sortBy, setSortBy] = useState<RequestSort>("DUE_ASC");
+  const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>(getDefaultControlAudienceFilter(activeUser));
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(getDefaultScopeFilter(currentPhase));
   const [isCreating, setIsCreating] = useState(false);
   const [followUpTarget, setFollowUpTarget] = useState<{ parentQuestionId?: string; parentRequestId?: string } | null>(null);
   const [responseDraft, setResponseDraft] = useState("");
   const currentNow = useMemo(() => getQuestionLogNow(mode), [mode]);
-  const requestOwners = useMemo(
-    () => Array.from(new Set([...users.map((user) => user.name), ...requestRows.map((request) => request.assignedTo)])),
-    [requestRows, users],
-  );
-  const defaultRequestForm = useMemo(
-    () => ({
-      controlId: controls[0]?.id ?? "",
-      assignedTo: requestOwners[0] ?? "",
-      dueDate: toLocalInputValue(new Date(currentNow)),
-      phaseTag: "Planning" as AuditPhase,
-      parentQuestionId: undefined as string | undefined,
-      parentRequestId: undefined as string | undefined,
-      description: "",
-    }),
-    [controls, currentNow, requestOwners],
-  );
-  const [form, setForm] = useState(defaultRequestForm);
   const openCreateMode = searchParams.get("openCreate");
   const followUpQuestionId = searchParams.get("followUpQuestionId");
 
   useEffect(() => {
     setRequestRows(requests);
   }, [requests]);
+
+  useEffect(() => {
+    setAudienceFilter(getDefaultControlAudienceFilter(activeUser));
+  }, [activeUser]);
+
+  useEffect(() => {
+    setScopeFilter(getDefaultScopeFilter(currentPhase));
+  }, [currentPhase]);
+
+  const visibleControls = useMemo(
+    () => filterControlsForUser(controls, activeUser, audienceFilter, scopeFilter),
+    [activeUser, audienceFilter, controls, scopeFilter],
+  );
+  const visibleQuestions = useMemo(
+    () => filterQuestionsForControls(questions, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, questions, visibleControls],
+  );
+  const visibleRequests = useMemo(
+    () => filterRequestsForControls(requestRows, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, requestRows, visibleControls],
+  );
+  const visibleDocuments = useMemo(
+    () => filterDocumentsForControls(documents, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, documents, visibleControls],
+  );
+  const createControlOptions = useMemo(
+    () =>
+      canUserSeeAllControls(activeUser)
+        ? visibleControls
+        : filterControlsForUser(controls, activeUser, "ASSIGNED", scopeFilter),
+    [activeUser, controls, scopeFilter, visibleControls],
+  );
+  const requestOwners = useMemo(
+    () => Array.from(new Set([...stakeholderRoleOptions, ...visibleRequests.map((request) => request.assignedTo)])),
+    [visibleRequests],
+  );
+  const defaultRequestForm = useMemo(
+    () => ({
+      controlId: createControlOptions[0]?.id ?? visibleControls[0]?.id ?? controls[0]?.id ?? "",
+      assignedTo: requestOwners[0] ?? "",
+      dueDate: toLocalInputValue(new Date(currentNow)),
+      phaseTag: currentPhase,
+      parentQuestionId: undefined as string | undefined,
+      parentRequestId: undefined as string | undefined,
+      description: "",
+    }),
+    [controls, createControlOptions, currentNow, currentPhase, requestOwners, visibleControls],
+  );
+  const [form, setForm] = useState(defaultRequestForm);
 
   useEffect(() => {
     setForm(defaultRequestForm);
@@ -113,17 +171,18 @@ export function RequestLogView({
     setForm({
       ...defaultRequestForm,
       assignedTo: followUpQuestion.assignedTo,
-      controlId: followUpQuestion.controlId,
+      controlId:
+        createControlOptions.some((control) => control.id === followUpQuestion.controlId) ? followUpQuestion.controlId : defaultRequestForm.controlId,
       parentQuestionId: followUpQuestion.id,
       parentRequestId: undefined,
       phaseTag: followUpQuestion.phaseTag ?? defaultRequestForm.phaseTag,
     });
     setFollowUpTarget({ parentQuestionId: followUpQuestion.id });
     setIsCreating(true);
-  }, [defaultRequestForm, followUpQuestionId, openCreateMode, questions]);
+  }, [createControlOptions, defaultRequestForm, followUpQuestionId, openCreateMode, questions]);
 
   const filteredRequests = useMemo(() => {
-    return requestRows
+    return visibleRequests
       .filter((request) => {
         const q = search.toLowerCase();
         const matchesSearch =
@@ -163,20 +222,20 @@ export function RequestLogView({
             return 0;
         }
       });
-  }, [assignedToFilter, currentNow, dueFilter, requestRows, search, sortBy, statusFilter]);
+  }, [assignedToFilter, currentNow, dueFilter, search, sortBy, statusFilter, visibleRequests]);
 
-  const selectedRequest = requestRows.find((request) => request.id === selectedId) ?? null;
+  const selectedRequest = visibleRequests.find((request) => request.id === selectedId) ?? null;
   const selectedRequestIdFromUrl = searchParams.get("requestId");
   const canCreateInLiveMode = mode === "live" && Boolean(auditId);
   const canRespondToRequest = selectedRequest
-    ? selectedRequest.assignedTo === activeUser.name || ["MANAGER", "DIRECTOR", "CAE"].includes(activeUser.role)
+    ? selectedRequest.assignedTo === activeUser.name || ["MANAGER", "DIRECTOR"].includes(activeUser.role)
     : false;
 
   useEffect(() => {
-    if (selectedRequestIdFromUrl && requestRows.some((request) => request.id === selectedRequestIdFromUrl)) {
+    if (selectedRequestIdFromUrl && visibleRequests.some((request) => request.id === selectedRequestIdFromUrl)) {
       setSelectedId(selectedRequestIdFromUrl);
     }
-  }, [selectedRequestIdFromUrl, requestRows]);
+  }, [selectedRequestIdFromUrl, visibleRequests]);
 
   useEffect(() => {
     setResponseDraft(selectedRequest?.responseNotes ?? "");
@@ -359,10 +418,9 @@ export function RequestLogView({
   }
 
   return (
-    <div className={embedded ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-col gap-6 xl:h-[calc(100dvh-13.5rem)]"}>
+    <div className={embedded ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]"}>
       {!embedded ? (
         <PageHeader
-          eyebrow="Phase 2"
           title="Request log"
           description={
             mode === "live"
@@ -378,14 +436,28 @@ export function RequestLogView({
 
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:max-w-md">
-            <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search requests or owners"
-              className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-11 py-3 text-sm outline-none"
-            />
+          <div className="flex w-full flex-col gap-3 lg:max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              {!canUserSeeAllControls(activeUser) ? (
+                <>
+                  <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
+                  <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
+                </>
+              ) : (
+                <FilterPill label="All audit controls" active />
+              )}
+              <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
+              <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
+            </div>
+            <div className="relative w-full">
+              <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search requests or owners"
+                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-11 py-3 text-sm outline-none"
+              />
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -475,7 +547,7 @@ export function RequestLogView({
                 const overdue = isRequestOverdue(request, currentNow);
                 const currentDelayHours = getRequestCurrentDelayHours(request, currentNow);
                 const realizedDelayHours = getRequestRealizedDelayHours(request);
-                const chainDelayHours = getRequestChainDelayHours(request, questions, requestRows, currentNow);
+                const chainDelayHours = getRequestChainDelayHours(request, visibleQuestions, visibleRequests, currentNow);
                 const tone = request.status === "COMPLETED" ? "success" : overdue ? "risk" : "warning";
 
                 return (
@@ -578,7 +650,7 @@ export function RequestLogView({
               onChange={(event) => setForm((current) => ({ ...current, controlId: event.target.value }))}
               className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
             >
-              {controls.map((control) => (
+              {createControlOptions.map((control) => (
                 <option key={control.id} value={control.id}>
                   {getControlLabel(control)} - {control.name}
                 </option>
@@ -649,7 +721,7 @@ export function RequestLogView({
               />
               <DetailCard
                 label="Chain delay impact"
-                value={formatHours(getRequestChainDelayHours(selectedRequest, questions, requestRows, currentNow))}
+                value={formatHours(getRequestChainDelayHours(selectedRequest, visibleQuestions, visibleRequests, currentNow))}
                 helpText="Total delay impact across this request and any linked follow-up questions or requests created because the original response package was incomplete."
               />
             </section>
@@ -695,7 +767,7 @@ export function RequestLogView({
                 </div>
               </div>
               <div className="mt-4 grid gap-3">
-                {renderRequestFollowUpRows(getRequestFollowUps(selectedRequest, questions, requestRows))}
+                {renderRequestFollowUpRows(getRequestFollowUps(selectedRequest, visibleQuestions, visibleRequests))}
               </div>
             </section>
 
@@ -730,8 +802,8 @@ export function RequestLogView({
             <section className="rounded-[24px] border border-black/5 bg-white p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Evidence placeholders</p>
               <div className="mt-4 grid gap-3">
-                {getRequestRelatedDocuments(selectedRequest.id, documents).length > 0 ? (
-                  getRequestRelatedDocuments(selectedRequest.id, documents).map((document) => (
+                {getRequestRelatedDocuments(selectedRequest.id, visibleDocuments).length > 0 ? (
+                  getRequestRelatedDocuments(selectedRequest.id, visibleDocuments).map((document) => (
                     <div key={document.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
                       <p className="text-sm font-semibold text-[var(--foreground)]">{document.title}</p>
                       <p className="mt-1 text-sm text-[var(--muted)]">{document.status.replaceAll("_", " ")}</p>
@@ -823,6 +895,30 @@ function HoverInfoCard({ text }: { text: string }) {
         {text}
       </span>
     </span>
+  );
+}
+
+function FilterPill({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+        active
+          ? "border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-core)] text-white"
+          : "border-black/5 bg-white text-[var(--muted)]"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

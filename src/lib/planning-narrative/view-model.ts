@@ -269,7 +269,7 @@ function buildTokenValues(context: NarrativeDataContext) {
   const controlCountLabel = String(controlCount);
   const businessUnitsInScope = getDistinctBusinessUnits(context);
   const planningDocuments = context.auditDocuments.filter((document) =>
-    document.document_type === "PLANNING_NARRATIVE" || document.document_type === "TOLLGATE",
+    document.document_type === "PLANNING_NARRATIVE" || document.document_type === "PLANNING_TOLLGATE",
   );
   const incompletePlanningDocuments = planningDocuments.filter((document) => document.status.trim().toLowerCase() !== "complete");
   const controlsWithAssignedOwnerCount = context.controls.filter((control) => control.assigned_owner_user_id !== null).length;
@@ -639,7 +639,7 @@ function getLeadershipDecisionPoints(context: NarrativeDataContext) {
     getMissingPhaseBudgetLabels(context.audit).length > 0
       ? `Approve remaining phase budgets for ${getMissingPhaseBudgetLabels(context.audit).join(", ")}.`
       : null,
-    context.auditDocuments.some((document) => document.document_type === "TOLLGATE" && document.status.trim().toLowerCase() !== "complete")
+    context.auditDocuments.some((document) => document.document_type === "PLANNING_TOLLGATE" && document.status.trim().toLowerCase() !== "complete")
       ? "Confirm expectations and timing for the planning tollgate package."
       : null,
   ];

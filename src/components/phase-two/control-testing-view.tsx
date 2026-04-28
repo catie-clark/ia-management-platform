@@ -5,10 +5,12 @@ import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Search } from "lucide-reac
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
+import { useActiveUser } from "@/components/layout/active-user-context";
 import { useNotification } from "@/components/ui/notification-provider";
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { ReminderButton } from "@/components/ui/reminder-button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
 import {
   getControlOwner,
   getControlRiskLevel,
@@ -22,10 +24,18 @@ import {
   isRequestOverdue,
   shouldShowReminder,
 } from "@/lib/audit-logic";
+import {
+  canUserSeeAllControls,
+  filterControlsForUser,
+  getDefaultControlAudienceFilter,
+  getDefaultScopeFilter,
+  type ControlAudienceFilter,
+  type ScopeFilter,
+} from "@/lib/control-visibility";
 import { getControlTestingNow } from "@/lib/control-testing-data";
 import type { DashboardMode } from "@/lib/live-audit";
 import { cn, formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
-import type { AuditDocument, Control, ControlStatus, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
+import type { AuditDocument, AuditPhase, Control, ControlScopeStatus, ControlStatus, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
 
 const controlStages: ControlStatus[] = ["NOT_STARTED", "IN_PROGRESS", "BLOCKED", "COMPLETE"];
 const documentReviewStages: DocumentReviewStatus[] = ["NOT_SUBMITTED", "AIC_REVIEW", "MANAGER_REVIEW", "DIRECTOR_REVIEW", "APPROVED"];
@@ -43,6 +53,7 @@ type ControlTestingViewProps = {
   auditLabel: string;
   auditPeriodLabel: string;
   controls: Control[];
+  currentPhase: AuditPhase;
   documents: AuditDocument[];
   mode: DashboardMode;
   questions: Question[];
@@ -54,15 +65,19 @@ type PlanningFormState = {
   dueDate: string;
   ownerId: string;
   plannedHours: string;
+  scopeStatus: ControlScopeStatus;
 };
 
 type ControlPlanningApiResponse = {
   controlId: string;
   assignedOwnerUserId: string | null;
+  clearAssignedOwner?: boolean;
+  effectiveOwnerUserId?: string | null;
   assignedDueDate: string | null;
   assignedPlannedHours: number | null;
   hasPlanningOverride: boolean;
   planningOverriddenAt: string | null;
+  scopeStatus?: ControlScopeStatus;
 };
 
 const dueFilterOptions: DueFilter[] = ["ALL", "OVERDUE", "NEXT_48_HOURS", "NEXT_7_DAYS", "FUTURE"];
@@ -74,6 +89,7 @@ export function ControlTestingView({
   auditLabel,
   auditPeriodLabel,
   controls,
+  currentPhase,
   documents,
   mode,
   questions,
@@ -82,16 +98,21 @@ export function ControlTestingView({
 }: ControlTestingViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { activeUser } = useActiveUser();
   const { showNotification } = useNotification();
   const [controlRecords, setControlRecords] = useState(controls);
+  const [documentRows, setDocumentRows] = useState(documents);
   const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedWorkpaperId, setSelectedWorkpaperId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ControlStatus | "ALL">("ALL");
   const [riskFilter, setRiskFilter] = useState<Control["riskLevel"] | "ALL">("ALL");
   const [ownerFilter, setOwnerFilter] = useState<string>("ALL");
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
+  const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>(getDefaultControlAudienceFilter(activeUser));
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(getDefaultScopeFilter(currentPhase));
   const [sortBy, setSortBy] = useState<ControlSort>("DUE_ASC");
-  const [planningForm, setPlanningForm] = useState<PlanningFormState>({ dueDate: "", ownerId: "", plannedHours: "" });
+  const [planningForm, setPlanningForm] = useState<PlanningFormState>({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "IN_SCOPE" });
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
   const [isSaving, startSaving] = useTransition();
@@ -101,8 +122,25 @@ export function ControlTestingView({
     setControlRecords(controls);
   }, [controls]);
 
+  useEffect(() => {
+    setDocumentRows(documents);
+  }, [documents]);
+
+  useEffect(() => {
+    setAudienceFilter(getDefaultControlAudienceFilter(activeUser));
+  }, [activeUser]);
+
+  useEffect(() => {
+    setScopeFilter(getDefaultScopeFilter(currentPhase));
+  }, [currentPhase]);
+
+  const visibleControls = useMemo(
+    () => filterControlsForUser(controlRecords, activeUser, audienceFilter, scopeFilter),
+    [activeUser, audienceFilter, controlRecords, scopeFilter],
+  );
+
   const filteredControls = useMemo(() => {
-    return controlRecords
+    return visibleControls
       .filter((control) => {
         const q = search.toLowerCase();
         const matchesSearch =
@@ -122,13 +160,13 @@ export function ControlTestingView({
         return (
           matchesSearch &&
           matchesDueFilter &&
-          (statusFilter === "ALL" || getDerivedControlStatus(control, getAuditContext(controlRecords, documents, questions, requests, users, currentNow)) === statusFilter) &&
-          (riskFilter === "ALL" || getControlRiskLevel(control, getAuditContext(controlRecords, documents, questions, requests, users, currentNow)) === riskFilter) &&
+          (statusFilter === "ALL" || getDerivedControlStatus(control, getAuditContext(visibleControls, documentRows, questions, requests, users, currentNow)) === statusFilter) &&
+          (riskFilter === "ALL" || getControlRiskLevel(control, getAuditContext(visibleControls, documentRows, questions, requests, users, currentNow)) === riskFilter) &&
           (ownerFilter === "ALL" || control.ownerId === ownerFilter)
         );
       })
       .sort((left, right) => {
-        const context = getAuditContext(controlRecords, documents, questions, requests, users, currentNow);
+        const context = getAuditContext(visibleControls, documentRows, questions, requests, users, currentNow);
         const leftRisk = getControlRiskLevel(left, context);
         const rightRisk = getControlRiskLevel(right, context);
 
@@ -149,12 +187,14 @@ export function ControlTestingView({
             return 0;
         }
       });
-  }, [controlRecords, currentNow, documents, dueFilter, ownerFilter, questions, requests, riskFilter, search, sortBy, statusFilter, users]);
+  }, [currentNow, documentRows, dueFilter, ownerFilter, questions, requests, riskFilter, search, sortBy, statusFilter, users, visibleControls]);
 
   const selectedControl = controlRecords.find((control) => control.id === selectedId) ?? null;
+  const canEditPlanningDecisions =
+    activeUser.role === "MANAGER" || activeUser.role === "AIC" || activeUser.role === "DIRECTOR";
   const auditContext = useMemo(
-    () => getAuditContext(controlRecords, documents, questions, requests, users, currentNow),
-    [controlRecords, currentNow, documents, questions, requests, users],
+    () => getAuditContext(visibleControls, documentRows, questions, requests, users, currentNow),
+    [currentNow, documentRows, questions, requests, users, visibleControls],
   );
   const workspaceQuery = useMemo(() => {
     const params = new URLSearchParams();
@@ -174,12 +214,19 @@ export function ControlTestingView({
       params.set("sync", sync);
     }
 
+    const phase = searchParams.get("phase");
+
+    if (phase) {
+      params.set("phase", phase);
+    }
+
     return params;
   }, [auditId, auditLabel, mode, searchParams]);
 
   useEffect(() => {
     if (!selectedControl) {
-      setPlanningForm({ dueDate: "", ownerId: "", plannedHours: "" });
+      setPlanningForm({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "IN_SCOPE" });
+      setSelectedWorkpaperId("");
       setSaveError("");
       setSaveSuccess("");
       return;
@@ -189,97 +236,114 @@ export function ControlTestingView({
       dueDate: toDateInputValue(selectedControl.dueDate),
       ownerId: selectedControl.ownerId,
       plannedHours: selectedControl.plannedHours.toString(),
+      scopeStatus: selectedControl.scopeStatus,
     });
+    setSelectedWorkpaperId("");
     setSaveError("");
     setSaveSuccess("");
   }, [selectedControl]);
 
+  const linkedWorkpapers = useMemo(
+    () => (selectedControl ? getLinkedDocuments(selectedControl.id, documentRows).filter((document) => document.type === "WORKPAPER") : []),
+    [documentRows, selectedControl],
+  );
+  const selectedWorkpaper = linkedWorkpapers.find((document) => document.id === selectedWorkpaperId) ?? null;
+  const linkedNonWorkpaperDocuments = useMemo(
+    () => (selectedControl ? getLinkedDocuments(selectedControl.id, documentRows).filter((document) => document.type !== "WORKPAPER") : []),
+    [documentRows, selectedControl],
+  );
+
   return (
-    <div className="flex min-h-0 flex-col gap-6 xl:h-[calc(100dvh-13.5rem)]">
+    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
       <PageHeader
-        eyebrow="Phase 2"
         title="Control Testing"
-        scopePeriodLabel={auditPeriodLabel}
-        description={
-          mode === "live"
-            ? `Live control planning for ${auditLabel}. Owners, budgeted hours, and due dates can be set in the control detail panel and saved back to Supabase.`
-            : "Operational view for control ownership, execution status, hours variance, and due-date follow-up. Linked workpapers surface AIC, manager, and director review progression where that workflow actually occurs."
-        }
-        phaseStatus={{
-          label: mode === "live" ? "Planning edits enabled" : "Prototype detail view",
-          active: mode === "live",
-        }}
+        description="Monitor control completion, linked support, due dates, and budget variance across the active audit scope."
+        phaseStatus={{ label: currentPhase === "Fieldwork" ? "Active execution phase" : `Current phase: ${currentPhase}`, active: currentPhase === "Fieldwork" }}
       />
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-3 md:grid-cols-3">
         <SummaryCard
-          label="Controls in scope"
-          value={`${controlRecords.length}`}
-          detail={`${controlRecords.filter((control) => shouldShowReminder(control, currentNow)).length} due inside 48h`}
+          label="Controls in view"
+          value={`${visibleControls.length}`}
+          detail={`${visibleControls.filter((control) => shouldShowReminder(control, currentNow)).length} due inside 48h`}
           tone="warning"
         />
         <SummaryCard
           label="Over budget"
-          value={`${controlRecords.filter((control) => getControlVariance(control) > 0).length}`}
+          value={`${visibleControls.filter((control) => getControlVariance(control) > 0).length}`}
           detail="Hours variance flagged inline"
           tone="risk"
         />
         <SummaryCard
           label="Past due"
-          value={`${controlRecords.filter((control) => isControlOverdue(control, currentNow)).length}`}
+          value={`${visibleControls.filter((control) => isControlOverdue(control, currentNow)).length}`}
           detail="Escalation candidates for managers"
           tone="risk"
         />
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-md">
-            <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search controls, reference IDs, or business units"
-              className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-11 py-3 text-sm outline-none"
-            />
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-black/5 bg-white p-4 shadow-[0_14px_34px_rgba(1,30,65,0.07)]">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex w-full flex-col gap-3 xl:max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              {!canUserSeeAllControls(activeUser) ? (
+                <>
+                  <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
+                  <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
+                </>
+              ) : (
+                <FilterPill label="All audit controls" active />
+              )}
+              <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
+              <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
+            </div>
+            <div className="relative w-full">
+              <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search controls, reference IDs, or business units"
+                className="w-full rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-10 py-2.5 text-[13px] outline-none"
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Filter size={16} className="text-[var(--muted)]" />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Filter size={15} className="text-[var(--muted)]" />
             <Select value={statusFilter} onChange={setStatusFilter} options={["ALL", ...controlStages]} />
             <Select value={riskFilter} onChange={setRiskFilter} options={["ALL", "HIGH", "MEDIUM", "LOW"]} />
             <Select
               value={ownerFilter}
               onChange={setOwnerFilter}
-              options={["ALL", ...Array.from(new Set(controlRecords.map((control) => control.ownerId)))]}
-              label={(value) => (value === "ALL" ? "All owners" : getOwnerLabel(controlRecords.find((control) => control.ownerId === value) ?? null, users))}
+              options={["ALL", ...Array.from(new Set(visibleControls.map((control) => control.ownerId)))]}
+              label={(value) => (value === "ALL" ? "All owners" : getOwnerLabel(visibleControls.find((control) => control.ownerId === value) ?? null, users))}
             />
             <Select value={dueFilter} onChange={setDueFilter} options={dueFilterOptions} label={formatDueFilterLabel} />
             <Select value={sortBy} onChange={setSortBy} options={controlSortOptions} label={formatControlSortLabel} icon={<ArrowDownUp size={16} />} />
           </div>
         </div>
 
-        <div className="mt-6 min-h-0 flex-1 overflow-auto">
-          <table className="min-w-full border-separate border-spacing-y-3">
+        <div className="mt-4 min-h-0 flex-1 overflow-auto">
+          <table className="min-w-full border-separate border-spacing-y-2">
             <thead>
-              <tr className="sticky top-0 z-10 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                <th className="bg-white px-4 py-2">Control</th>
-                <th className="bg-white px-4 py-2">Owner</th>
-                <th className="bg-white px-4 py-2">
+              <tr className="sticky top-0 z-10 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                <th className="bg-white px-3 py-2">Control</th>
+                <th className="bg-white px-3 py-2">Owner</th>
+                <th className="bg-white px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     Status
                     <HoverInfoCard text="Overdue controls show Blocked when any linked question, request, or document is also overdue. If the control is overdue but no linked items are overdue, status shows In Progress." />
                   </span>
                 </th>
-                <th className="bg-white px-4 py-2">Due</th>
-                <th className="bg-white px-4 py-2">Hours</th>
-                <th className="bg-white px-4 py-2">
+                <th className="bg-white px-3 py-2">Due</th>
+                <th className="bg-white px-3 py-2">Hours</th>
+                <th className="bg-white px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     Risk
                     <HoverInfoCard text="Risk is scored from overdue timing, blocked status, budget variance, linked open or overdue questions and requests, document review completion, and higher-sensitivity business areas." />
                   </span>
                 </th>
-                <th className="bg-white px-4 py-2">Actions</th>
+                <th className="bg-white px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -293,35 +357,35 @@ export function ControlTestingView({
                 return (
                   <tr
                     key={control.id}
-                    className="cursor-pointer bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)] transition-transform duration-200 hover:-translate-y-0.5"
+                    className="cursor-pointer bg-[#fcfbf8] shadow-[0_10px_24px_rgba(1,30,65,0.06)] transition-transform duration-200 hover:-translate-y-0.5"
                     onClick={() => setSelectedId(control.id)}
                   >
-                    <td className={cn("rounded-l-3xl px-4 py-4", overdue && "control-cell-overdue control-cell-overdue-first")}>
+                    <td className={cn("rounded-l-[18px] px-3 py-3", overdue && "control-cell-overdue control-cell-overdue-first")}>
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{control.referenceId ?? control.id}</p>
+                        <p className="text-[13px] font-semibold text-[var(--foreground)]">{control.referenceId ?? control.id}</p>
                         {overdue ? <StatusBadge status="Overdue" tone="risk" className="animate-pulse" /> : null}
                       </div>
-                      <p className="mt-1 text-sm text-[var(--foreground)]">{control.name}</p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">{control.businessUnit}</p>
+                      <p className="mt-1 text-[13px] text-[var(--foreground)]">{control.name}</p>
+                      <p className="mt-0.5 text-[11px] text-[var(--muted)]">{control.businessUnit}</p>
                     </td>
-                    <td className={cn("px-4 py-4 text-sm text-[var(--muted)]", overdue && "control-cell-overdue")}>{getOwnerLabel(control, users)}</td>
-                    <td className={cn("px-4 py-4", overdue && "control-cell-overdue")}>
+                    <td className={cn("px-3 py-3 text-[13px] text-[var(--muted)]", overdue && "control-cell-overdue")}>{getOwnerLabel(control, users)}</td>
+                    <td className={cn("px-3 py-3", overdue && "control-cell-overdue")}>
                       <StatusBadge
                         status={derivedStatus}
                         tone={derivedStatus === "COMPLETE" ? "success" : derivedStatus === "BLOCKED" ? "risk" : "warning"}
                       />
                     </td>
-                    <td className={cn("px-4 py-4 text-sm text-[var(--muted)]", overdue && "control-cell-overdue")}>{formatShortDate(control.dueDate)}</td>
-                    <td className={cn("px-4 py-4 text-sm text-[var(--muted)]", overdue && "control-cell-overdue")}>
+                    <td className={cn("px-3 py-3 text-[13px] text-[var(--muted)]", overdue && "control-cell-overdue")}>{formatShortDate(control.dueDate)}</td>
+                    <td className={cn("px-3 py-3 text-[13px] text-[var(--muted)]", overdue && "control-cell-overdue")}>
                       {formatHours(control.actualHours)} / {formatHours(control.plannedHours)}
                       <span className={variance > 0 ? "ml-2 text-[var(--brand-coral)]" : "ml-2 text-[var(--brand-teal-core)]"}>
                         {variance > 0 ? `+${formatHours(variance)}` : `${formatHours(Math.abs(variance))} under`}
                       </span>
                     </td>
-                    <td className={cn("px-4 py-4", overdue && "control-cell-overdue")}>
+                    <td className={cn("px-3 py-3", overdue && "control-cell-overdue")}>
                       <StatusBadge status={derivedRiskLevel} tone={riskTone} />
                     </td>
-                    <td className={cn("rounded-r-3xl px-4 py-4", overdue && "control-cell-overdue control-cell-overdue-last")}>
+                    <td className={cn("rounded-r-[18px] px-3 py-3", overdue && "control-cell-overdue control-cell-overdue-last")}>
                       <div className="flex items-center gap-2">
                         <ReminderButton visible={shouldShowReminder(control, currentNow)} tooltip="Deadline approaching" />
                         <button
@@ -330,7 +394,7 @@ export function ControlTestingView({
                             event.stopPropagation();
                             setSelectedId(control.id);
                           }}
-                          className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+                          className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--brand-indigo-core)]"
                         >
                           Inspect
                           <ArrowRight size={14} />
@@ -351,28 +415,35 @@ export function ControlTestingView({
           subtitle={selectedControl.description}
           open={Boolean(selectedControl)}
           onClose={() => setSelectedId("")}
-          panelClassName="bottom-4 right-4 top-4 h-auto rounded-[28px] border border-black/5 border-l"
+          panelClassName="bottom-4 right-4 top-4 h-auto rounded-[20px] border border-black/5 border-l"
         >
-          <div className="grid gap-6">
+          <div className="grid gap-4">
             {mode === "live" ? (
-              <section className="rounded-[24px] border border-black/5 bg-white p-5">
+              <section className="rounded-[18px] border border-black/5 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Planning decisions</p>
-                    <h3 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Control setup stored on this audit</h3>
-                    <p className="mt-2 text-sm text-[var(--muted)]">
-                      Managers assign the control owner, target due date, and budgeted hours for this audit during planning.
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Planning decisions</p>
+                    <h3 className="mt-1.5 text-base font-semibold text-[var(--foreground)]">Control setup stored on this audit</h3>
+                    <p className="mt-1.5 text-[13px] text-[var(--muted)]">
+                      Managers, the AIC, and the director can assign the control owner, target due date, budgeted hours, and scope for this audit during planning.
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {!canEditPlanningDecisions ? (
+                  <p className="mt-3 rounded-[14px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] text-[var(--muted)]">
+                    Planning decisions are read-only for staff. Switch to a manager, AIC, or director to update this setup.
+                  </p>
+                ) : null}
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <label className="grid gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Control owner</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Control owner</span>
                     <select
+                      disabled={!canEditPlanningDecisions}
                       value={planningForm.ownerId}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, ownerId: event.target.value }))}
-                      className="rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <option value="">Unassigned</option>
                       {users.map((user) => (
@@ -384,45 +455,60 @@ export function ControlTestingView({
                   </label>
 
                   <label className="grid gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Due date</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Due date</span>
                     <input
+                      disabled={!canEditPlanningDecisions}
                       type="date"
                       value={planningForm.dueDate}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, dueDate: event.target.value }))}
-                      className="rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
 
                   <label className="grid gap-2 md:col-span-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Budgeted hours</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Budgeted hours</span>
                     <input
+                      disabled={!canEditPlanningDecisions}
                       type="number"
                       min="0"
                       step="0.25"
                       value={planningForm.plannedHours}
                       onChange={(event) => setPlanningForm((current) => ({ ...current, plannedHours: event.target.value }))}
-                      className="rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
+                  </label>
+
+                  <label className="grid gap-2 md:col-span-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Scope decision</span>
+                    <select
+                      disabled={!canEditPlanningDecisions}
+                      value={planningForm.scopeStatus}
+                      onChange={(event) => setPlanningForm((current) => ({ ...current, scopeStatus: event.target.value as ControlScopeStatus }))}
+                      className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="IN_SCOPE">In scope</option>
+                      <option value="OUT_OF_SCOPE">Out of scope</option>
+                    </select>
                   </label>
                 </div>
 
                 {saveError ? (
-                  <p className="mt-4 rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
+                  <p className="mt-3 rounded-[14px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-3.5 py-2.5 text-[13px] text-[var(--brand-coral)]">
                     {saveError}
                   </p>
                 ) : null}
                 {saveSuccess ? (
-                  <p className="mt-4 rounded-[18px] border border-[rgba(5,171,140,0.18)] bg-[rgba(5,171,140,0.08)] px-4 py-3 text-sm text-[var(--brand-teal-core)]">
+                  <p className="mt-3 rounded-[14px] border border-[rgba(5,171,140,0.18)] bg-[rgba(5,171,140,0.08)] px-3.5 py-2.5 text-[13px] text-[var(--brand-teal-core)]">
                     {saveSuccess}
                   </p>
                 ) : null}
 
-                <div className="mt-5 flex flex-wrap gap-3">
+                <div className="mt-4 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    disabled={isSaving || !auditId}
+                    disabled={!canEditPlanningDecisions || isSaving || !auditId}
                     onClick={() => {
-                      if (!auditId) {
+                      if (!auditId || !canEditPlanningDecisions) {
                         return;
                       }
 
@@ -450,7 +536,9 @@ export function ControlTestingView({
                             dueDate: toDateInputValue(updatedControl.dueDate),
                             ownerId: updatedControl.ownerId,
                             plannedHours: updatedControl.plannedHours.toString(),
+                            scopeStatus: updatedControl.scopeStatus,
                           });
+                          router.refresh();
                           setSaveSuccess("Planning decisions saved to Supabase.");
                           showNotification({
                             title: "Saved successfully",
@@ -467,7 +555,7 @@ export function ControlTestingView({
                         }
                       });
                     }}
-                    className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isSaving ? "Saving..." : "Save planning details"}
                   </button>
@@ -475,7 +563,7 @@ export function ControlTestingView({
               </section>
             ) : null}
 
-            <section className="grid gap-4 md:grid-cols-2">
+            <section className="grid gap-3 md:grid-cols-2">
               <InfoCard label="Owner" value={getOwnerLabel(selectedControl, users)} />
               <InfoCard label="Due date" value={formatDateTime(selectedControl.dueDate)} />
               <InfoCard
@@ -487,6 +575,7 @@ export function ControlTestingView({
                 label="Last planning edit"
                 value={selectedControl.planningOverriddenAt ? formatDateTime(selectedControl.planningOverriddenAt) : "No manual override saved"}
               />
+              <InfoCard label="Scope" value={selectedControl.scopeStatus === "OUT_OF_SCOPE" ? "Out of scope" : "In scope"} />
             </section>
 
             <LinkedSection title="Related risks" empty="No related risks linked yet.">
@@ -523,13 +612,42 @@ export function ControlTestingView({
               ))}
             </LinkedSection>
 
-            <LinkedSection title="Linked documents" empty="No documents linked yet.">
-              {getLinkedDocuments(selectedControl.id, documents).map((document) => (
+            <LinkedSection title="Linked workpapers" empty="No workpapers are linked to this control yet.">
+              {linkedWorkpapers.map((document) => (
+                <DocumentLinkedRow
+                  key={document.id}
+                  actionLabel="Launch workpaper"
+                  document={document}
+                  onAction={() => setSelectedWorkpaperId(document.id)}
+                />
+              ))}
+            </LinkedSection>
+
+            <LinkedSection title="Linked documents" empty="No non-workpaper documents linked yet.">
+              {linkedNonWorkpaperDocuments.map((document) => (
                 <DocumentLinkedRow key={document.id} document={document} />
               ))}
             </LinkedSection>
           </div>
         </DetailPanel>
+      ) : null}
+
+      {selectedWorkpaper ? (
+        <WorkpaperDetailPanel
+          auditId={auditId}
+          authorUserId={selectedControl?.ownerId}
+          controls={controlRecords}
+          document={selectedWorkpaper}
+          mode={mode}
+          now={currentNow}
+          onClose={() => setSelectedWorkpaperId("")}
+          onDocumentUpdated={(nextDocument) => {
+            setDocumentRows((current) => current.map((document) => (document.id === nextDocument.id ? nextDocument : document)));
+          }}
+          questions={questions}
+          requests={requests}
+          users={users}
+        />
       ) : null}
     </div>
   );
@@ -537,14 +655,31 @@ export function ControlTestingView({
 
 function SummaryCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: "warning" | "risk" }) {
   return (
-    <article className="rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">{label}</p>
-      <div className="mt-3 flex items-end gap-3">
-        <p className="text-3xl font-semibold text-[var(--foreground)]">{value}</p>
+    <article className="rounded-[18px] border border-black/5 bg-white p-4 shadow-[0_14px_34px_rgba(1,30,65,0.07)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+      <div className="mt-2 flex items-end gap-2.5">
+        <p className="text-[1.7rem] font-semibold leading-none text-[var(--foreground)]">{value}</p>
         <StatusBadge status={tone === "risk" ? "Watchlist" : "Near due"} tone={tone} />
       </div>
-      <p className="mt-3 text-sm text-[var(--muted)]">{detail}</p>
+      <p className="mt-2 text-[13px] text-[var(--muted)]">{detail}</p>
     </article>
+  );
+}
+
+function FilterPill({ active = false, label, onClick }: { active?: boolean; label: string; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
+        active
+          ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] text-[var(--brand-amber-dark)]"
+          : "border-black/5 bg-[var(--surface-tint)] text-[var(--muted)]",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -563,11 +698,11 @@ function Select<T extends string>({
 }) {
   return (
     <div className="relative">
-      {icon ? <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]">{icon}</span> : null}
+      {icon ? <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]">{icon}</span> : null}
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className={`rounded-full border border-black/5 bg-[var(--surface-tint)] py-2 text-sm text-[var(--foreground)] outline-none ${icon ? "pl-10 pr-4" : "px-4"}`}
+        className={`rounded-full border border-black/5 bg-[var(--surface-tint)] py-2 text-[13px] text-[var(--foreground)] outline-none ${icon ? "pl-9 pr-3.5" : "px-3.5"}`}
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -625,9 +760,9 @@ function formatControlSortLabel(value: ControlSort) {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[22px] border border-black/5 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
+    <div className="rounded-[16px] border border-black/5 bg-white p-3.5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+      <p className="mt-1.5 text-[13px] font-medium text-[var(--foreground)]">{value}</p>
     </div>
   );
 }
@@ -637,11 +772,11 @@ function HoverInfoCard({ text }: { text: string }) {
     <span className="group relative inline-flex">
       <button
         type="button"
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-black/10 bg-white text-[var(--muted)] transition-colors hover:text-[var(--brand-indigo-core)]"
+        className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-black/10 bg-white text-[var(--muted)] transition-colors hover:text-[var(--brand-indigo-core)]"
       >
         <CircleHelp size={12} />
       </button>
-      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+0.65rem)] z-20 w-72 -translate-x-1/2 rounded-[18px] border border-black/5 bg-white px-4 py-3 text-left text-[11px] normal-case tracking-normal text-[var(--foreground)] opacity-0 shadow-[0_18px_40px_rgba(1,30,65,0.14)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
+      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+0.55rem)] z-20 w-72 -translate-x-1/2 rounded-[14px] border border-black/5 bg-white px-3.5 py-3 text-left text-[11px] normal-case tracking-normal text-[var(--foreground)] opacity-0 shadow-[0_16px_32px_rgba(1,30,65,0.14)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
         {text}
       </span>
     </span>
@@ -653,9 +788,9 @@ function LinkedSection({ title, empty, children }: { title: string; empty: strin
   const hasItems = items.some(Boolean);
 
   return (
-    <section className="rounded-[24px] border border-black/5 bg-white p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{title}</p>
-      <div className="mt-4 grid gap-3">{hasItems ? children : <p className="text-sm text-[var(--muted)]">{empty}</p>}</div>
+    <section className="rounded-[18px] border border-black/5 bg-white p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{title}</p>
+      <div className="mt-3 grid gap-2.5">{hasItems ? children : <p className="text-[13px] text-[var(--muted)]">{empty}</p>}</div>
     </section>
   );
 }
@@ -665,29 +800,37 @@ function LinkedRow({ title, meta, overdue = false, onClick }: { title: string; m
     <button
       type="button"
       onClick={onClick}
-      className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-left transition-colors hover:bg-[rgba(245,168,0,0.08)]"
+      className="rounded-[14px] bg-[var(--surface-tint)] px-3.5 py-3 text-left transition-colors hover:bg-[rgba(245,168,0,0.08)]"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-[var(--foreground)]">{title}</p>
+        <p className="text-[13px] font-semibold text-[var(--foreground)]">{title}</p>
         {overdue ? <StatusBadge status="Overdue" tone="risk" /> : null}
       </div>
-      <p className="mt-1 text-sm text-[var(--muted)]">{meta}</p>
+      <p className="mt-1 text-[13px] text-[var(--muted)]">{meta}</p>
     </button>
   );
 }
 
-function DocumentLinkedRow({ document }: { document: AuditDocument }) {
+function DocumentLinkedRow({
+  actionLabel,
+  document,
+  onAction,
+}: {
+  actionLabel?: string;
+  document: AuditDocument;
+  onAction?: () => void;
+}) {
   const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
   const currentIndex = documentReviewStages.indexOf(reviewStatus);
 
   return (
-    <div className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-4">
+    <div className="rounded-[14px] bg-[var(--surface-tint)] px-3.5 py-3.5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-sm font-semibold text-[var(--foreground)]">
-            {document.id} - {document.title}
+          <p className="text-[13px] font-semibold text-[var(--foreground)]">
+            {document.displayId ?? document.id} - {document.title}
           </p>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-1.5 flex flex-wrap gap-2">
             <StatusBadge
               status={document.status}
               tone={document.status === "COMPLETE" ? "success" : document.status === "NOT_STARTED" ? "warning" : "neutral"}
@@ -698,10 +841,22 @@ function DocumentLinkedRow({ document }: { document: AuditDocument }) {
             />
           </div>
         </div>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Document review workflow</p>
+        <div className="flex flex-col items-start gap-3 lg:items-end">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Document review workflow</p>
+          {onAction ? (
+            <button
+              type="button"
+              onClick={onAction}
+              className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--brand-indigo-core)]"
+            >
+              {actionLabel ?? "Open"}
+              <ArrowRight size={14} />
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-5">
+      <div className="mt-3 grid gap-2 md:grid-cols-5">
         {documentReviewStages.map((stage, index) => {
           const tone = index < currentIndex ? "success" : index === currentIndex ? "warning" : "neutral";
           return <StatusBadge key={stage} status={stage} tone={tone} className="justify-center py-2" />;
@@ -761,9 +916,11 @@ function buildPlanningPayload(control: Control, planningForm: PlanningFormState,
   return {
     auditId,
     assignedOwnerUserId: normalizedOwnerId === (control.importedOwnerId ?? null) ? null : normalizedOwnerId,
+    clearAssignedOwner: normalizedOwnerId === null,
     assignedDueDate: normalizedDueDate === toDateInputValue(control.importedDueDate) ? null : normalizedDueDate,
     assignedPlannedHours:
       normalizedPlannedHours === null || normalizedPlannedHours === (control.importedPlannedHours ?? 0) ? null : normalizedPlannedHours,
+    scopeStatus: planningForm.scopeStatus,
   };
 }
 
@@ -774,7 +931,7 @@ function applyControlPlanningResponse(control: Control, response: ControlPlannin
 
   return {
     ...control,
-    ownerId: response.assignedOwnerUserId ?? control.importedOwnerId ?? "",
+    ownerId: response.clearAssignedOwner ? "" : response.effectiveOwnerUserId ?? response.assignedOwnerUserId ?? control.importedOwnerId ?? "",
     assignedOwnerId: response.assignedOwnerUserId ?? undefined,
     dueDate: assignedDueDate ?? importedDueDate,
     assignedDueDate,
@@ -782,5 +939,6 @@ function applyControlPlanningResponse(control: Control, response: ControlPlannin
     assignedPlannedHours: response.assignedPlannedHours ?? undefined,
     hasPlanningOverride: response.hasPlanningOverride,
     planningOverriddenAt: response.planningOverriddenAt ?? undefined,
+    scopeStatus: response.scopeStatus ?? control.scopeStatus,
   };
 }

@@ -24,43 +24,43 @@ export function AlertsPanel({
   const alerts = rows.slice(0, 4);
 
   return (
-    <section className="rounded-[28px] bg-[var(--brand-indigo-dark)] p-6 text-white shadow-panel">
+    <section className="rounded-[20px] bg-[var(--brand-indigo-dark)] px-5 py-4 text-white shadow-[0_16px_36px_rgba(1,30,65,0.12)]">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted-on-dark)]">{eyebrow}</p>
-          <h2 className="mt-3 text-2xl font-semibold">{title}</h2>
+          <h2 className="mt-2 text-xl font-semibold leading-tight">{title}</h2>
         </div>
-        <span className="rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
+        <span className="rounded-[14px] border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-bright)]">
           {alerts.length} {badgeLabel}
         </span>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {alerts.map((alert) => {
           const Icon = iconMap[alert.area];
 
           return (
             <article
               key={alert.id}
-              className="rounded-[24px] border border-white/10 bg-white/5 p-4 transition-colors hover:bg-white/[0.08]"
+              className="rounded-[16px] border border-white/10 bg-white/5 px-4 py-3 transition-colors hover:bg-white/[0.08]"
             >
               <div className="flex items-start gap-3">
-                <div className="mt-1 flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-core)]">
-                  <Icon size={18} />
+                <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-[12px] bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-core)]">
+                  <Icon size={16} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted-on-dark)]">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted-on-dark)]">
                       {alert.area}
                     </span>
-                    <span className="rounded-full bg-[rgba(229,55,107,0.15)] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-[#ff8da7]">
+                    <span className="rounded-full bg-[rgba(229,55,107,0.15)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#ff8da7]">
                       {alert.trigger}
                     </span>
                   </div>
-                  <h3 className="mt-3 text-base font-semibold">{alert.title}</h3>
-                  <p className="mt-1 text-sm text-[var(--muted-on-dark)]">Owner: {alert.owner}</p>
+                  <h3 className="mt-2 text-sm font-semibold leading-5">{alert.title}</h3>
+                  <p className="mt-1 text-[13px] text-[var(--muted-on-dark)]">Owner: {alert.owner}</p>
                   {alert.dueDate ? (
-                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-[var(--muted-on-dark)]">
+                    <p className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">
                       Due {formatShortDate(alert.dueDate)}
                     </p>
                   ) : null}

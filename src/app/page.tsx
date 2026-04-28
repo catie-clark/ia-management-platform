@@ -568,9 +568,9 @@ export default function HomePage() {
 
   return (
     <>
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,168,0,0.18),_transparent_28%),linear-gradient(180deg,_#082346_0%,_#071a33_100%)] text-white lg:h-screen lg:overflow-hidden">
-        <div className="mx-auto flex min-h-screen max-w-7xl items-center px-4 py-6 sm:px-6 lg:h-screen lg:px-8 lg:py-4">
-          <section className="grid w-full gap-5 overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-panel backdrop-blur sm:p-6 lg:max-h-[calc(100vh-2rem)] lg:grid-cols-[1.02fr_0.98fr] lg:p-8">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,168,0,0.18),_transparent_28%),linear-gradient(180deg,_#082346_0%,_#071a33_100%)] text-white">
+        <div className="mx-auto flex min-h-screen max-w-7xl items-center px-4 py-6 sm:px-6 lg:px-8 lg:py-6">
+          <section className="grid w-full gap-5 rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-panel backdrop-blur sm:p-6 lg:grid-cols-[1.02fr_0.98fr] lg:p-8">
             <div className="flex flex-col gap-4 lg:justify-start">
               <div className="max-w-2xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-amber-bright)]">
@@ -982,7 +982,7 @@ function NewAuditModal({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(1,30,65,0.4)] p-4 backdrop-blur-sm">
       <div className="flex min-h-full items-start justify-center py-4 sm:items-center">
-        <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[30px] border border-black/5 bg-[#fbfaf7] p-6 text-[var(--foreground)] shadow-[0_24px_80px_rgba(1,30,65,0.22)] sm:p-8">
+        <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[30px] border border-black/5 bg-[#fbfaf7] p-5 text-[var(--foreground)] shadow-[0_24px_80px_rgba(1,30,65,0.22)] sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">New audit</p>
@@ -1003,7 +1003,7 @@ function NewAuditModal({
           </div>
 
           <form className="mt-6 flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
-            <div className="grid gap-6 overflow-y-auto pr-1">
+            <div className="grid min-h-0 gap-6 overflow-y-auto pr-1">
               <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
                 <div className="grid gap-4">
                   <Field label="Audit name">
@@ -1398,11 +1398,11 @@ function NewAuditModal({
               ) : null}
             </div>
 
-            <div className="mt-6 flex flex-col gap-3 border-t border-black/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-6 flex flex-col gap-3 border-t border-black/5 bg-[#fbfaf7] pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-[var(--muted)]">
                 Create audit stays disabled until the audit name, valid date range, optional total hours value, and all required datasets are valid.
               </p>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={onClose}

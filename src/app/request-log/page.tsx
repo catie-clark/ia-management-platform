@@ -13,6 +13,7 @@ export default async function RequestLogPage({
   const auditId = getSingleValue(params.auditId);
   const auditLabel = getSingleValue(params.auditLabel);
   const requestId = getSingleValue(params.requestId);
+  const phase = getSingleValue(params.phase);
   const sync = getSingleValue(params.sync);
 
   if (mode === "live" && auditId) {
@@ -28,6 +29,10 @@ export default async function RequestLogPage({
 
   if (sync) {
     next.set("sync", sync);
+  }
+
+  if (phase) {
+    next.set("phase", phase);
   }
 
   if (requestId) {

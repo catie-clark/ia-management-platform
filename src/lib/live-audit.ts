@@ -3,6 +3,7 @@ import type {
   AuditFinding,
   AuditPhase,
   Control,
+  ControlScopeStatus,
   Question,
   ReportReviewComment,
   ReportReviewStage,
@@ -47,6 +48,7 @@ export type ControlRow = {
   actual_hours: number | null;
   risk_rating: string;
   planning_overridden_at: string | null;
+  scope_status?: string | null;
   source_payload: Record<string, unknown>;
 };
 
@@ -175,8 +177,10 @@ export function mapControl(
     control.assigned_planned_hours === null || control.assigned_planned_hours === undefined
       ? undefined
       : Number(control.assigned_planned_hours);
-  const ownerId = control.assigned_owner_user_id ?? control.control_owner_user_id ?? "";
+  const ownerExplicitlyCleared = readBoolean(control.source_payload, ["assigned_owner_cleared"]);
+  const ownerId = ownerExplicitlyCleared ? "" : control.assigned_owner_user_id ?? control.control_owner_user_id ?? "";
   const hasPlanningOverride =
+    ownerExplicitlyCleared ||
     control.assigned_owner_user_id !== null ||
     control.assigned_due_date !== null ||
     control.assigned_planned_hours !== null;
@@ -197,6 +201,7 @@ export function mapControl(
     name: control.control_name,
     description: readText(control.source_payload, ["description", "control_description", "summary"]) ?? control.control_name,
     businessUnit: control.business_unit_id ? businessUnitMap.get(control.business_unit_id) ?? "Unknown business unit" : "Unassigned",
+    scopeStatus: normalizeControlScopeStatus(control.scope_status ?? readText(control.source_payload, ["scope_status", "scopeStatus"])),
     ownerId,
     importedOwnerId: control.control_owner_user_id ?? undefined,
     assignedOwnerId: control.assigned_owner_user_id ?? undefined,
@@ -433,7 +438,9 @@ function normalizeDocumentType(type: string): AuditDocument["type"] {
     normalized === "EVIDENCE" ||
     normalized === "REPORT" ||
     normalized === "TOLLGATE" ||
-    normalized === "PLANNING_NARRATIVE"
+    normalized === "PLANNING_NARRATIVE" ||
+    normalized === "PLANNING_TOLLGATE" ||
+    normalized === "FIELDWORK_TOLLGATE"
   ) {
     return normalized;
   }
@@ -474,6 +481,10 @@ function normalizeRiskRating(rating: string): Control["riskLevel"] {
     default:
       return "MEDIUM";
   }
+}
+
+function normalizeControlScopeStatus(value: string | null | undefined): ControlScopeStatus {
+  return value?.trim().toUpperCase() === "OUT_OF_SCOPE" ? "OUT_OF_SCOPE" : "IN_SCOPE";
 }
 
 function normalizeFindingStatus(status: string): AuditFinding["status"] {
@@ -568,6 +579,29 @@ function readPreviewSections(payload: Record<string, unknown>) {
     .filter((section): section is { heading: string; body: string[] } => section !== null);
 
   return sections.length > 0 ? sections : undefined;
+}
+
+function readBoolean(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = payload[key];
+
+    if (typeof value === "boolean") {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true") {
+        return true;
+      }
+
+      if (normalized === "false") {
+        return false;
+      }
+    }
+  }
+
+  return false;
 }
 
 function readDateText(payload: Record<string, unknown>, keys: string[]) {

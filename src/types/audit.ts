@@ -26,6 +26,7 @@ export type ReportReviewCommentStatus = "OPEN" | "RESOLVED";
 
 export type ReviewStatus = "upcoming" | "active" | "complete" | "at_risk";
 export type AuditPhase = "Planning" | "Fieldwork" | "Reporting";
+export type ControlScopeStatus = "IN_SCOPE" | "OUT_OF_SCOPE";
 
 export interface WorkpaperContent {
   summary: string;
@@ -51,6 +52,7 @@ export interface Control {
   name: string;
   description: string;
   businessUnit: string;
+  scopeStatus: ControlScopeStatus;
   ownerId: string;
   importedOwnerId?: string;
   assignedOwnerId?: string;
@@ -111,7 +113,7 @@ export interface Request {
 export interface AuditDocument {
   id: string;
   displayId?: string;
-  type: "WORKPAPER" | "EVIDENCE" | "REPORT" | "TOLLGATE" | "PLANNING_NARRATIVE";
+  type: "WORKPAPER" | "EVIDENCE" | "REPORT" | "TOLLGATE" | "PLANNING_NARRATIVE" | "PLANNING_TOLLGATE" | "FIELDWORK_TOLLGATE";
   artifactKey?: ReportArtifactKey;
   title: string;
   linkedControlId?: string;

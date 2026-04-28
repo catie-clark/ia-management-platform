@@ -4,42 +4,70 @@ import type { RiskRow } from "@/types/audit";
 
 export function AtRiskTable({
   description,
+  bodyHeightClassName,
+  compact = false,
   rows,
   title = "Where the audit could slip",
 }: {
   description: string;
+  bodyHeightClassName?: string;
+  compact?: boolean;
   rows: RiskRow[];
   title?: string;
 }) {
+  const columnClassNames = {
+    area: compact ? "w-[90px]" : "w-[110px]",
+    item: compact ? "w-[42%]" : "w-[40%]",
+    owner: compact ? "w-[22%]" : "w-[20%]",
+    status: compact ? "w-[130px]" : "w-[150px]",
+    due: compact ? "w-[90px]" : "w-[110px]",
+  };
 
   return (
-    <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-      <div className="flex items-end justify-between gap-4">
+    <section className={`rounded-[20px] border border-black/5 bg-white shadow-[0_16px_36px_rgba(1,30,65,0.07)] ${compact ? "px-4 py-4" : "px-5 py-4"}`}>
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">At-risk items</p>
-          <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{title}</h2>
+          <p className={`font-semibold uppercase text-[var(--muted)] ${compact ? "text-[11px] tracking-[0.18em]" : "text-xs tracking-[0.28em]"}`}>At-risk items</p>
+          <h2 className={`font-semibold text-[var(--foreground)] ${compact ? "mt-1.5 text-lg leading-tight" : "mt-2 text-xl"}`}>{title}</h2>
         </div>
-        <p className="max-w-sm text-right text-sm text-[var(--muted)]">{description}</p>
+        <p className={`max-w-sm text-right text-[var(--muted)] ${compact ? "text-[12px] leading-5" : "text-[13px] leading-5"}`}>{description}</p>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-[24px] border border-black/5">
-        <table className="min-w-full divide-y divide-black/5 text-left">
+      <div className="mt-4 overflow-hidden rounded-[16px] border border-black/5">
+        <table className="min-w-full table-fixed text-left">
+          <colgroup>
+            <col className={columnClassNames.area} />
+            <col className={columnClassNames.item} />
+            <col className={columnClassNames.owner} />
+            <col className={columnClassNames.status} />
+            <col className={columnClassNames.due} />
+          </colgroup>
           <thead className="bg-[rgba(1,30,65,0.04)]">
-            <tr className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              <th className="px-5 py-4 font-semibold">Area</th>
-              <th className="px-5 py-4 font-semibold">Item</th>
-              <th className="px-5 py-4 font-semibold">Owner</th>
-              <th className="px-5 py-4 font-semibold">Status</th>
-              <th className="px-5 py-4 font-semibold">Due</th>
+            <tr className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Area</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Item</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Owner</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Status</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Due</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-black/5 bg-white">
-            {rows.map((row) => (
-              <tr key={row.id} className="transition-colors hover:bg-[rgba(245,168,0,0.06)]">
-                <td className="px-5 py-4">
+        </table>
+        <div className={bodyHeightClassName ? `overflow-y-auto ${bodyHeightClassName}` : ""}>
+          <table className="min-w-full table-fixed text-left">
+            <colgroup>
+              <col className={columnClassNames.area} />
+              <col className={columnClassNames.item} />
+              <col className={columnClassNames.owner} />
+              <col className={columnClassNames.status} />
+              <col className={columnClassNames.due} />
+            </colgroup>
+            <tbody className="divide-y divide-black/5 bg-white">
+              {rows.map((row) => (
+                <tr key={row.id} className="transition-colors hover:bg-[rgba(245,168,0,0.06)]">
+                  <td className={compact ? "px-3 py-2.5 align-top" : "px-4 py-3 align-top"}>
                   <span
                     className={cn(
-                      "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]",
+                      `rounded-full font-semibold uppercase tracking-[0.14em] ${compact ? "px-2 py-1 text-[10px]" : "px-2.5 py-1 text-[11px]"}`,
                       row.severity === "risk"
                         ? "bg-[rgba(229,55,107,0.1)] text-[var(--brand-coral)]"
                         : "bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-dark)]",
@@ -47,17 +75,18 @@ export function AtRiskTable({
                   >
                     {row.area}
                   </span>
-                </td>
-                <td className="max-w-[320px] px-5 py-4 text-sm font-medium text-[var(--foreground)]">{row.title}</td>
-                <td className="px-5 py-4 text-sm text-[var(--muted)]">{row.owner}</td>
-                <td className="px-5 py-4">
-                  <StatusBadge status={row.status} tone={getStatusTone(row.status)} />
-                </td>
-                <td className="px-5 py-4 text-sm text-[var(--muted)]">{row.dueDate ? formatShortDate(row.dueDate) : "N/A"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  </td>
+                  <td className={`font-medium leading-5 text-[var(--foreground)] ${compact ? "px-3 py-2.5 text-[12px]" : "px-4 py-3 text-[13px]"}`}>{row.title}</td>
+                  <td className={compact ? "px-3 py-2.5 align-top text-[12px] text-[var(--muted)]" : "px-4 py-3 align-top text-[13px] text-[var(--muted)]"}>{row.owner}</td>
+                  <td className={compact ? "px-3 py-2.5 align-top" : "px-4 py-3 align-top"}>
+                    <StatusBadge status={row.status} tone={getStatusTone(row.status)} />
+                  </td>
+                  <td className={compact ? "px-3 py-2.5 align-top text-[12px] text-[var(--muted)]" : "px-4 py-3 align-top text-[13px] text-[var(--muted)]"}>{row.dueDate ? formatShortDate(row.dueDate) : "N/A"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );

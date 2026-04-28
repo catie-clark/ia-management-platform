@@ -15,6 +15,7 @@ export function LogHubView({
   auditLabel,
   auditPeriodLabel,
   controls,
+  currentPhase,
   documents,
   mode,
   questions,
@@ -35,11 +36,9 @@ export function LogHubView({
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13.5rem)]">
+    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
       <PageHeader
-        eyebrow="Phase 2"
         title="Question and Request Log"
-        scopePeriodLabel={auditPeriodLabel}
         description={
           mode === "live"
             ? `Live question and request tracking for ${auditLabel}. Imported activity and saved responses are scoped to this audit.`
@@ -84,6 +83,7 @@ export function LogHubView({
             auditId={auditId}
             auditLabel={auditLabel}
             controls={controls}
+            currentPhase={currentPhase}
             documents={documents}
             embedded
             mode={mode}
@@ -96,6 +96,7 @@ export function LogHubView({
             auditId={auditId}
             auditLabel={auditLabel}
             controls={controls}
+            currentPhase={currentPhase}
             documents={documents}
             embedded
             mode={mode}

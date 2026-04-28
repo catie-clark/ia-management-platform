@@ -1,14 +1,9 @@
 import { buildNarrativePreview } from "@/lib/planning-narrative/format";
-import {
-  getQuestionDisplayStatus,
-  getQuestionRealizedDelayHours,
-  getRequestDisplayStatus,
-  getRequestRealizedDelayHours,
-} from "@/lib/audit-logic";
-import { formatHours, formatShortDate } from "@/lib/utils";
+import { linkedSignalsForDocument } from "@/lib/document-support";
+import { getQuestionDisplayStatus, getRequestDisplayStatus } from "@/lib/audit-logic";
+import { formatShortDate } from "@/lib/utils";
 import type {
   AuditDocument,
-  AuditFinding,
   Control,
   Question,
   ReportArtifactKey,
@@ -18,6 +13,24 @@ import type {
   Role,
   User,
 } from "@/types/audit";
+
+export type ReportingResultItem = {
+  id: string;
+  blockerCount: number;
+  blockerTone: "warning" | "risk" | "success";
+  displayId: string;
+  dueDate?: string;
+  isAtRisk: boolean;
+  isReportingReady: boolean;
+  linkedControlId?: string;
+  linkedControlLabel: string;
+  ownerId: string;
+  ownerName: string;
+  reviewStatus: string;
+  title: string;
+  type: "WORKPAPER" | "EVIDENCE";
+  updatedAt?: string;
+};
 
 export const reportArtifactConfigs: Record<
   ReportArtifactKey,
@@ -42,38 +55,13 @@ export const defaultReportReviewRoles: Role[] = ["AIC", "MANAGER", "DIRECTOR", "
 type ReportingNarrativeContext = {
   auditLabel: string;
   controls: Control[];
-  findings: AuditFinding[];
+  documents: AuditDocument[];
   now: string;
   questions: Question[];
   requests: Request[];
+  results: ReportingResultItem[];
   users: User[];
 };
-
-export function buildPrototypeFindings(controls: Control[]): AuditFinding[] {
-  const sourceControls = controls.filter((control) => control.status !== "COMPLETE").slice(0, 3);
-
-  return sourceControls.map((control, index) => ({
-    id: `F-${String(index + 1).padStart(2, "0")}`,
-    displayId: `F-${String(index + 1).padStart(2, "0")}`,
-    linkedControlId: control.id,
-    title:
-      index === 0
-        ? "Control execution and approval evidence remain inconsistent"
-        : index === 1
-          ? "Exception resolution is lagging the expected operating cadence"
-          : "Supporting evidence remains incomplete for final conclusion drafting",
-    summary: `${control.name} remains ${control.status.replaceAll("_", " ").toLowerCase()} and is influencing the reporting narrative.`,
-    severity: control.riskLevel,
-    status: index === 0 ? "READY_FOR_REPORT" : index === 1 ? "IN_PROGRESS" : "OPEN",
-    ownerId: control.ownerId,
-    dueDate: control.dueDate,
-    impactStatement: `If unresolved, ${control.businessUnit} conclusions may require elevated wording in the report.`,
-    recommendation: `Finalize the remaining work on ${control.name.toLowerCase()} and document the root cause clearly in the report package.`,
-    managementResponse: index === 0 ? "Management is assembling final support and expects closure before issuance." : undefined,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }));
-}
 
 export function buildPrototypeReviewStages(artifactKey: ReportArtifactKey): ReportReviewStage[] {
   return defaultReportReviewRoles.map((role, index) => ({
@@ -92,80 +80,175 @@ export function buildPrototypeReviewComments(): ReportReviewComment[] {
       artifactKey: "FINAL_REPORT",
       authorRole: "MANAGER",
       authorName: "Elena Martin",
-      comment: "Tighten the summary language around the blocked sanctions testing before advancing the draft.",
+      comment: "Confirm the overdue fieldwork support is either resolved or clearly disclosed before final issuance.",
       status: "OPEN",
       createdAt: new Date().toISOString(),
     },
   ];
 }
 
+export function buildReportingResults(args: {
+  controls: Control[];
+  documents: AuditDocument[];
+  now: string;
+  questions: Question[];
+  requests: Request[];
+  users: User[];
+}) {
+  return args.documents
+    .filter((document): document is AuditDocument & { type: "WORKPAPER" | "EVIDENCE" } => document.type === "WORKPAPER" || document.type === "EVIDENCE")
+    .slice()
+    .sort((left, right) => {
+      const leftDue = left.dueDate ? new Date(left.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const rightDue = right.dueDate ? new Date(right.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+
+      return leftDue - rightDue || (left.displayId ?? left.id).localeCompare(right.displayId ?? right.id);
+    })
+    .map((document) => {
+      const blockers = linkedSignalsForDocument(document, args.controls, args.questions, args.requests, args.now);
+      const blockerTone = blockers.some((blocker) => blocker.tone === "risk")
+        ? "risk"
+        : blockers.some((blocker) => blocker.tone === "warning")
+          ? "warning"
+          : "success";
+      const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
+      const isReportingReady =
+        document.type === "WORKPAPER"
+          ? reviewStatus === "APPROVED"
+          : document.status === "COMPLETE";
+      const linkedControl = document.linkedControlId ? args.controls.find((control) => control.id === document.linkedControlId) : null;
+      const ownerName = args.users.find((user) => user.id === document.ownerId)?.name ?? document.ownerId;
+      const dueDatePassed = document.dueDate ? new Date(document.dueDate).getTime() < new Date(args.now).getTime() : false;
+
+      return {
+        id: document.id,
+        blockerCount: blockers.filter((blocker) => blocker.tone !== "success").length,
+        blockerTone,
+        displayId: document.displayId ?? document.id,
+        dueDate: document.dueDate,
+        isAtRisk: dueDatePassed || blockers.some((blocker) => blocker.tone !== "success"),
+        isReportingReady,
+        linkedControlId: document.linkedControlId,
+        linkedControlLabel: linkedControl ? `${linkedControl.referenceId ?? linkedControl.id} - ${linkedControl.name}` : "No linked control",
+        ownerId: document.ownerId,
+        ownerName,
+        reviewStatus,
+        title: document.title,
+        type: document.type,
+        updatedAt: document.updatedAt,
+      } satisfies ReportingResultItem;
+    });
+}
+
 export function createReportDraftMarkdown(context: ReportingNarrativeContext) {
-  const openControls = context.controls.filter((control) => control.status !== "COMPLETE");
-  const highSeverityFindings = context.findings.filter((finding) => finding.severity === "HIGH");
-  const openFollowUps =
-    context.questions.filter((question) => getQuestionDisplayStatus(question, context.now) !== "RESPONDED").length +
-    context.requests.filter((request) => getRequestDisplayStatus(request, context.now) !== "COMPLETED").length;
+  const reportingReadyResults = context.results.filter((result) => result.isReportingReady);
+  const openResults = context.results.filter((result) => !result.isReportingReady);
+  const atRiskResults = context.results.filter((result) => result.isAtRisk);
+  const openFollowUps = getOpenFollowUpCount(context.questions, context.requests, context.now);
+  const scopeLimitations = openResults.filter((result) => result.blockerCount > 0 || result.type === "WORKPAPER");
 
   return [
-    "# Internal Audit Report Draft",
+    "# Final Audit Report Draft",
     "",
     "## Executive Summary",
-    `${context.auditLabel} is in reporting closeout. ${context.findings.length} findings are currently being managed, with ${highSeverityFindings.length} assessed as high severity.`,
+    `${context.auditLabel} has moved into reporting closeout. ${reportingReadyResults.length} of ${context.results.length} fieldwork results are reporting-ready, while ${atRiskResults.length} still require leadership attention before issuance.`,
     "",
-    "## Results Summary",
-    `- Controls complete: ${context.controls.filter((control) => control.status === "COMPLETE").length}`,
-    `- Controls still open: ${openControls.length}`,
-    `- Findings finalized: ${context.findings.filter((finding) => finding.status === "FINALIZED" || finding.status === "CLOSED").length}`,
-    `- Open follow-ups: ${openFollowUps}`,
+    "## Scope, Objectives, and Methodology",
+    `The report reflects audit conclusions supported by completed fieldwork workpapers, evidence, linked control testing, and open follow-up analysis across ${context.controls.length} controls.`,
     "",
-    "## Key Findings",
-    ...(context.findings.length > 0
-      ? context.findings.map((finding) => `- ${finding.displayId ?? finding.id}: ${finding.title} (${finding.severity.toLowerCase()} severity, ${finding.status.replaceAll("_", " ").toLowerCase()})`)
-      : ["- No findings have been drafted yet."]),
+    "## Overall Conclusion",
+    getOverallConclusion(reportingReadyResults.length, context.results.length, atRiskResults.length),
     "",
-    "## Operational Themes",
-    ...(openControls.slice(0, 3).map((control) => `- ${control.name}: ${control.businessUnit} work remains ${control.status.replaceAll("_", " ").toLowerCase()}.`) || [
-      "- No open control themes remain.",
-    ]),
+    "## Results Supporting the Report",
+    ...(context.results.length > 0
+      ? context.results.map(
+          (result) =>
+            `- ${result.displayId}: ${result.title} (${result.type.toLowerCase()}, ${result.isReportingReady ? "reporting-ready" : "still open"}, control: ${result.linkedControlLabel})`,
+        )
+      : ["- No fieldwork results are currently available for reporting."]),
     "",
-    "## Management Response Snapshot",
-    ...(context.findings.some((finding) => finding.managementResponse)
-      ? context.findings
-          .filter((finding) => finding.managementResponse)
-          .map((finding) => `- ${finding.displayId ?? finding.id}: ${finding.managementResponse}`)
-      : ["- Management responses have not yet been captured for this draft."]),
+    "## Items Requiring Management Attention",
+    ...(atRiskResults.length > 0
+      ? atRiskResults.slice(0, 8).map(
+          (result) =>
+            `- ${result.displayId}: ${result.title}. Owner: ${result.ownerName}. ${describeResultIssue(result)}`,
+        )
+      : ["- No unresolved reporting issues remain in the current result set."]),
     "",
-    "## Issuance Readiness",
-    `The report package should not be issued until all required review stages are approved and remaining open follow-ups are addressed or explicitly accepted in the reporting narrative.`,
+    "## Management Response Status",
+    openFollowUps > 0
+      ? `Management responses or related follow-ups remain in progress for ${openFollowUps} questions and requests. Responses should be confirmed before the report is locked.`
+      : "No open question or request follow-ups remain that would hold up management response readiness.",
+    "",
+    "## Scope Limitations and Exceptions",
+    ...(scopeLimitations.length > 0
+      ? scopeLimitations.slice(0, 5).map(
+          (result) =>
+            `- ${result.displayId}: ${result.title} remains ${result.isReportingReady ? "available" : "not yet fully ready"} for reporting use and should be disclosed or resolved before issuance.`,
+        )
+      : ["- No scope limitations or unresolved support exceptions are currently identified."]),
+    "",
+    "## Issuance Readiness Summary",
+    `Final issuance should proceed only after all required review workflow stages are approved, open follow-ups are resolved or disclosed, and the reporting tollgate decision is recorded as GO.`,
   ].join("\n");
 }
 
 export function createReportingTollgateMarkdown(context: ReportingNarrativeContext) {
-  const totalCurrentDelay =
-    context.questions.reduce((sum, question) => sum + getQuestionRealizedDelayHours(question), 0) +
-    context.requests.reduce((sum, request) => sum + getRequestRealizedDelayHours(request), 0);
+  const reportingReadyResults = context.results.filter((result) => result.isReportingReady);
+  const incompleteResults = context.results.filter((result) => !result.isReportingReady);
+  const openFollowUps = getOpenFollowUpCount(context.questions, context.requests, context.now);
+  const goDecision = incompleteResults.length === 0 && openFollowUps === 0 ? "GO" : "NO-GO";
 
   return [
     "# Reporting Tollgate Draft",
     "",
-    "## Closeout Posture",
-    `${context.auditLabel} is preparing the report package for final review. ${context.findings.length} findings are in scope for the tollgate discussion.`,
+    "## Purpose & Timing",
+    `This tollgate sits between fieldwork completion and final report issuance for ${context.auditLabel}. It confirms whether the report package is accurate, supported, and ready to lock.`,
     "",
-    "## Decision Points",
-    `- Finalize the report narrative around ${context.findings.filter((finding) => finding.status !== "CLOSED").length} still-active findings.`,
-    `- Confirm review workflow progression through ${defaultReportReviewRoles.join(", ")}.`,
-    `- Determine whether remaining follow-up delays of ${formatHours(totalCurrentDelay)} require escalation in the tollgate discussion.`,
+    "## 1. Completeness of Fieldwork",
+    `- Reporting-ready support: ${reportingReadyResults.length} of ${context.results.length} fieldwork results.`,
+    `- Open or incomplete support items: ${incompleteResults.length}.`,
+    `- Evidence should support every conclusion before report issuance.`,
+    ...buildOpenResultBullets(incompleteResults),
     "",
-    "## Findings Needing Leadership Attention",
-    ...(context.findings.length > 0
-      ? context.findings
-          .filter((finding) => finding.severity === "HIGH" || finding.status !== "CLOSED")
-          .slice(0, 5)
-          .map((finding) => `- ${finding.displayId ?? finding.id}: ${finding.title}`)
-      : ["- No findings have been entered yet."]),
+    "## 2. Finding Quality & Accuracy",
+    `- Reporting should confirm that all observations are supported by completed workpapers and evidence, and that the 4 Cs are clear in the final narrative where needed.`,
+    `- At-risk result items currently identified: ${context.results.filter((result) => result.isAtRisk).length}.`,
     "",
-    "## Document Readiness",
-    `Leadership should confirm that the final report draft, reporting tollgate deck, and linked support are current before issuance.`,
+    "## 3. Risk Rating Consistency",
+    `- High-risk controls in scope: ${context.controls.filter((control) => control.riskLevel === "HIGH").length}.`,
+    `- Reporting reviewers should confirm consistent rating calibration across the final narrative and linked support.`,
+    "",
+    "## 4. Management Response Readiness",
+    `- Open question/request follow-ups that may affect responses: ${openFollowUps}.`,
+    openFollowUps > 0
+      ? "- Management responses should be confirmed as collected, adequate, or explicitly tracked as open before report lock."
+      : "- No open follow-up items remain that would delay management response readiness.",
+    "",
+    "## 5. Report Tone & Language",
+    "- Confirm the executive summary is objective, concise, and focused on the highest-risk conclusions.",
+    "- Confirm wording is professional, fact-based, and free from blame-oriented language.",
+    "",
+    "## 6. Compliance with Audit Standards",
+    "- Confirm the final report clearly states scope, objectives, methodology, and any scope limitations.",
+    "- Confirm the report aligns to the applicable audit framework before issuance.",
+    "",
+    "## 7. Stakeholder & Distribution Review",
+    "- Confirm the distribution list is appropriate for the report content and any sensitive issues.",
+    "- Confirm CAE or delegated leadership approval is captured before issuance.",
+    "",
+    "## 8. Timeliness",
+    `- Results still not reporting-ready: ${incompleteResults.length}.`,
+    `- Open follow-up items affecting timing: ${openFollowUps}.`,
+    "- If issuance is delayed, document the reason and owner before the tollgate closes.",
+    "",
+    "## Tollgate Output",
+    `- Decision: ${goDecision}`,
+    `- Reporting-ready support count: ${reportingReadyResults.length}`,
+    `- Open items requiring action: ${incompleteResults.length + openFollowUps}`,
+    "",
+    "## Open Items, Owners, and Deadlines",
+    ...(buildOpenItemAssignments(incompleteResults) || ["- No open reporting support items remain."]),
   ].join("\n");
 }
 
@@ -203,19 +286,18 @@ export function getArtifactDocument(
 }
 
 export function getResultsSummaryCards(args: {
-  controls: Control[];
-  findings: AuditFinding[];
+  documents: AuditDocument[];
   now: string;
   questions: Question[];
   requests: Request[];
-  documents: AuditDocument[];
+  results: ReportingResultItem[];
 }) {
-  const passedControls = args.controls.filter((control) => control.status === "COMPLETE").length;
-  const failedOrBlockedControls = args.controls.filter((control) => control.status === "BLOCKED").length;
-  const activeFindings = args.findings.filter((finding) => finding.status !== "CLOSED").length;
-  const openFollowUps =
-    args.questions.filter((question) => getQuestionDisplayStatus(question, args.now) !== "RESPONDED").length +
-    args.requests.filter((request) => getRequestDisplayStatus(request, args.now) !== "COMPLETED").length;
+  const reportingReadyCount = args.results.filter((result) => result.isReportingReady).length;
+  const inReviewCount = args.results.filter(
+    (result) => result.type === "WORKPAPER" && result.reviewStatus !== "APPROVED" && result.reviewStatus !== "NOT_SUBMITTED",
+  ).length;
+  const atRiskCount = args.results.filter((result) => result.isAtRisk).length;
+  const openFollowUps = getOpenFollowUpCount(args.questions, args.requests, args.now);
   const reportArtifactsReady = args.documents.filter(
     (document) =>
       (document.artifactKey === "FINAL_REPORT" || document.artifactKey === "REPORTING_TOLLGATE" || document.type === "REPORT") &&
@@ -223,41 +305,19 @@ export function getResultsSummaryCards(args: {
   ).length;
 
   return [
-    { label: "Controls passed", value: String(passedControls), detail: "Testing concluded with a completed control status." },
-    { label: "Blocked controls", value: String(failedOrBlockedControls), detail: "Controls still creating pressure in the reporting narrative." },
-    { label: "Open findings", value: String(activeFindings), detail: "Findings still being drafted, reviewed, or finalized." },
-    { label: "Open follow-ups", value: String(openFollowUps), detail: "Questions and requests that can still affect issuance." },
+    { label: "Reporting-ready results", value: `${reportingReadyCount}/${args.results.length}`, detail: "Fieldwork workpapers and evidence currently ready for reporting use." },
+    { label: "Results in review", value: String(inReviewCount), detail: "Workpapers still waiting on review completion before reporting can fully rely on them." },
+    { label: "At-risk support items", value: String(atRiskCount), detail: "Results with overdue dates or unresolved linked blockers." },
+    { label: "Open follow-ups", value: String(openFollowUps), detail: "Questions and requests that can still affect report issuance." },
     { label: "Report artifacts ready", value: `${reportArtifactsReady}/2`, detail: "Final report and reporting tollgate artifact readiness." },
   ];
 }
 
-export function getFindingStatusTone(status: AuditFinding["status"]) {
-  if (status === "FINALIZED" || status === "CLOSED") {
-    return "success";
-  }
-
-  if (status === "READY_FOR_REPORT") {
-    return "warning";
-  }
-
-  return "risk";
-}
-
-export function getFindingOwnerLabel(finding: AuditFinding, users: User[]) {
-  return users.find((user) => user.id === finding.ownerId)?.name ?? "Unassigned";
-}
-
-export function getFindingControlLabel(finding: AuditFinding, controls: Control[]) {
-  const control = controls.find((entry) => entry.id === finding.linkedControlId);
-
-  if (!control) {
-    return "No linked control";
-  }
-
-  return `${control.referenceId ?? control.id} · ${control.name}`;
-}
-
 export function getReportReadinessMessage(stages: ReportReviewStage[], unresolvedComments: ReportReviewComment[]) {
+  if (stages.length === 0) {
+    return "No reporting review workflow has been loaded for this live audit yet.";
+  }
+
   if (!getWorkflowCompletionState(stages)) {
     const activeStage = getActiveReviewStage(stages);
     return activeStage
@@ -274,4 +334,61 @@ export function getReportReadinessMessage(stages: ReportReviewStage[], unresolve
 
 export function formatFindingDueDate(value?: string) {
   return value ? formatShortDate(value) : "No due date";
+}
+
+function getOpenFollowUpCount(questions: Question[], requests: Request[], now: string) {
+  return (
+    questions.filter((question) => getQuestionDisplayStatus(question, now) !== "RESPONDED").length +
+    requests.filter((request) => getRequestDisplayStatus(request, now) !== "COMPLETED").length
+  );
+}
+
+function getOverallConclusion(reportingReadyCount: number, totalResults: number, atRiskCount: number) {
+  if (totalResults === 0) {
+    return "Fieldwork support has not yet been assembled into reporting results, so no conclusion should be issued.";
+  }
+
+  if (atRiskCount === 0 && reportingReadyCount === totalResults) {
+    return "Fieldwork support is complete and the audit is positioned to finalize the report without material readiness concerns.";
+  }
+
+  if (reportingReadyCount === 0) {
+    return "The reporting package is not yet supportable because no fieldwork results are currently reporting-ready.";
+  }
+
+  return `The audit has sufficient progress to draft conclusions, but ${totalResults - reportingReadyCount} result items still require resolution or disclosure before issuance.`;
+}
+
+function describeResultIssue(result: ReportingResultItem) {
+  if (result.blockerCount > 0) {
+    return `${result.blockerCount} linked blocker(s) remain open.`;
+  }
+
+  if (!result.isReportingReady) {
+    return `Review status is ${result.reviewStatus.replaceAll("_", " ").toLowerCase()}.`;
+  }
+
+  return "Support is available but should still be confirmed in the final report package.";
+}
+
+function buildOpenResultBullets(results: ReportingResultItem[]) {
+  if (results.length === 0) {
+    return ["- All current fieldwork support appears complete for reporting use."];
+  }
+
+  return results.slice(0, 6).map(
+    (result) =>
+      `- ${result.displayId}: ${result.title} (${result.type.toLowerCase()}) remains open with owner ${result.ownerName}.`,
+  );
+}
+
+function buildOpenItemAssignments(results: ReportingResultItem[]) {
+  if (results.length === 0) {
+    return [];
+  }
+
+  return results.slice(0, 8).map((result) => {
+    const dueLabel = result.dueDate ? formatShortDate(result.dueDate) : "No deadline recorded";
+    return `- ${result.displayId}: ${result.title}. Owner: ${result.ownerName}. Deadline: ${dueLabel}.`;
+  });
 }

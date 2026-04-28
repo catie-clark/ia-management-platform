@@ -28,29 +28,35 @@ export function DetailPanel({
         )}
         onClick={onClose}
       />
-      <aside
+      <div
         className={cn(
-          "fixed right-0 top-0 z-50 h-full w-full max-w-2xl overflow-y-auto border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[0_24px_80px_rgba(1,30,65,0.22)] transition-transform duration-300 sm:p-8",
-          panelClassName,
+          "fixed inset-0 z-50 flex items-stretch justify-end overflow-hidden p-0 sm:p-4 transition-transform duration-300",
           open ? "translate-x-0" : "translate-x-full",
         )}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Detail view</p>
-            <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{title}</h2>
-            {subtitle ? <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">{subtitle}</p> : null}
+        <aside
+          className={cn(
+            "flex h-full max-h-full w-full max-w-2xl flex-col overflow-hidden border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[0_24px_80px_rgba(1,30,65,0.22)] sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:rounded-[28px] sm:border sm:p-8",
+            panelClassName,
+          )}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Detail view</p>
+              <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{title}</h2>
+              {subtitle ? <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">{subtitle}</p> : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+            >
+              <X size={18} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <div className="mt-8">{children}</div>
-      </aside>
+          <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">{children}</div>
+        </aside>
+      </div>
     </>
   );
 }

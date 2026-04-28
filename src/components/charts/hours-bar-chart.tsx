@@ -14,29 +14,29 @@ export function HoursBarChart({
   message?: string;
 }) {
   return (
-    <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-      <div className="flex items-end justify-between gap-4">
+    <section className="rounded-[20px] border border-black/5 bg-white px-5 py-4 shadow-[0_16px_36px_rgba(1,30,65,0.07)]">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Hours pacing</p>
-          <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Planned vs actual by audit phase</h2>
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs font-medium text-[var(--muted)]">
+          <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Planned vs actual by audit phase</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
             <div className="inline-flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-[#011E41]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#011E41]" />
               Planned Hours
             </div>
             <div className="inline-flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-[#F5A800]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#F5A800]" />
               Actual Hours
             </div>
           </div>
         </div>
-        <div className="max-w-sm text-right text-sm text-[var(--muted)]">
+        <div className="max-w-sm text-right text-[13px] leading-5 text-[var(--muted)]">
           <p>{insight}</p>
           {message ? <p className="mt-2 font-medium text-[var(--brand-amber-dark)]">{message}</p> : null}
         </div>
       </div>
 
-      <div className="mt-6 h-[320px]">
+      <div className="mt-4 h-[280px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} barGap={10}>
             <CartesianGrid vertical={false} stroke="rgba(1, 30, 65, 0.08)" />
