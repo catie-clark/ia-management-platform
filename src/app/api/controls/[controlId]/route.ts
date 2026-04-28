@@ -78,11 +78,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
       await safelyCreateNotification(() =>
         createNotificationForUserId({
           auditId: body.auditId,
-          detail: `${existingControl.control_name} was assigned to you in Control Testing.`,
+          detail: `${existingControl.control_name} was assigned to you in Fieldwork.`,
           entityId: controlId,
           entityType: "control",
           eventType: "CONTROL_ASSIGNED",
-          linkHref: `/control-testing?mode=live&auditId=${body.auditId}`,
+          linkHref: `/fieldwork?mode=live&auditId=${body.auditId}`,
           title: "A control was assigned to you",
           tone: "warning",
           userId: body.assignedOwnerUserId!,

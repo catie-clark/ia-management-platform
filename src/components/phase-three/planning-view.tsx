@@ -65,9 +65,9 @@ const FADE_IN_DELAY_MS = 120;
 
 export function PlanningView({
   auditId = null,
-  auditLabel = "Prototype Demo Audit",
-  auditPeriodLabel = "Static sample data",
-  auditStatus = "prototype",
+  auditLabel = "Live audit workspace",
+  auditPeriodLabel = "No audit selected",
+  auditStatus = "pending",
   currentPhase = "Planning",
   planningSources,
   rcsaRecords,

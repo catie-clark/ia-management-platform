@@ -59,28 +59,21 @@ export async function getControlTestingViewModel({
 }): Promise<ControlTestingViewModel> {
   const normalizedSyncCount = getNormalizedSyncCount(syncCount);
 
-  if (mode === "live" && auditId) {
+  if (auditId) {
     return getLiveControlTestingViewModel({ auditId, auditLabel, syncCount: normalizedSyncCount });
   }
 
-  const syncedHours = getSyncedHoursData({
-    budgetByPhase: [],
-    controls,
-    syncCount: normalizedSyncCount,
-    syncReferenceTime: mockNow,
-  });
-
   return {
     auditId: null,
-    auditLabel: "Prototype Demo Audit",
-    auditPeriodLabel: "Static sample data",
-    controls: syncedHours.controls,
+    auditLabel: auditLabel ?? "Live audit workspace",
+    auditPeriodLabel: "No audit selected",
+    controls: [],
     currentPhase: "Fieldwork",
-    documents: mapControlTestingDocuments(normalizeAuditDocuments({ controls, documents, questions, requests, users })),
-    mode: "prototype",
-    questions,
-    requests,
-    users,
+    documents: [],
+    mode,
+    questions: [],
+    requests: [],
+    users: [],
   };
 }
 
@@ -225,7 +218,7 @@ async function getControlTestingAuditRecord(
 }
 
 export function getControlTestingNow(mode: DashboardMode) {
-  return mode === "prototype" ? mockNow : new Date().toISOString();
+  return new Date().toISOString();
 }
 
 function mapControlTestingDocuments(documentRows: AuditDocument[]) {

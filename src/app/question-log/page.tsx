@@ -1,5 +1,6 @@
 import { LogHubView } from "@/components/phase-two/log-hub-view";
 import { getQuestionLogViewModel } from "@/lib/question-log-data";
+import { redirect } from "next/navigation";
 import type { AuditPhase } from "@/types/audit";
 
 type QuestionLogPageProps = {
@@ -8,8 +9,11 @@ type QuestionLogPageProps = {
 
 export default async function QuestionLogPage({ searchParams }: QuestionLogPageProps) {
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
+  const mode = "live" as const;
   const auditId = getSingleValue(resolvedParams.auditId);
+  if (!auditId) {
+    redirect("/");
+  }
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const viewModel = await getQuestionLogViewModel({ auditId, auditLabel, mode });

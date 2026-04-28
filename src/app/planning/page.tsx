@@ -1,5 +1,6 @@
 import { getPlanningViewModel } from "@/lib/planning-data";
 import { PlanningView } from "@/components/phase-three/planning-view";
+import { redirect } from "next/navigation";
 import type { AuditPhase } from "@/types/audit";
 
 type PlanningPageProps = {
@@ -8,8 +9,11 @@ type PlanningPageProps = {
 
 export default async function PlanningPage({ searchParams }: PlanningPageProps) {
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
+  const mode = "live" as const;
   const auditId = getSingleValue(resolvedParams.auditId);
+  if (!auditId) {
+    redirect("/");
+  }
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const planningViewModel = await getPlanningViewModel({ auditId, auditLabel, mode });

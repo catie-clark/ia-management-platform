@@ -44,20 +44,20 @@ export async function getFieldworkViewModel({
   auditLabel?: string;
   mode: DashboardMode;
 }): Promise<FieldworkViewModel> {
-  if (mode !== "live" || !auditId) {
+  if (!auditId) {
     return {
       auditId: null,
-      auditLabel: auditLabel ?? "Prototype Demo Audit",
-      auditPeriodLabel: "Static sample data",
-      auditStatus: "prototype",
+      auditLabel: auditLabel ?? "Live audit workspace",
+      auditPeriodLabel: "No audit selected",
+      auditStatus: "pending",
       currentPhase: "Fieldwork",
-      mode: "prototype",
-      controls,
-      documents: mapFieldworkDocuments(normalizeAuditDocuments({ controls, documents, questions, requests, users })),
-      questions,
-      requests,
-      users,
-      now: mockNow,
+      mode,
+      controls: [],
+      documents: [],
+      questions: [],
+      requests: [],
+      users: [],
+      now: new Date().toISOString(),
     };
   }
 

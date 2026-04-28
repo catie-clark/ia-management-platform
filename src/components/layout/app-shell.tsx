@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -13,7 +14,6 @@ import {
   FileStack,
   LayoutDashboard,
   NotebookTabs,
-  ShieldCheck,
 } from "lucide-react";
 
 import { ActiveUserContext, getUserById } from "@/components/layout/active-user-context";
@@ -33,7 +33,6 @@ const additionalSwitcherUserIds = ["U8"] as const;
 
 const navItems = [
   { href: "/dashboard", label: "Executive Dashboard", icon: LayoutDashboard },
-  { href: "/control-testing", label: "Control Testing", icon: ShieldCheck },
   { href: "/hours-budget", label: "Hours & Budget", icon: Clock3 },
   { href: "/question-log", label: "Question and Request Log", icon: ClipboardList },
   { href: "/planning", label: "Planning", icon: BriefcaseBusiness },
@@ -54,14 +53,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notificationItems, setNotificationItems] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const activeUser = availableUsers.find((user) => user.id === activeUserId) ?? getUserById(activeUserId);
-  const auditMode = searchParams.get("mode") === "live" ? "live" : "prototype";
+  const auditMode = "live" as const;
   const currentAudit = getCurrentAuditLabel(searchParams);
   const currentScopePeriod = getCurrentScopePeriodLabel(searchParams);
   const [resolvedScopePeriod, setResolvedScopePeriod] = useState(currentScopePeriod);
   const currentAuditQuery = buildAuditQuery(searchParams);
-  const liveAuditId = searchParams.get("mode") === "live" ? searchParams.get("auditId") : null;
+  const liveAuditId = searchParams.get("auditId");
   const switchableUsers = availableUsers;
-  const notifications = auditMode === "live" ? notificationItems : getNotificationsForUser(activeUser.role);
+  const notifications = notificationItems;
 
   useEffect(() => {
     setResolvedScopePeriod(currentScopePeriod);
@@ -71,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function loadSwitchableUsers() {
-      if (auditMode !== "live" || !liveAuditId) {
+      if (!liveAuditId) {
         const nextUsers = demoUsers;
         if (!cancelled) {
           setAvailableUsers(nextUsers);
@@ -145,12 +144,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function loadNotifications() {
-      if (auditMode !== "live") {
-        setNotificationItems([]);
-        setUnreadNotificationCount(0);
-        return;
-      }
-
       try {
         const response = await fetch(`/api/notifications?recipientName=${encodeURIComponent(activeUser.name)}`, {
           cache: "no-store",
@@ -197,7 +190,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [activeUser.name, auditMode]);
+  }, [activeUser.name]);
 
   if (isLandingPage) {
     return children;
@@ -213,9 +206,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-amber-bright)]">
-                        Crowe
-                      </p>
+                      <Link href="/" className="inline-flex">
+                        <Image
+                          src="/crowe_logo_2c_w.png"
+                          alt="Crowe"
+                          width={128}
+                          height={36}
+                          className="h-6 w-auto"
+                          priority
+                        />
+                      </Link>
                       <h1 className="mt-1 text-xl font-semibold text-white lg:text-2xl">Internal Audit Platform</h1>
                     </div>
 
@@ -440,12 +440,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <span
                       className={cn(
                         "rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em]",
-                        auditMode === "live"
-                          ? "border-[rgba(5,171,140,0.24)] bg-[rgba(5,171,140,0.12)] text-[var(--brand-teal-core)]"
-                          : "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] text-[var(--brand-amber-bright)]",
+                        "border-[rgba(5,171,140,0.24)] bg-[rgba(5,171,140,0.12)] text-[var(--brand-teal-core)]",
                       )}
                     >
-                      {auditMode === "live" ? "Supabase live data" : "Static prototype"}
+                      Supabase live data
                     </span>
                     <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--muted-on-dark)]">
                       Midwest Financial Corp
@@ -475,18 +473,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   async function handleNotificationAction(notificationId: string, href?: string | null) {
     const currentNotification = notificationItems.find((item) => item.id === notificationId);
 
-    if (auditMode === "live") {
-      try {
-        await fetch(`/api/notifications/${notificationId}`, {
-          method: "PATCH",
-        });
-      } catch {
-        // Best-effort read state update; do not block navigation.
-      }
-
-      setNotificationItems((current) => current.filter((item) => item.id !== notificationId));
-      setUnreadNotificationCount((current) => Math.max(0, current - (currentNotification?.status === "unread" ? 1 : 0)));
+    try {
+      await fetch(`/api/notifications/${notificationId}`, {
+        method: "PATCH",
+      });
+    } catch {
+      // Best-effort read state update; do not block navigation.
     }
+
+    setNotificationItems((current) => current.filter((item) => item.id !== notificationId));
+    setUnreadNotificationCount((current) => Math.max(0, current - (currentNotification?.status === "unread" ? 1 : 0)));
 
     if (href) {
       setShowNotifications(false);
@@ -496,29 +492,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function buildAuditQuery(searchParams: ReturnType<typeof useSearchParams>) {
-  const mode = searchParams.get("mode");
   const auditId = searchParams.get("auditId");
   const auditLabel = searchParams.get("auditLabel");
   const scopePeriodLabel = searchParams.get("scopePeriodLabel");
   const phase = searchParams.get("phase");
   const sync = searchParams.get("sync");
 
-  if (mode === "live" && auditId) {
+  if (auditId) {
     const baseQuery = auditLabel
       ? scopePeriodLabel
-        ? { mode, auditId, auditLabel, scopePeriodLabel }
-        : { mode, auditId, auditLabel }
+        ? { mode: "live", auditId, auditLabel, scopePeriodLabel }
+        : { mode: "live", auditId, auditLabel }
       : scopePeriodLabel
-        ? { mode, auditId, scopePeriodLabel }
-        : { mode, auditId };
-    const queryWithPhase = phase ? { ...baseQuery, phase } : baseQuery;
-    return sync ? { ...queryWithPhase, sync } : queryWithPhase;
-  }
-
-  if (mode === "prototype") {
-    const baseQuery = scopePeriodLabel
-      ? { mode: "prototype", auditLabel: "Prototype Demo Audit", scopePeriodLabel }
-      : { mode: "prototype", auditLabel: "Prototype Demo Audit" };
+        ? { mode: "live", auditId, scopePeriodLabel }
+        : { mode: "live", auditId };
     const queryWithPhase = phase ? { ...baseQuery, phase } : baseQuery;
     return sync ? { ...queryWithPhase, sync } : queryWithPhase;
   }
@@ -527,10 +514,6 @@ function buildAuditQuery(searchParams: ReturnType<typeof useSearchParams>) {
 }
 
 function getCurrentAuditLabel(searchParams: ReturnType<typeof useSearchParams>) {
-  if (searchParams.get("mode") === "prototype") {
-    return "Prototype Demo Audit";
-  }
-
   return searchParams.get("auditLabel")?.trim() || "Live audit workspace";
 }
 
@@ -546,52 +529,6 @@ function getCurrentPhase(searchParams: ReturnType<typeof useSearchParams>) {
   }
 
   return "Planning";
-}
-
-function getNotificationsForUser(role: "AIC" | "STAFF" | "MANAGER" | "DIRECTOR" | "CAE") {
-  if (role === "MANAGER") {
-    return [
-      {
-        id: "N-01",
-        title: "You have a new workpaper requiring review",
-        detail: "D-07 Sanctions Alert Triage Workpaper is waiting on your manager decision.",
-        time: "6 min ago",
-        status: "unread",
-        linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
-        tone: "warning",
-      },
-      {
-        id: "N-02",
-        title: "One manager review item is still open",
-        detail: "D-07 remains due today and is still waiting for your approve or send-back decision.",
-        time: "24 min ago",
-        status: "unread",
-        linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
-        tone: "warning",
-      },
-    ] as const;
-  }
-
-  return [
-    {
-      id: "N-01",
-      title: "Your workpaper moved to manager review",
-      detail: "D-07 Sanctions Alert Triage Workpaper cleared AIC review and is now waiting on manager sign-off.",
-      time: "8 min ago",
-      status: "unread",
-      linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
-      tone: "success",
-    },
-    {
-      id: "N-02",
-      title: "Your draft workpaper is ready to send",
-      detail: "D-01 Access Review Workpaper is still in staff preparation and can be submitted to AIC review.",
-      time: "31 min ago",
-      status: "unread",
-      linkHref: "/fieldwork?mode=prototype&auditLabel=Prototype%20Demo%20Audit",
-      tone: "warning",
-    },
-  ] as const;
 }
 
 function selectSwitcherUsers(userPool: User[], supplementalUsers: User[] = []) {

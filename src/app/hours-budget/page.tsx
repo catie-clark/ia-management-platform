@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getHoursBudgetViewModel } from "@/lib/hours-budget-data";
 import { formatDateTime, formatHours } from "@/lib/utils";
+import { redirect } from "next/navigation";
 import type { AuditPhase } from "@/types/audit";
 
 type HoursBudgetPageProps = {
@@ -13,8 +14,11 @@ type HoursBudgetPageProps = {
 
 export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageProps) {
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
+  const mode = "live" as const;
   const auditId = getSingleValue(resolvedParams.auditId);
+  if (!auditId) {
+    redirect("/");
+  }
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const syncCount = getSingleValue(resolvedParams.sync);

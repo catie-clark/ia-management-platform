@@ -141,9 +141,9 @@ export async function getPlanningViewModel({
   if (mode !== "live" || !auditId) {
     return {
       auditId: null,
-      auditLabel: auditLabel ?? "Prototype Demo Audit",
-      auditPeriodLabel: "Static sample data",
-      auditStatus: "prototype",
+      auditLabel: auditLabel ?? "Live audit workspace",
+      auditPeriodLabel: "No audit selected",
+      auditStatus: "pending",
       currentPhase: "Planning",
       planningSources,
       rcsaRecords,

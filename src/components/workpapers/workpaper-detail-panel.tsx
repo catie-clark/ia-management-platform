@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FilePenLine, Send } from "lucide-react";
+import { FilePenLine, Send, X } from "lucide-react";
 
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { DetailPanel } from "@/components/ui/detail-panel";
@@ -19,6 +19,7 @@ const workflowStages: DocumentReviewStatus[] = ["NOT_SUBMITTED", "AIC_REVIEW", "
 type WorkpaperDetailPanelProps = {
   auditId: string | null;
   authorUserId?: string;
+  contained?: boolean;
   controls: Control[];
   document: AuditDocument | null;
   mode: DashboardMode;
@@ -57,6 +58,7 @@ type ReviewActionResponse = {
 export function WorkpaperDetailPanel({
   auditId,
   authorUserId,
+  contained = false,
   controls,
   document,
   mode,
@@ -106,14 +108,7 @@ export function WorkpaperDetailPanel({
   const canSendToReview = canAuthor && reviewStatus === "NOT_SUBMITTED";
   const readOnly = !canSaveDraft && !canActAsReviewer;
 
-  return (
-    <DetailPanel
-      title={`${document.displayId ?? document.id} - ${document.title}`}
-      subtitle="Structured workpaper editing, review routing, and blocker context now stay inside the workspace."
-      open={Boolean(document)}
-      onClose={onClose}
-      panelClassName={panelClassName}
-    >
+  const content = (
       <div className="grid gap-5 xl:grid-cols-[1.28fr_0.72fr]">
         <div className="grid gap-5">
           <section className="rounded-[24px] border border-black/5 bg-white p-5">
@@ -255,6 +250,47 @@ export function WorkpaperDetailPanel({
           </section>
         </div>
       </div>
+  );
+
+  if (contained) {
+    return (
+      <>
+        <button
+          type="button"
+          aria-label="Close workpaper detail"
+          onClick={onClose}
+          className="absolute inset-0 z-30 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
+        />
+        <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-[72rem] flex-col overflow-hidden border-l border-black/5 bg-[#f8f6f1] p-6 shadow-[-24px_0_60px_rgba(1,30,65,0.12)] sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Workpaper detail</p>
+              <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{`${document.displayId ?? document.id} - ${document.title}`}</h2>
+              <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">Structured workpaper editing, review routing, and blocker context now stay inside the workspace.</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">{content}</div>
+        </aside>
+      </>
+    );
+  }
+
+  return (
+    <DetailPanel
+      title={`${document.displayId ?? document.id} - ${document.title}`}
+      subtitle="Structured workpaper editing, review routing, and blocker context now stay inside the workspace."
+      open={Boolean(document)}
+      onClose={onClose}
+      panelClassName={panelClassName}
+    >
+      {content}
     </DetailPanel>
   );
 

@@ -281,7 +281,7 @@ export function DocumentsView() {
                 <div className="mt-5 rounded-[20px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-dark)]">Manager review actions</p>
                   <p className="mt-2 text-sm text-[var(--foreground)]">
-                    Signed in as {activeUser.name}. This workpaper is currently in manager review and can be approved or sent back at a static prototype level.
+                    Signed in as {activeUser.name}. This workpaper is currently in manager review and can be approved or sent back here.
                   </p>
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button
@@ -593,7 +593,7 @@ function DocumentPreviewModal({ document, onClose }: { document: AuditDocument |
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{document.id}</p>
               <h3 className="mt-2 text-3xl font-semibold text-[var(--foreground)]">{document.title}</h3>
               <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
-                {document.previewSummary ?? "No preview content has been attached to this prototype document yet."}
+                {document.previewSummary ?? "No preview content has been attached to this document yet."}
               </p>
             </div>
 
@@ -613,7 +613,7 @@ function DocumentPreviewModal({ document, onClose }: { document: AuditDocument |
                 ))
               ) : (
                 <p className="text-sm leading-7 text-[var(--foreground)]">
-                  This uploaded document has been added to the prototype inventory, but no preview content has been authored for it yet.
+                  This uploaded document has been added to the audit inventory, but no preview content has been authored for it yet.
                 </p>
               )}
             </div>

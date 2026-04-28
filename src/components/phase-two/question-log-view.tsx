@@ -684,7 +684,7 @@ export function QuestionLogView({
               </select>
             </div>
 
-            {mode === "prototype" || canCreateInLiveMode ? (
+            {canCreateInLiveMode ? (
               <button
                 type="button"
                 onClick={() => setIsCreating(true)}

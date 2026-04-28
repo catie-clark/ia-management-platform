@@ -9,19 +9,17 @@ export default async function RequestLogPage({
   const next = new URLSearchParams();
   next.set("tab", "requests");
 
-  const mode = getSingleValue(params.mode);
   const auditId = getSingleValue(params.auditId);
   const auditLabel = getSingleValue(params.auditLabel);
   const requestId = getSingleValue(params.requestId);
   const phase = getSingleValue(params.phase);
   const sync = getSingleValue(params.sync);
 
-  if (mode === "live" && auditId) {
-    next.set("mode", "live");
+  if (auditId) {
     next.set("auditId", auditId);
-  } else {
-    next.set("mode", "prototype");
   }
+
+  next.set("mode", "live");
 
   if (auditLabel) {
     next.set("auditLabel", auditLabel);

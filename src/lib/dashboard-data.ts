@@ -96,9 +96,9 @@ function getPrototypeDashboardViewModel(phaseOverride?: AuditPhase, syncCount = 
 
   return {
     auditId: null,
-    auditLabel: "Prototype Demo Audit",
-    auditPeriodLabel: "Static sample data",
-    auditStatus: "Prototype mode",
+    auditLabel: "Live audit workspace",
+    auditPeriodLabel: "No audit selected",
+    auditStatus: "pending",
     executiveNarrative: getExecutiveNarrative(phase, context),
     hoursChartData: syncedHours.budgetByPhase,
     hoursChartInsight:
@@ -120,7 +120,7 @@ function getPrototypeDashboardViewModel(phaseOverride?: AuditPhase, syncCount = 
       hour: "numeric",
       minute: "2-digit",
     })}`,
-    mode: "prototype",
+    mode: "live",
     riskRows,
     sourceSummaries: syncedHours.sourceSummaries,
     syncCount: syncedHours.syncCount,

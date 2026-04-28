@@ -137,7 +137,7 @@ function getPrototypeReportingViewModel(auditLabel?: string): ReportingViewModel
   });
   const finalReportDraft = createArtifactDraft({
     artifactKey: "FINAL_REPORT",
-    auditLabel: auditLabel ?? "Prototype Demo Audit",
+    auditLabel: auditLabel ?? "Live audit workspace",
     controls,
     currentDocument: finalReportDocument,
     documents: prototypeDocuments,
@@ -151,7 +151,7 @@ function getPrototypeReportingViewModel(auditLabel?: string): ReportingViewModel
   });
   const reportingTollgateDraft = createArtifactDraft({
     artifactKey: "REPORTING_TOLLGATE",
-    auditLabel: auditLabel ?? "Prototype Demo Audit",
+    auditLabel: auditLabel ?? "Live audit workspace",
     controls,
     currentDocument: reportingTollgateDocument,
     documents: prototypeDocuments,
@@ -170,14 +170,14 @@ function getPrototypeReportingViewModel(auditLabel?: string): ReportingViewModel
 
   return {
     auditId: null,
-    auditLabel: auditLabel ?? "Prototype Demo Audit",
-    auditPeriodLabel: "Static sample data",
-    auditStatus: "prototype",
+    auditLabel: auditLabel ?? "Live audit workspace",
+    auditPeriodLabel: "No audit selected",
+    auditStatus: "pending",
     controls,
     currentPhase: "Reporting",
     documents: prototypeDocuments,
     finalReportDraft,
-    mode: "prototype",
+    mode: "live",
     questions,
     reportComments,
     reportReadinessMessage: getReportReadinessMessage(reportWorkflow, reportComments.filter((comment) => comment.status !== "RESOLVED")),

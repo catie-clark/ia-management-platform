@@ -97,47 +97,43 @@ export async function getHoursBudgetViewModel({
 }): Promise<HoursBudgetViewModel> {
   const normalizedSyncCount = getNormalizedSyncCount(syncCount);
 
-  if (mode === "live" && auditId) {
+  if (auditId) {
     return getLiveHoursBudgetViewModel({ auditId, auditLabel, phaseOverride, syncCount: normalizedSyncCount });
   }
-
-  const phaseBudgets = getPrototypePhaseBudgets();
   const currentPhase = phaseOverride ?? "Planning";
-  const syncedHours = getSyncedHoursData({
-    activePhase: currentPhase,
-    budgetByPhase: phaseBudgets,
-    controls,
-    syncCount: normalizedSyncCount,
+  const phaseBudgets = buildLivePhaseBudgetPlan({
+    planning_budget_hours: null,
+    fieldwork_budget_hours: null,
+    reporting_budget_hours: null,
   });
-  const currentPhaseBudget = getCurrentPhaseBudget(syncedHours.budgetByPhase, currentPhase);
 
   return {
     auditId: null,
-    auditLabel: "Prototype Demo Audit",
-    totalBudgetHours: sumPhasePlannedHours(phaseBudgets),
-    auditPeriodEnd: "2026-05-12T17:00:00.000Z",
-    auditPeriodLabel: "Static sample data",
-    auditPeriodStart: "2026-04-15T17:00:00.000Z",
-    controls: syncedHours.controls,
+    auditLabel: auditLabel ?? "Live audit workspace",
+    totalBudgetHours: 0,
+    auditPeriodEnd: null,
+    auditPeriodLabel: "No audit selected",
+    auditPeriodStart: null,
+    controls: [],
     currentPhase,
-    currentPhaseVariance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
-    fieldworkEndDate: "2026-05-02T17:00:00.000Z",
-    fieldworkStartDate: "2026-04-21T17:00:00.000Z",
-    hoursByTester: getHoursByTester(users, syncedHours.controls),
-    hoursEntryRows: getHoursEntryRows(users, syncedHours.timeEntries, syncedHours.controls),
-    lastSyncedAt: syncedHours.lastSyncedAt,
-    mode: "prototype",
-    phaseBudgets: syncedHours.budgetByPhase,
-    planningEndDate: "2026-04-20T17:00:00.000Z",
-    planningStartDate: "2026-04-15T17:00:00.000Z",
-    reportingEndDate: "2026-05-12T17:00:00.000Z",
-    reportingStartDate: "2026-05-03T17:00:00.000Z",
-    sourceSummaries: syncedHours.sourceSummaries,
-    syncCount: syncedHours.syncCount,
-    timeEntries: syncedHours.timeEntries,
-    totalActual: sumPhaseActualHours(syncedHours.budgetByPhase),
-    totalPlanned: sumPhasePlannedHours(syncedHours.budgetByPhase),
-    variance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
+    currentPhaseVariance: 0,
+    fieldworkEndDate: null,
+    fieldworkStartDate: null,
+    hoursByTester: [],
+    hoursEntryRows: [],
+    lastSyncedAt: new Date().toISOString(),
+    mode,
+    phaseBudgets,
+    planningEndDate: null,
+    planningStartDate: null,
+    reportingEndDate: null,
+    reportingStartDate: null,
+    sourceSummaries: [],
+    syncCount: normalizedSyncCount,
+    timeEntries: [],
+    totalActual: 0,
+    totalPlanned: sumPhasePlannedHours(phaseBudgets),
+    variance: 0,
   };
 }
 

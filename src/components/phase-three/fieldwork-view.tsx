@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, ClipboardCheck, FileSearch, Link2, Workflow } from "lucide-react";
+import { ArrowRight, ClipboardCheck, FileSearch, Link2, Workflow, X } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
+import { ControlTestingView } from "@/components/phase-two/control-testing-view";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-card";
-import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
@@ -112,7 +112,7 @@ export function FieldworkView({
   const atRiskCount = fieldworkDocuments.filter((document) => isAtRisk(document, linkedSignalsForDocument(document, visibleControls, visibleQuestions, visibleRequests, viewModel.now), viewModel.now)).length;
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
+    <div className="flex min-h-0 flex-col gap-4">
       <PageHeader
         title="Fieldwork"
         description="Fieldwork now keeps workpaper drafting and review inside the app so authors can complete, refine, and route execution support without a file handoff loop."
@@ -137,11 +137,26 @@ export function FieldworkView({
         <MetricCard icon={<Link2 size={18} />} label="At risk" value={`${atRiskCount}`} detail="Documents with overdue dates or unresolved linked blockers." tone="risk" />
       </section>
 
+      <ControlTestingView
+        auditId={viewModel.auditId}
+        auditLabel={viewModel.auditLabel}
+        auditPeriodLabel={viewModel.auditPeriodLabel}
+        controls={viewModel.controls}
+        currentPhase={viewModel.currentPhase}
+        documents={documentRows}
+        embedded
+        mode={viewModel.mode}
+        questions={viewModel.questions}
+        requests={viewModel.requests}
+        users={viewModel.users}
+      />
+
       <div className="grid gap-6 2xl:grid-cols-[0.78fr_1.22fr]">
-        <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+        <section className="flex h-[760px] min-h-0 flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Workflow progression</p>
           <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Review stages across active workpapers</h2>
-          <div className="mt-6 grid gap-4">
+          <div className="mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="grid gap-4">
             {workflowStages.map((stage) => {
               const stageItems = workpapers.filter((document) => (document.reviewStatus ?? "NOT_SUBMITTED") === stage);
 
@@ -174,13 +189,14 @@ export function FieldworkView({
                 </div>
               );
             })}
+            </div>
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+        <section className="relative flex h-[760px] flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Execution queue</p>
           <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Open a fieldwork document and work it directly in the app</h2>
-          <div className="mt-6 overflow-x-auto">
+          <div className="mt-6 min-h-0 flex-1 overflow-auto">
             <table className="min-w-full border-separate border-spacing-y-3">
               <thead>
                 <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
@@ -228,6 +244,55 @@ export function FieldworkView({
               </tbody>
             </table>
           </div>
+
+          {selectedDocument?.type === "WORKPAPER" ? (
+            <WorkpaperDetailPanel
+              auditId={viewModel.auditId}
+              authorUserId={getLinkedControlOwnerId(selectedDocument, viewModel.controls)}
+              contained
+              controls={viewModel.controls}
+              document={selectedDocument}
+              mode={viewModel.mode}
+              now={viewModel.now}
+              onClose={() => setSelectedId("")}
+              onDocumentUpdated={(nextDocument) => {
+                setDocumentRows((current) => current.map((document) => (document.id === nextDocument.id ? nextDocument : document)));
+              }}
+              questions={viewModel.questions}
+              requests={viewModel.requests}
+              users={viewModel.users}
+            />
+          ) : null}
+
+          {selectedDocument?.type === "EVIDENCE" ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close evidence detail"
+                onClick={() => setSelectedId("")}
+                className="absolute inset-0 z-30 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
+              />
+              <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col overflow-hidden border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[-24px_0_60px_rgba(1,30,65,0.12)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Evidence detail</p>
+                    <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{`${selectedDocument.displayId ?? selectedDocument.id} - ${selectedDocument.title}`}</h2>
+                    <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">Evidence remains inspectable here, but workpaper drafting and review are handled directly in the app.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId("")}
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
+                  <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
+                </div>
+              </aside>
+            </>
+          ) : null}
         </section>
       </div>
 
@@ -241,33 +306,6 @@ export function FieldworkView({
         onToggleCollapsed={() => setIsTollgateCollapsed((current) => !current)}
       />
 
-      {selectedDocument?.type === "WORKPAPER" ? (
-        <WorkpaperDetailPanel
-          auditId={viewModel.auditId}
-          controls={viewModel.controls}
-          document={selectedDocument}
-          mode={viewModel.mode}
-          now={viewModel.now}
-          onClose={() => setSelectedId("")}
-          onDocumentUpdated={(nextDocument) => {
-            setDocumentRows((current) => current.map((document) => (document.id === nextDocument.id ? nextDocument : document)));
-          }}
-          questions={viewModel.questions}
-          requests={viewModel.requests}
-          users={viewModel.users}
-        />
-      ) : null}
-
-      {selectedDocument?.type === "EVIDENCE" ? (
-        <DetailPanel
-          title={`${selectedDocument.displayId ?? selectedDocument.id} - ${selectedDocument.title}`}
-          subtitle="Evidence remains inspectable here, but workpaper drafting and review are handled directly in the app."
-          open={Boolean(selectedDocument)}
-          onClose={() => setSelectedId("")}
-        >
-          <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
-        </DetailPanel>
-      ) : null}
     </div>
   );
 }
@@ -894,6 +932,14 @@ function EvidenceInspectPanel({
 
 function getOwnerName(ownerId: string, users: User[]) {
   return users.find((user) => user.id === ownerId)?.name ?? ownerId;
+}
+
+function getLinkedControlOwnerId(document: AuditDocument, controls: Control[]) {
+  if (!document.linkedControlId) {
+    return undefined;
+  }
+
+  return controls.find((control) => control.id === document.linkedControlId)?.ownerId ?? undefined;
 }
 
 function linkedSignalsForDocument(document: AuditDocument, controls: Control[], questions: Question[], requests: Request[], now: string) {

@@ -2,6 +2,7 @@ import { ExecutiveDashboardView } from "@/components/dashboard/executive-dashboa
 import { getDashboardViewModel } from "@/lib/dashboard-data";
 import { getHoursBudgetViewModel } from "@/lib/hours-budget-data";
 import { unstable_noStore as noStore } from "next/cache";
+import { redirect } from "next/navigation";
 import type { AuditPhase } from "@/types/audit";
 
 type DashboardPageProps = {
@@ -11,8 +12,11 @@ type DashboardPageProps = {
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   noStore();
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
+  const mode = "live" as const;
   const auditId = getSingleValue(resolvedParams.auditId);
+  if (!auditId) {
+    redirect("/");
+  }
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const syncCount = getSingleValue(resolvedParams.sync);

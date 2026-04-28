@@ -42,21 +42,21 @@ export async function getQuestionLogViewModel({
   auditLabel?: string;
   mode: DashboardMode;
 }): Promise<QuestionLogViewModel> {
-  if (mode === "live" && auditId) {
+  if (auditId) {
     return getLiveQuestionLogViewModel({ auditId, auditLabel });
   }
 
   return {
     auditId: null,
-    auditLabel: "Prototype Demo Audit",
-    auditPeriodLabel: "Static sample data",
-    controls,
+    auditLabel: auditLabel ?? "Live audit workspace",
+    auditPeriodLabel: "No audit selected",
+    controls: [],
     currentPhase: "Planning",
-    documents: normalizeAuditDocuments({ controls, documents, questions, requests, users }),
-    mode: "prototype",
-    questions,
-    requests,
-    users,
+    documents: [],
+    mode,
+    questions: [],
+    requests: [],
+    users: [],
   };
 }
 
@@ -157,5 +157,5 @@ async function getQuestionLogAuditRecord(
 }
 
 export function getQuestionLogNow(mode: DashboardMode) {
-  return mode === "prototype" ? mockNow : new Date().toISOString();
+  return new Date().toISOString();
 }

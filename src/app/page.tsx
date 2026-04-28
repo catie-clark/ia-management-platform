@@ -70,7 +70,6 @@ type ExistingAuditOption = {
   period: string;
   status: string;
   activePhase?: string;
-  isPrototype?: boolean;
 };
 
 type SavedImportSummary = {
@@ -279,14 +278,6 @@ const requirementGroups: Array<{
   },
 ];
 
-const prototypeAuditOption: ExistingAuditOption = {
-  id: "prototype-static-data",
-  name: "Prototype Demo Audit",
-  period: "Static sample data",
-  status: "Original dashboard seed data",
-  isPrototype: true,
-};
-
 function getRequiredUploadRequirementIds(files: UploadedFiles) {
   const requiredIds: UploadRequirement["id"][] = ["controls"];
 
@@ -339,11 +330,7 @@ export default function HomePage() {
     hasValidScopePeriod &&
     hasValidTotalBudget &&
     requiredFilesSelected;
-  const combinedAuditOptions = useMemo(
-    () => [prototypeAuditOption, ...existingAuditOptions],
-    [existingAuditOptions],
-  );
-  const selectedExistingAudit = combinedAuditOptions.find((audit) => audit.id === selectedExistingAuditId) ?? null;
+  const selectedExistingAudit = existingAuditOptions.find((audit) => audit.id === selectedExistingAuditId) ?? null;
   const liveDashboardQuery =
     savedImportSummary?.auditId && auditForm.auditName.trim()
       ? {
@@ -354,18 +341,12 @@ export default function HomePage() {
         }
       : null;
   const selectedAuditDashboardQuery = selectedExistingAudit
-    ? selectedExistingAudit.isPrototype
-      ? ({
-          mode: "prototype",
-          auditLabel: selectedExistingAudit.name,
-          scopePeriodLabel: selectedExistingAudit.period,
-        } as const)
-      : ({
-          mode: "live",
-          auditId: selectedExistingAudit.id,
-          auditLabel: selectedExistingAudit.name,
-          scopePeriodLabel: selectedExistingAudit.period,
-        } as const)
+    ? ({
+        mode: "live",
+        auditId: selectedExistingAudit.id,
+        auditLabel: selectedExistingAudit.name,
+        scopePeriodLabel: selectedExistingAudit.period,
+      } as const)
     : null;
   const launchDashboardQuery = selectedAuditDashboardQuery ?? liveDashboardQuery;
   const canLaunchDashboard = launchDashboardQuery !== null;
@@ -840,7 +821,7 @@ export default function HomePage() {
                       <option value="" className="bg-[#082346] text-white">
                         {existingAuditOptions.length > 0 ? "Choose an audit" : "No saved audits yet"}
                       </option>
-                      {combinedAuditOptions.map((audit) => (
+                      {existingAuditOptions.map((audit) => (
                         <option key={audit.id} value={audit.id} className="bg-[#082346] text-white">
                           {audit.name}
                         </option>
@@ -866,17 +847,10 @@ export default function HomePage() {
                         <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
                           Status: {selectedExistingAudit.status}
                         </p>
-                        {selectedExistingAudit.isPrototype ? (
-                          <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
-                            This option opens the dashboard with the original static sample data used to build the prototype.
-                          </p>
-                        ) : null}
                         <Link
                           href={{
                             pathname: "/dashboard",
-                            query: selectedExistingAudit.isPrototype
-                              ? { mode: "prototype", auditLabel: selectedExistingAudit.name }
-                              : { mode: "live", auditId: selectedExistingAudit.id, auditLabel: selectedExistingAudit.name },
+                            query: { mode: "live", auditId: selectedExistingAudit.id, auditLabel: selectedExistingAudit.name },
                           }}
                           className="mt-1 inline-flex w-fit items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-dark)] transition-transform duration-200 hover:-translate-y-0.5"
                         >

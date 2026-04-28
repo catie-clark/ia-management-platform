@@ -301,7 +301,7 @@ export function normalizeAuditPhaseFromAudit(audit: { active_phase?: string | nu
 
 export function getDashboardKpis(phase: AuditPhase, context: AuditLogicContext = defaultContext): KPIProps[] {
   if (phase === "Planning") {
-    const ownerAssignedCount = context.controls.filter((control) => Boolean(control.assignedOwnerId)).length;
+    const ownerAssignedCount = context.controls.filter((control) => Boolean(control.ownerId)).length;
     const dueDatesAssignedCount = context.controls.filter((control) => Boolean(control.assignedDueDate)).length;
     const configuredPhaseBudgets = context.budgetByPhase.filter((phaseBudget) => phaseBudget.isSet).length;
     const missingPhaseBudgets = context.budgetByPhase.length - configuredPhaseBudgets;
@@ -618,7 +618,7 @@ export function getExecutiveNarrative(phase: AuditPhase, context: AuditLogicCont
 
 export function getPhaseSpotlight(phase: AuditPhase, context: AuditLogicContext = defaultContext): PhaseSpotlight {
   if (phase === "Planning") {
-    const controlsAwaitingOwner = context.controls.filter((control) => !control.assignedOwnerId).length;
+    const controlsAwaitingOwner = context.controls.filter((control) => !control.ownerId).length;
     const controlsAwaitingBudget = context.controls.filter((control) => control.assignedPlannedHours === undefined).length;
     const controlsAwaitingTimeline = context.controls.filter((control) => !control.assignedDueDate).length;
     const planningBudgetHoursPending = context.controls

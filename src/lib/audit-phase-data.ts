@@ -33,14 +33,14 @@ export async function getAuditPhaseViewModel({
   mode: DashboardMode;
   prototypePhase: AuditPhase;
 }): Promise<AuditPhaseViewModel> {
-  if (mode !== "live" || !auditId) {
+  if (!auditId) {
     return {
       auditId: null,
-      auditLabel: auditLabel ?? "Prototype Demo Audit",
-      auditPeriodLabel: "Static sample data",
-      auditStatus: "prototype",
+      auditLabel: auditLabel ?? "Live audit workspace",
+      auditPeriodLabel: "No audit selected",
+      auditStatus: "pending",
       currentPhase: prototypePhase,
-      mode: "prototype",
+      mode,
     };
   }
 

@@ -51,9 +51,9 @@ export function PhaseCompletionCard({
     return (
       <section className="rounded-[24px] border border-black/5 bg-[var(--surface-tint)] p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Phase transition</p>
-        <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Live audit action unavailable in prototype mode</h2>
+        <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">No audit selected</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-          Marking a phase complete only applies to saved live audits because it updates the audit record in Supabase.
+          Marking a phase complete requires a saved audit because it updates the audit record in Supabase.
         </p>
       </section>
     );

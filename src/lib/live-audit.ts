@@ -12,7 +12,7 @@ import type {
 } from "@/types/audit";
 import { readWorkpaperContent } from "@/lib/workpaper-content";
 
-export type DashboardMode = "prototype" | "live";
+export type DashboardMode = "live";
 
 export type AuditRecord = {
   id: string;

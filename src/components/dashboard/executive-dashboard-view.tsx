@@ -153,7 +153,7 @@ function getKpiHref({
 
   const pathname =
     title === "Owners assigned"
-      ? "/control-testing"
+      ? "/fieldwork"
       : title === "Phase budgets pending" || title === "Target dates set"
         ? "/hours-budget"
         : title === "Planning artifacts ready"

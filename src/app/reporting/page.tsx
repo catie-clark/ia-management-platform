@@ -1,5 +1,6 @@
 import { ReportingView } from "@/components/phase-three/reporting-view";
 import { getReportingViewModel } from "@/lib/reporting-data";
+import { redirect } from "next/navigation";
 import type { AuditPhase } from "@/types/audit";
 
 type ReportingPageProps = {
@@ -8,8 +9,11 @@ type ReportingPageProps = {
 
 export default async function ReportingPage({ searchParams }: ReportingPageProps) {
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
+  const mode = "live" as const;
   const auditId = getSingleValue(resolvedParams.auditId);
+  if (!auditId) {
+    redirect("/");
+  }
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const viewModel = await getReportingViewModel({ auditId, auditLabel, mode });

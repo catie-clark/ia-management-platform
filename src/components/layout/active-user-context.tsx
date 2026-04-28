@@ -2,7 +2,6 @@
 
 import { createContext, useContext } from "react";
 
-import { users } from "@/lib/data/mock-data";
 import type { User } from "@/types/audit";
 
 type ActiveUserContextValue = {
@@ -11,6 +10,13 @@ type ActiveUserContextValue = {
 };
 
 export const ActiveUserContext = createContext<ActiveUserContextValue | null>(null);
+
+const fallbackUser: User = {
+  id: "UNASSIGNED_VIEWER",
+  name: "Audit User",
+  email: "",
+  role: "STAFF",
+};
 
 export function useActiveUser() {
   const context = useContext(ActiveUserContext);
@@ -23,5 +29,5 @@ export function useActiveUser() {
 }
 
 export function getUserById(userId: string) {
-  return users.find((user) => user.id === userId) ?? users[0];
+  return fallbackUser;
 }

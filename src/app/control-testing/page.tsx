@@ -1,6 +1,4 @@
-import { ControlTestingView } from "@/components/phase-two/control-testing-view";
-import { getControlTestingViewModel } from "@/lib/control-testing-data";
-import type { AuditPhase } from "@/types/audit";
+import { redirect } from "next/navigation";
 
 type ControlTestingPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -8,32 +6,21 @@ type ControlTestingPageProps = {
 
 export default async function ControlTestingPage({ searchParams }: ControlTestingPageProps) {
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
-  const auditId = getSingleValue(resolvedParams.auditId);
-  const auditLabel = getSingleValue(resolvedParams.auditLabel);
-  const syncCount = getSingleValue(resolvedParams.sync);
-  const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
-  const viewModel = await getControlTestingViewModel({ auditId, auditLabel, mode, syncCount });
+  const params = new URLSearchParams();
 
-  return <ControlTestingView {...viewModel} currentPhase={phaseOverride ?? viewModel.currentPhase} />;
-}
+  for (const [key, value] of Object.entries(resolvedParams)) {
+    if (typeof value === "string") {
+      params.set(key, value);
+      continue;
+    }
 
-function getSingleValue(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function getPhaseOverride(value?: string): AuditPhase | undefined {
-  if (value === "planning" || value === "Planning") {
-    return "Planning";
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        params.append(key, item);
+      }
+    }
   }
 
-  if (value === "fieldwork" || value === "Fieldwork") {
-    return "Fieldwork";
-  }
-
-  if (value === "reporting" || value === "Reporting") {
-    return "Reporting";
-  }
-
-  return undefined;
+  const query = params.toString();
+  redirect(query ? `/fieldwork?${query}` : "/fieldwork");
 }

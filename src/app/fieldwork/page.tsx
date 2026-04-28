@@ -1,5 +1,6 @@
 import { getFieldworkViewModel } from "@/lib/fieldwork-data";
 import { FieldworkView } from "@/components/phase-three/fieldwork-view";
+import { redirect } from "next/navigation";
 import type { AuditPhase } from "@/types/audit";
 
 type FieldworkPageProps = {
@@ -8,8 +9,11 @@ type FieldworkPageProps = {
 
 export default async function FieldworkPage({ searchParams }: FieldworkPageProps) {
   const resolvedParams = (await searchParams) ?? {};
-  const mode = getSingleValue(resolvedParams.mode) === "live" ? "live" : "prototype";
+  const mode = "live" as const;
   const auditId = getSingleValue(resolvedParams.auditId);
+  if (!auditId) {
+    redirect("/");
+  }
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const viewModel = await getFieldworkViewModel({ auditId, auditLabel, mode });

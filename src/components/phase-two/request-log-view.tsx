@@ -669,7 +669,7 @@ export function RequestLogView({
               </select>
             </div>
 
-            {mode === "prototype" || canCreateInLiveMode ? (
+            {canCreateInLiveMode ? (
               <button
                 type="button"
                 onClick={() => setIsCreating(true)}
