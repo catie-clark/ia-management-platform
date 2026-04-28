@@ -15,7 +15,7 @@ import {
   filterRequestsForControls,
 } from "@/lib/control-visibility";
 import type { DashboardViewModel } from "@/lib/dashboard-data";
-import { getSyncedHoursData } from "@/lib/demo-time-sync";
+import type { BudgetByPhase } from "@/types/audit";
 
 const allAuditUser = {
   id: "ALL_AUDIT",
@@ -23,7 +23,17 @@ const allAuditUser = {
   role: "DIRECTOR" as const,
 };
 
-export function ExecutiveDashboardView({ viewModel }: { viewModel: DashboardViewModel }) {
+export function ExecutiveDashboardView({
+  viewModel,
+  hoursChartData,
+  hoursChartInsight,
+  hoursChartMessage,
+}: {
+  viewModel: DashboardViewModel;
+  hoursChartData: BudgetByPhase[];
+  hoursChartInsight: string;
+  hoursChartMessage: string;
+}) {
   const visibleControls = viewModel.controls;
   const visibleQuestions = useMemo(
     () => filterQuestionsForControls(viewModel.questions, visibleControls, allAuditUser, "ALL"),
@@ -37,20 +47,9 @@ export function ExecutiveDashboardView({ viewModel }: { viewModel: DashboardView
     () => filterDocumentsForControls(viewModel.documents, visibleControls, allAuditUser, "ALL"),
     [viewModel.documents, visibleControls],
   );
-  const syncedHours = useMemo(
-    () =>
-      getSyncedHoursData({
-        activePhase: viewModel.phase,
-        budgetByPhase: viewModel.hoursChartData,
-        controls: visibleControls,
-        syncCount: viewModel.syncCount,
-        syncReferenceTime: viewModel.lastSyncedAt,
-      }),
-    [viewModel.phase, viewModel.hoursChartData, visibleControls, viewModel.syncCount, viewModel.lastSyncedAt],
-  );
   const context = useMemo(
     () => ({
-      budgetByPhase: syncedHours.budgetByPhase,
+      budgetByPhase: hoursChartData,
       controls: visibleControls,
       documents: visibleDocuments,
       milestones: viewModel.milestoneItems,
@@ -59,7 +58,7 @@ export function ExecutiveDashboardView({ viewModel }: { viewModel: DashboardView
       requests: visibleRequests,
       users: viewModel.users,
     }),
-    [syncedHours.budgetByPhase, viewModel.lastSyncedAt, viewModel.milestoneItems, viewModel.users, visibleControls, visibleDocuments, visibleQuestions, visibleRequests],
+    [hoursChartData, viewModel.lastSyncedAt, viewModel.milestoneItems, viewModel.users, visibleControls, visibleDocuments, visibleQuestions, visibleRequests],
   );
   const kpis = useMemo(() => getDashboardKpis(viewModel.phase, context), [context, viewModel.phase]);
   const riskRows = useMemo(() => getRiskRows(viewModel.phase, context), [context, viewModel.phase]);
@@ -117,9 +116,9 @@ export function ExecutiveDashboardView({ viewModel }: { viewModel: DashboardView
           bodyHeightClassName="h-[320px]"
         />
         <HoursBarChart
-          data={syncedHours.budgetByPhase}
-          insight={viewModel.hoursChartInsight}
-          message={viewModel.hoursChartMessage}
+          data={hoursChartData}
+          insight={hoursChartInsight}
+          message={hoursChartMessage}
         />
       </div>
 

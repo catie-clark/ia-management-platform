@@ -84,6 +84,7 @@ export function RequestLogView({
   const { activeUser } = useActiveUser();
   const { showNotification } = useNotification();
   const [isPending, startTransition] = useTransition();
+  const [questionRows, setQuestionRows] = useState<Question[]>(questions);
   const [requestRows, setRequestRows] = useState<Request[]>(requests);
   const [selectedId, setSelectedId] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -105,6 +106,10 @@ export function RequestLogView({
   }, [requests]);
 
   useEffect(() => {
+    setQuestionRows(questions);
+  }, [questions]);
+
+  useEffect(() => {
     setAudienceFilter(getDefaultControlAudienceFilter(activeUser));
   }, [activeUser]);
 
@@ -117,8 +122,8 @@ export function RequestLogView({
     [activeUser, audienceFilter, controls, scopeFilter],
   );
   const visibleQuestions = useMemo(
-    () => filterQuestionsForControls(questions, visibleControls, activeUser, audienceFilter),
-    [activeUser, audienceFilter, questions, visibleControls],
+    () => filterQuestionsForControls(questionRows, visibleControls, activeUser, audienceFilter),
+    [activeUser, audienceFilter, questionRows, visibleControls],
   );
   const visibleRequests = useMemo(
     () => filterRequestsForControls(requestRows, visibleControls, activeUser, audienceFilter),
@@ -128,6 +133,7 @@ export function RequestLogView({
     () => filterDocumentsForControls(documents, visibleControls, activeUser, audienceFilter),
     [activeUser, audienceFilter, documents, visibleControls],
   );
+  const controlLabelById = useMemo(() => new Map(controls.map((control) => [control.id, getControlLabel(control)])), [controls]);
   const createControlOptions = useMemo(
     () =>
       canUserSeeAllControls(activeUser)
@@ -138,6 +144,10 @@ export function RequestLogView({
   const requestOwners = useMemo(
     () => Array.from(new Set([...stakeholderRoleOptions, ...visibleRequests.map((request) => request.assignedTo)])),
     [visibleRequests],
+  );
+  const stakeholderOptions = useMemo(
+    () => Array.from(new Set([...stakeholderRoleOptions, ...visibleQuestions.map((question) => question.assignedTo)])),
+    [visibleQuestions],
   );
   const defaultRequestForm = useMemo(
     () => ({
@@ -152,10 +162,30 @@ export function RequestLogView({
     [controls, createControlOptions, currentNow, currentPhase, requestOwners, visibleControls],
   );
   const [form, setForm] = useState(defaultRequestForm);
+  const defaultQuestionForm = useMemo(
+    () => ({
+      controlId: createControlOptions[0]?.id ?? visibleControls[0]?.id ?? controls[0]?.id ?? "",
+      askedByUserId: activeUser.id,
+      assignedTo: stakeholderOptions[0] ?? "",
+      dueDate: toLocalInputValue(new Date(currentNow)),
+      phaseTag: currentPhase,
+      parentQuestionId: undefined as string | undefined,
+      parentRequestId: undefined as string | undefined,
+      questionText: "",
+    }),
+    [activeUser.id, controls, createControlOptions, currentNow, currentPhase, stakeholderOptions, visibleControls],
+  );
+  const [isCreatingQuestion, setIsCreatingQuestion] = useState(false);
+  const [questionFollowUpTarget, setQuestionFollowUpTarget] = useState<{ parentQuestionId?: string; parentRequestId?: string } | null>(null);
+  const [questionForm, setQuestionForm] = useState(defaultQuestionForm);
 
   useEffect(() => {
     setForm(defaultRequestForm);
   }, [defaultRequestForm]);
+
+  useEffect(() => {
+    setQuestionForm(defaultQuestionForm);
+  }, [defaultQuestionForm]);
 
   useEffect(() => {
     if (openCreateMode !== "request" || !followUpQuestionId) {
@@ -276,6 +306,12 @@ export function RequestLogView({
     setFollowUpTarget(null);
     setForm(defaultRequestForm);
     clearCreateQueryParams();
+  }
+
+  function closeCreateQuestionModal() {
+    setIsCreatingQuestion(false);
+    setQuestionFollowUpTarget(null);
+    setQuestionForm(defaultQuestionForm);
   }
 
   function handleCreateRequest(event: React.FormEvent<HTMLFormElement>) {
@@ -409,12 +445,84 @@ export function RequestLogView({
     setIsCreating(true);
   }
 
+  function handleCreateQuestion(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const askedByUser = users.find((user) => user.id === questionForm.askedByUserId);
+
+    if (!askedByUser) {
+      return;
+    }
+
+    if (canCreateInLiveMode && auditId) {
+      startTransition(async () => {
+        try {
+          const response = await fetch(`/api/audits/${auditId}/questions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              askedByUserId: questionForm.askedByUserId,
+              assignedTo: questionForm.assignedTo,
+              controlId: questionForm.controlId,
+              dueDate: questionForm.dueDate,
+              phaseTag: questionForm.phaseTag,
+              parentQuestionId: questionForm.parentQuestionId,
+              parentRequestId: questionForm.parentRequestId,
+              questionText: questionForm.questionText.trim(),
+            }),
+          });
+          const result = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(result.error ?? "Unable to create question.");
+          }
+
+          closeCreateQuestionModal();
+          router.refresh();
+        } catch (error) {
+          showNotification({
+            title: "Create failed",
+            message: error instanceof Error ? error.message : "Unable to create question.",
+            tone: "error",
+          });
+        }
+      });
+      return;
+    }
+
+    const nextId = `Q-${String(questionRows.length + 1).padStart(2, "0")}`;
+    const nextQuestion: Question = {
+      id: nextId,
+      displayId: nextId,
+      controlId: questionForm.controlId,
+      phaseTag: questionForm.phaseTag,
+      parentQuestionId: questionForm.parentQuestionId,
+      parentRequestId: questionForm.parentRequestId,
+      askedBy: askedByUser.name,
+      assignedTo: questionForm.assignedTo,
+      dateSent: new Date(currentNow).toISOString(),
+      dueDate: new Date(questionForm.dueDate).toISOString(),
+      status: "OPEN",
+      questionText: questionForm.questionText.trim(),
+    };
+
+    setQuestionRows((current) => [...current, nextQuestion]);
+    closeCreateQuestionModal();
+  }
+
   function openCrossTypeFollowUpQuestion(request: Request) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", "questions");
-    params.set("openCreate", "question");
-    params.set("followUpRequestId", request.id);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    setQuestionForm({
+      ...defaultQuestionForm,
+      assignedTo: request.assignedTo,
+      controlId: request.controlId ?? defaultQuestionForm.controlId,
+      parentQuestionId: undefined,
+      parentRequestId: request.id,
+      phaseTag: request.phaseTag ?? defaultQuestionForm.phaseTag,
+    });
+    setQuestionFollowUpTarget({ parentRequestId: request.id });
+    setIsCreatingQuestion(true);
   }
 
   return (
@@ -560,7 +668,7 @@ export function RequestLogView({
                       <p className="text-sm font-semibold text-[var(--foreground)]">{getRequestLabel(request)}</p>
                       <p className="mt-1 max-w-md text-sm text-[var(--foreground)]">{request.description}</p>
                       <p className="mt-1 text-xs text-[var(--muted)]">
-                        {request.controlId ? `Control ${request.controlId}` : "General request"} · {request.phaseTag ?? "Planning"}
+                        {request.controlId ? `Control ${getControlDisplayLabel(request.controlId, controlLabelById)}` : "General request"} · {request.phaseTag ?? "Planning"}
                       </p>
                     </td>
                     <td className="px-4 py-4 text-sm text-[var(--muted)]">{request.assignedTo}</td>
@@ -675,7 +783,7 @@ export function RequestLogView({
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={() => setIsCreating(false)}
+              onClick={closeCreateModal}
               className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
             >
               Cancel
@@ -686,6 +794,111 @@ export function RequestLogView({
               className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save Request
+            </button>
+          </div>
+        </form>
+      </FormModal>
+
+      <FormModal
+        open={isCreatingQuestion}
+        title="New Question"
+        subtitle={
+          questionFollowUpTarget
+            ? "Create a linked follow-up question when the prior response was incomplete or incorrect."
+            : "Create a new auditor inquiry and tag the person responsible for responding."
+        }
+        onClose={closeCreateQuestionModal}
+      >
+        <form className="grid gap-4" onSubmit={handleCreateQuestion}>
+          <Field label="Question">
+            <textarea
+              required
+              rows={4}
+              value={questionForm.questionText}
+              onChange={(event) => setQuestionForm((current) => ({ ...current, questionText: event.target.value }))}
+              className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+              placeholder="Enter the question you want to send"
+            />
+          </Field>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Tag person">
+              <select
+                value={questionForm.assignedTo}
+                onChange={(event) => setQuestionForm((current) => ({ ...current, assignedTo: event.target.value }))}
+                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+              >
+                {stakeholderOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Asked by">
+              <input
+                value={activeUser.name}
+                readOnly
+                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)] outline-none"
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Related control">
+              <select
+                value={questionForm.controlId}
+                onChange={(event) => setQuestionForm((current) => ({ ...current, controlId: event.target.value }))}
+                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+              >
+                {createControlOptions.map((control) => (
+                  <option key={control.id} value={control.id}>
+                    {getControlLabel(control)} - {control.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Response needed by">
+              <input
+                required
+                type="datetime-local"
+                value={questionForm.dueDate}
+                onChange={(event) => setQuestionForm((current) => ({ ...current, dueDate: event.target.value }))}
+                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+              />
+            </Field>
+          </div>
+
+          <Field label="Phase">
+            <select
+              value={questionForm.phaseTag}
+              onChange={(event) => setQuestionForm((current) => ({ ...current, phaseTag: event.target.value as AuditPhase }))}
+              className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-4 py-3 text-sm outline-none"
+            >
+              {phaseTagOptions.map((phase) => (
+                <option key={phase} value={phase}>
+                  {phase}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={closeCreateQuestionModal}
+              className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isPending}
+              className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Save Question
             </button>
           </div>
         </form>
@@ -702,7 +915,7 @@ export function RequestLogView({
           <div className="grid gap-6">
             <section className="grid gap-4 md:grid-cols-2">
               <DetailCard label="Tagged person" value={selectedRequest.assignedTo} />
-              <DetailCard label="Linked control" value={selectedRequest.controlId ?? "Not linked"} />
+              <DetailCard label="Linked control" value={getControlDisplayLabel(selectedRequest.controlId, controlLabelById)} />
               <DetailCard label="Phase" value={selectedRequest.phaseTag ?? "Planning"} />
               <DetailCard label="Date requested" value={formatDateTime(selectedRequest.dateRequested)} />
               <DetailCard label="Due date" value={formatDateTime(selectedRequest.dueDate)} />
@@ -723,6 +936,7 @@ export function RequestLogView({
                 label="Chain delay impact"
                 value={formatHours(getRequestChainDelayHours(selectedRequest, visibleQuestions, visibleRequests, currentNow))}
                 helpText="Total delay impact across this request and any linked follow-up questions or requests created because the original response package was incomplete."
+                helpAlign="end"
               />
             </section>
 
@@ -839,7 +1053,7 @@ function FormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(1,30,65,0.32)] p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(1,30,65,0.32)] p-4 backdrop-blur-sm">
       <div className="w-full max-w-2xl rounded-[28px] border border-black/5 bg-[#fbfaf7] p-6 shadow-[0_24px_80px_rgba(1,30,65,0.22)]">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -870,19 +1084,29 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function DetailCard({ label, value, helpText }: { label: string; value: string; helpText?: string }) {
+function DetailCard({
+  label,
+  value,
+  helpText,
+  helpAlign = "center",
+}: {
+  label: string;
+  value: string;
+  helpText?: string;
+  helpAlign?: "center" | "end";
+}) {
   return (
-    <div className="rounded-[22px] border border-black/5 bg-white p-4">
+    <div className="min-w-0 rounded-[22px] border border-black/5 bg-white p-4">
       <div className="flex items-center gap-2">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
-        {helpText ? <HoverInfoCard text={helpText} /> : null}
+        {helpText ? <HoverInfoCard text={helpText} align={helpAlign} /> : null}
       </div>
       <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
     </div>
   );
 }
 
-function HoverInfoCard({ text }: { text: string }) {
+function HoverInfoCard({ text, align = "center" }: { text: string; align?: "center" | "end" }) {
   return (
     <span className="group relative inline-flex">
       <span
@@ -891,7 +1115,11 @@ function HoverInfoCard({ text }: { text: string }) {
       >
         <CircleHelp size={12} />
       </span>
-      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+0.65rem)] z-20 w-72 -translate-x-1/2 rounded-[18px] border border-black/5 bg-white px-4 py-3 text-left text-[11px] normal-case tracking-normal text-[var(--foreground)] opacity-0 shadow-[0_18px_40px_rgba(1,30,65,0.14)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100">
+      <span
+        className={`pointer-events-none absolute top-[calc(100%+0.65rem)] z-20 w-64 max-w-[calc(100vw-6rem)] rounded-[18px] border border-black/5 bg-white px-4 py-3 text-left text-[11px] normal-case tracking-normal text-[var(--foreground)] opacity-0 shadow-[0_18px_40px_rgba(1,30,65,0.14)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 md:w-72 ${
+          align === "end" ? "right-0 translate-x-0" : "left-1/2 -translate-x-1/2"
+        }`}
+      >
         {text}
       </span>
     </span>
@@ -971,6 +1199,14 @@ function getRequestLabel(request: Request) {
 
 function getControlLabel(control: Control) {
   return control.referenceId ?? control.id;
+}
+
+function getControlDisplayLabel(controlId: string | undefined, controlLabelById: Map<string, string>) {
+  if (!controlId) {
+    return "Not linked";
+  }
+
+  return controlLabelById.get(controlId) ?? controlId;
 }
 
 function formatRequestDelayImpactLabel({

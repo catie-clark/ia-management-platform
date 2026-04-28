@@ -54,7 +54,7 @@ export function DetailPanel({
               <X size={18} />
             </button>
           </div>
-          <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">{children}</div>
+          <div className="mt-8 min-h-0 flex-1 overflow-x-hidden overflow-y-auto pr-1">{children}</div>
         </aside>
       </div>
     </>

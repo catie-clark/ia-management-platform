@@ -1,5 +1,6 @@
 import { ExecutiveDashboardView } from "@/components/dashboard/executive-dashboard-view";
 import { getDashboardViewModel } from "@/lib/dashboard-data";
+import { getHoursBudgetViewModel } from "@/lib/hours-budget-data";
 import { unstable_noStore as noStore } from "next/cache";
 import type { AuditPhase } from "@/types/audit";
 
@@ -15,9 +16,28 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const auditLabel = getSingleValue(resolvedParams.auditLabel);
   const phaseOverride = getPhaseOverride(getSingleValue(resolvedParams.phase));
   const syncCount = getSingleValue(resolvedParams.sync);
-  const viewModel = await getDashboardViewModel({ auditId, auditLabel, mode, phaseOverride, syncCount });
+  const [viewModel, hoursBudgetViewModel] = await Promise.all([
+    getDashboardViewModel({ auditId, auditLabel, mode, phaseOverride, syncCount }),
+    getHoursBudgetViewModel({ auditId, auditLabel, mode, phaseOverride, syncCount }),
+  ]);
 
-  return <ExecutiveDashboardView viewModel={viewModel} />;
+  return (
+    <ExecutiveDashboardView
+      viewModel={viewModel}
+      hoursChartData={hoursBudgetViewModel.phaseBudgets}
+      hoursChartInsight={
+        hoursBudgetViewModel.mode === "live" && hoursBudgetViewModel.timeEntries.length > 0
+          ? "Actual phase totals below reflect the uploaded recorded hour entries currently saved for this audit."
+          : "Actual phase totals below reflect the current recorded totals available for this audit."
+      }
+      hoursChartMessage={`Actuals source: recorded audit hours | Last refreshed ${new Date(hoursBudgetViewModel.lastSyncedAt).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })}`}
+    />
+  );
 }
 
 function getSingleValue(value: string | string[] | undefined) {
