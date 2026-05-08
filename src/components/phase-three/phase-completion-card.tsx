@@ -49,8 +49,8 @@ export function PhaseCompletionCard({
 
   if (!auditId) {
     return (
-      <section className="rounded-[24px] border border-black/5 bg-[var(--surface-tint)] p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Phase transition</p>
+      <section className="border border-black/5 bg-[var(--surface-soft)] p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Phase transition</p>
         <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">No audit selected</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
           Marking a phase complete requires a saved audit because it updates the audit record in Supabase.
@@ -63,10 +63,10 @@ export function PhaseCompletionCard({
   const isCurrentPageActive = currentPhase === pagePhase;
 
   return (
-    <section className="rounded-[24px] border border-black/5 bg-[var(--surface-tint)] p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+    <section className="border border-black/5 bg-[var(--surface-soft)] p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Phase transition</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Phase transition</p>
           <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">
             {isAuditComplete ? "This audit is already complete" : `${pagePhase} completion control`}
           </h2>
@@ -133,7 +133,7 @@ export function PhaseCompletionCard({
                 }
               });
             }}
-            className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending ? "Updating..." : `Mark ${pagePhase.toLowerCase()} complete`}
           </button>

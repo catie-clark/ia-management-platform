@@ -33,7 +33,7 @@ export function AtRiskTable({
         <p className={`max-w-sm text-right text-[var(--muted)] ${compact ? "text-[12px] leading-5" : "text-[13px] leading-5"}`}>{description}</p>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-[16px] border border-black/5">
+      <div className={cn("mt-4 overflow-hidden rounded-[16px] border border-black/5", bodyHeightClassName && "overflow-y-auto", bodyHeightClassName)}>
         <table className="min-w-full table-fixed text-left">
           <colgroup>
             <col className={columnClassNames.area} />
@@ -42,32 +42,22 @@ export function AtRiskTable({
             <col className={columnClassNames.status} />
             <col className={columnClassNames.due} />
           </colgroup>
-          <thead className="bg-[rgba(1,30,65,0.04)]">
+          <thead className="z-20">
             <tr className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">
-              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Area</th>
-              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Item</th>
-              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Owner</th>
-              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Status</th>
-              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} font-semibold`}>Due</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} sticky top-0 z-20 bg-[var(--surface-strong)] font-semibold shadow-[inset_0_-1px_0_rgba(1,30,65,0.08)]`}>Area</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} sticky top-0 z-20 bg-[var(--surface-strong)] font-semibold shadow-[inset_0_-1px_0_rgba(1,30,65,0.08)]`}>Item</th>
+              <th className={`${compact ? "px-3 py-2.5 text-center" : "px-4 py-3 text-center"} sticky top-0 z-20 bg-[var(--surface-strong)] font-semibold shadow-[inset_0_-1px_0_rgba(1,30,65,0.08)]`}>Owner</th>
+              <th className={`${compact ? "px-3 py-2.5" : "px-4 py-3"} sticky top-0 z-20 bg-[var(--surface-strong)] font-semibold shadow-[inset_0_-1px_0_rgba(1,30,65,0.08)]`}>Status</th>
+              <th className={`${compact ? "px-3 py-2.5 text-center" : "px-4 py-3 text-center"} sticky top-0 z-20 bg-[var(--surface-strong)] font-semibold shadow-[inset_0_-1px_0_rgba(1,30,65,0.08)]`}>Due</th>
             </tr>
           </thead>
-        </table>
-        <div className={bodyHeightClassName ? `overflow-y-auto ${bodyHeightClassName}` : ""}>
-          <table className="min-w-full table-fixed text-left">
-            <colgroup>
-              <col className={columnClassNames.area} />
-              <col className={columnClassNames.item} />
-              <col className={columnClassNames.owner} />
-              <col className={columnClassNames.status} />
-              <col className={columnClassNames.due} />
-            </colgroup>
-            <tbody className="divide-y divide-black/5 bg-white">
-              {rows.map((row) => (
-                <tr key={row.id} className="transition-colors hover:bg-[rgba(245,168,0,0.06)]">
-                  <td className={compact ? "px-3 py-2.5 align-top" : "px-4 py-3 align-top"}>
+          <tbody className="divide-y divide-black/5 bg-white">
+            {rows.map((row) => (
+              <tr key={row.id} className="transition-colors hover:bg-[rgba(245,168,0,0.06)]">
+                <td className={compact ? "px-3 py-2.5 align-top" : "px-4 py-3 align-top"}>
                   <span
                     className={cn(
-                      `rounded-full font-semibold uppercase tracking-[0.14em] ${compact ? "px-2 py-1 text-[10px]" : "px-2.5 py-1 text-[11px]"}`,
+                      `inline-flex rounded-full font-semibold uppercase tracking-[0.14em] ${compact ? "px-2 py-1 text-[10px]" : "px-2.5 py-1 text-[11px]"}`,
                       row.severity === "risk"
                         ? "bg-[rgba(229,55,107,0.1)] text-[var(--brand-coral)]"
                         : "bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-dark)]",
@@ -75,18 +65,21 @@ export function AtRiskTable({
                   >
                     {row.area}
                   </span>
-                  </td>
-                  <td className={`font-medium leading-5 text-[var(--foreground)] ${compact ? "px-3 py-2.5 text-[12px]" : "px-4 py-3 text-[13px]"}`}>{row.title}</td>
-                  <td className={compact ? "px-3 py-2.5 align-top text-[12px] text-[var(--muted)]" : "px-4 py-3 align-top text-[13px] text-[var(--muted)]"}>{row.owner}</td>
-                  <td className={compact ? "px-3 py-2.5 align-top" : "px-4 py-3 align-top"}>
-                    <StatusBadge status={row.status} tone={getStatusTone(row.status)} />
-                  </td>
-                  <td className={compact ? "px-3 py-2.5 align-top text-[12px] text-[var(--muted)]" : "px-4 py-3 align-top text-[13px] text-[var(--muted)]"}>{row.dueDate ? formatShortDate(row.dueDate) : "N/A"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                </td>
+                <td className={`font-medium leading-5 text-[var(--foreground)] ${compact ? "px-3 py-2.5 text-[12px]" : "px-4 py-3 text-[13px]"}`}>{row.title}</td>
+                <td className={compact ? "px-3 py-2.5 align-top text-center text-[12px] text-[var(--muted)]" : "px-4 py-3 align-top text-center text-[13px] text-[var(--muted)]"}>
+                  {row.owner}
+                </td>
+                <td className={compact ? "px-3 py-2.5 align-top" : "px-4 py-3 align-top"}>
+                  <StatusBadge status={row.status} tone={getStatusTone(row.status)} />
+                </td>
+                <td className={compact ? "px-3 py-2.5 align-top text-center text-[12px] text-[var(--muted)]" : "px-4 py-3 align-top text-center text-[13px] text-[var(--muted)]"}>
+                  {row.dueDate ? formatShortDate(row.dueDate) : "N/A"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );

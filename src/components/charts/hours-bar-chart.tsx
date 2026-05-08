@@ -8,53 +8,73 @@ export function HoursBarChart({
   data = budgetByPhase,
   insight = "Fieldwork is the current pressure point, which aligns with the risk alerts on controls and questions.",
   message,
+  variant = "dashboard",
 }: {
   data?: BudgetByPhase[];
   insight?: string;
   message?: string;
+  variant?: "dashboard" | "workspace";
 }) {
+  const isWorkspace = variant === "workspace";
+
   return (
-    <section className="rounded-[20px] border border-black/5 bg-white px-5 py-4 shadow-[0_16px_36px_rgba(1,30,65,0.07)]">
-      <div className="flex items-start justify-between gap-4">
+    <section
+      className={
+        isWorkspace
+          ? "border border-black/5 bg-white px-5 py-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]"
+          : "rounded-[20px] border border-black/5 bg-white px-5 py-4 shadow-[0_16px_36px_rgba(1,30,65,0.07)]"
+      }
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Hours pacing</p>
-          <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Planned vs actual by audit phase</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Hours pacing</p>
+          <h2 className={isWorkspace ? "mt-2 text-lg font-semibold text-[var(--foreground)]" : "mt-2 text-xl font-semibold text-[var(--foreground)]"}>
+            Planned vs actual by audit phase
+          </h2>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
             <div className="inline-flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#011E41]" />
-              Planned Hours
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--chart-planned)" }} />
+              Planned
             </div>
             <div className="inline-flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#F5A800]" />
-              Actual Hours
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: "var(--chart-actual)" }} />
+              Actual
             </div>
           </div>
         </div>
-        <div className="max-w-sm text-right text-[13px] leading-5 text-[var(--muted)]">
+        <div className={isWorkspace ? "max-w-md text-[13px] leading-5 text-[var(--muted)] lg:text-right" : "max-w-sm text-right text-[13px] leading-5 text-[var(--muted)]"}>
           <p>{insight}</p>
-          {message ? <p className="mt-2 font-medium text-[var(--brand-amber-dark)]">{message}</p> : null}
+          {message ? (
+            <div className={isWorkspace ? "mt-3 border-t border-black/5 pt-3 text-[12px] font-medium text-[var(--brand-amber-dark)]" : "mt-2 font-medium text-[var(--brand-amber-dark)]"}>
+              {message}
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="mt-4 h-[280px]">
+      <div className={isWorkspace ? "mt-3 h-[320px]" : "mt-4 h-[280px]"}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} barGap={10}>
-            <CartesianGrid vertical={false} stroke="rgba(1, 30, 65, 0.08)" />
-            <XAxis dataKey="phase" tickLine={false} axisLine={false} tick={{ fill: "#4F4F4F", fontSize: 12 }} />
-            <YAxis tickLine={false} axisLine={false} tick={{ fill: "#4F4F4F", fontSize: 12 }} />
+          <BarChart
+            data={data}
+            barGap={10}
+            margin={isWorkspace ? { top: 8, right: 8, left: -20, bottom: 0 } : { top: 12, right: 12, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+            <XAxis dataKey="phase" tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+            <YAxis tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
             <Tooltip
               cursor={{ fill: "rgba(245,168,0,0.08)" }}
               formatter={(value: number, name: string) => [value, formatSeriesLabel(name)]}
               labelFormatter={(label) => `${label} phase`}
               contentStyle={{
-                borderRadius: 18,
-                border: "1px solid rgba(1,30,65,0.08)",
-                background: "#ffffff",
+                borderRadius: isWorkspace ? 10 : 18,
+                border: "1px solid var(--chart-tooltip-border)",
+                background: "var(--chart-tooltip-bg)",
                 boxShadow: "0 18px 44px rgba(1,30,65,0.12)",
               }}
             />
-            <Bar dataKey="plannedHours" radius={[10, 10, 0, 0]} fill="#011E41" />
-            <Bar dataKey="actualHours" radius={[10, 10, 0, 0]} fill="#F5A800" />
+            <Bar dataKey="plannedHours" radius={isWorkspace ? [6, 6, 0, 0] : [10, 10, 0, 0]} fill="var(--chart-planned)" />
+            <Bar dataKey="actualHours" radius={isWorkspace ? [6, 6, 0, 0] : [10, 10, 0, 0]} fill="var(--chart-actual)" />
           </BarChart>
         </ResponsiveContainer>
       </div>

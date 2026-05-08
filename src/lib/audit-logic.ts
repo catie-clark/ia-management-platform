@@ -8,6 +8,7 @@ import {
   requests,
   users,
 } from "@/lib/data/mock-data";
+import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 import { formatHours } from "@/lib/utils";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
 import type {
@@ -302,7 +303,7 @@ export function normalizeAuditPhaseFromAudit(audit: { active_phase?: string | nu
 export function getDashboardKpis(phase: AuditPhase, context: AuditLogicContext = defaultContext): KPIProps[] {
   if (phase === "Planning") {
     const ownerAssignedCount = context.controls.filter((control) => Boolean(control.ownerId)).length;
-    const dueDatesAssignedCount = context.controls.filter((control) => Boolean(control.assignedDueDate)).length;
+    const scopeAssignedCount = context.controls.filter((control) => control.hasExplicitScopeAssignment).length;
     const configuredPhaseBudgets = context.budgetByPhase.filter((phaseBudget) => phaseBudget.isSet).length;
     const missingPhaseBudgets = context.budgetByPhase.length - configuredPhaseBudgets;
     const planningArtifactsReady = requiredPlanningDocumentTypes.filter((type) =>
@@ -330,11 +331,14 @@ export function getDashboardKpis(phase: AuditPhase, context: AuditLogicContext =
             : "All audit phase budgets are configured",
       },
       {
-        title: "Target dates set",
-        value: `${getPercent(dueDatesAssignedCount, totalControls)}%`,
-        status: dueDatesAssignedCount === totalControls ? "normal" : "warning",
-        subtitle: `${dueDatesAssignedCount} of ${totalControls} controls have a committed target date`,
-        delta: dueDatesAssignedCount === totalControls ? "Timeline setup is complete" : `${totalControls - dueDatesAssignedCount} controls are still missing target dates`,
+        title: "Scope assigned",
+        value: `${getPercent(scopeAssignedCount, totalControls)}%`,
+        status: scopeAssignedCount === totalControls ? "normal" : scopeAssignedCount >= Math.ceil(totalControls / 2) ? "warning" : "risk",
+        subtitle: `${scopeAssignedCount} of ${totalControls} controls have an explicit in-scope or out-of-scope decision`,
+        delta:
+          scopeAssignedCount === totalControls
+            ? "Scope decisions are complete"
+            : `${totalControls - scopeAssignedCount} controls still need a scope decision`,
       },
       {
         title: "Planning artifacts ready",
@@ -613,7 +617,7 @@ export function getExecutiveNarrative(phase: AuditPhase, context: AuditLogicCont
     return `The audit is in reporting posture, so the dashboard is prioritizing closure rather than test execution. The main pressure point is ${topTrigger}, and leadership should focus on clearing remaining open controls, finalizing report artifacts, and removing follow-up items that could delay issuance.`;
   }
 
-  return `Midwest Financial Corp remains in active fieldwork with leadership focus centered on execution pressure and blocker removal. The audit is showing early pressure from ${topTrigger}, and leadership should focus on overdue responses, over-budget testing, and incomplete deliverables before the next phase gate.`;
+  return `${DEFAULT_COMPANY_NAME} remains in active fieldwork with leadership focus centered on execution pressure and blocker removal. The audit is showing early pressure from ${topTrigger}, and leadership should focus on overdue responses, over-budget testing, and incomplete deliverables before the next phase gate.`;
 }
 
 export function getPhaseSpotlight(phase: AuditPhase, context: AuditLogicContext = defaultContext): PhaseSpotlight {

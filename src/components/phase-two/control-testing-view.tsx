@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition, type Dispatch, type SetStateAction, type TransitionStartFunction } from "react";
-import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Search } from "lucide-react";
+import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Plus, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -10,6 +10,7 @@ import { useNotification } from "@/components/ui/notification-provider";
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { ReminderButton } from "@/components/ui/reminder-button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { TestingMatrixDetailPanel } from "@/components/testing-matrices/testing-matrix-detail-panel";
 import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
 import {
   getControlOwner,
@@ -33,7 +34,19 @@ import {
 import { getControlTestingNow } from "@/lib/control-testing-data";
 import type { DashboardMode } from "@/lib/live-audit";
 import { cn, formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
-import type { AuditDocument, AuditPhase, Control, ControlScopeStatus, ControlStatus, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
+import type {
+  AuditDocument,
+  AuditPhase,
+  Control,
+  ControlException,
+  ControlScopeStatus,
+  ControlStatus,
+  ControlTestingMatrix,
+  DocumentReviewStatus,
+  Question,
+  Request,
+  User,
+} from "@/types/audit";
 
 const controlStages: ControlStatus[] = ["NOT_STARTED", "IN_PROGRESS", "BLOCKED", "COMPLETE"];
 const documentReviewStages: DocumentReviewStatus[] = ["NOT_SUBMITTED", "AIC_REVIEW", "MANAGER_REVIEW", "DIRECTOR_REVIEW", "APPROVED"];
@@ -51,6 +64,8 @@ type ControlTestingViewProps = {
   auditLabel: string;
   auditPeriodLabel: string;
   controls: Control[];
+  controlExceptions: ControlException[];
+  testingMatrices: ControlTestingMatrix[];
   currentPhase: AuditPhase;
   documents: AuditDocument[];
   embedded?: boolean;
@@ -88,6 +103,8 @@ export function ControlTestingView({
   auditLabel,
   auditPeriodLabel,
   controls,
+  controlExceptions,
+  testingMatrices,
   currentPhase,
   documents,
   embedded = false,
@@ -102,8 +119,10 @@ export function ControlTestingView({
   const { showNotification } = useNotification();
   const [controlRecords, setControlRecords] = useState(controls);
   const [documentRows, setDocumentRows] = useState(documents);
+  const [testingMatrixRows, setTestingMatrixRows] = useState(testingMatrices);
   const [selectedId, setSelectedId] = useState<string>("");
   const [selectedWorkpaperId, setSelectedWorkpaperId] = useState<string>("");
+  const [selectedTestingMatrixControlId, setSelectedTestingMatrixControlId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ControlStatus | "ALL">("ALL");
   const [riskFilter, setRiskFilter] = useState<Control["riskLevel"] | "ALL">("ALL");
@@ -112,7 +131,11 @@ export function ControlTestingView({
   const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>("ALL");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("IN_SCOPE");
   const [sortBy, setSortBy] = useState<ControlSort>("DUE_ASC");
+  const [showFilters, setShowFilters] = useState(false);
   const [planningForm, setPlanningForm] = useState<PlanningFormState>({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "IN_SCOPE" });
+  const [controlExceptionsByControlId, setControlExceptionsByControlId] = useState<Record<string, ControlException[]>>(
+    () => groupControlExceptions(controlExceptions),
+  );
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
   const [isSaving, startSaving] = useTransition();
@@ -125,6 +148,14 @@ export function ControlTestingView({
   useEffect(() => {
     setDocumentRows(documents);
   }, [documents]);
+
+  useEffect(() => {
+    setTestingMatrixRows(testingMatrices);
+  }, [testingMatrices]);
+
+  useEffect(() => {
+    setControlExceptionsByControlId(groupControlExceptions(controlExceptions));
+  }, [controlExceptions]);
 
   useEffect(() => {
     setOwnerFilter("ALL");
@@ -227,6 +258,7 @@ export function ControlTestingView({
     if (!selectedControl) {
       setPlanningForm({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "IN_SCOPE" });
       setSelectedWorkpaperId("");
+      setSelectedTestingMatrixControlId("");
       setSaveError("");
       setSaveSuccess("");
       return;
@@ -239,6 +271,7 @@ export function ControlTestingView({
       scopeStatus: selectedControl.scopeStatus,
     });
     setSelectedWorkpaperId("");
+    setSelectedTestingMatrixControlId("");
     setSaveError("");
     setSaveSuccess("");
   }, [selectedControl]);
@@ -252,6 +285,10 @@ export function ControlTestingView({
     () => (selectedControl ? getLinkedDocuments(selectedControl.id, documentRows).filter((document) => document.type !== "WORKPAPER") : []),
     [documentRows, selectedControl],
   );
+  const selectedTestingMatrix =
+    selectedTestingMatrixControlId.length > 0
+      ? testingMatrixRows.find((entry) => entry.controlId === selectedTestingMatrixControlId) ?? null
+      : null;
 
   return (
     <div className={embedded ? "flex min-h-0 shrink-0 flex-col gap-4" : "flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]"}>
@@ -302,23 +339,9 @@ export function ControlTestingView({
             </p>
           </div>
         ) : null}
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex w-full flex-col gap-3 xl:max-w-xl">
-            <div className="flex flex-wrap items-center gap-2">
-              {!canUserSeeAllControls(activeUser) ? (
-                <>
-                  <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
-                  <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
-                </>
-              ) : (
-                <FilterPill label="All audit controls" active />
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
-              <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
-            </div>
-            <div className="relative w-full">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative w-full xl:max-w-xl">
               <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
               <input
                 value={search}
@@ -327,27 +350,53 @@ export function ControlTestingView({
                 className="w-full rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-10 py-2.5 text-[13px] outline-none"
               />
             </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowFilters((current) => !current)}
+                className={showFilters ? "inline-flex items-center gap-2 rounded-md border border-[var(--brand-indigo-core)] bg-[var(--surface-soft)] px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]" : "inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"}
+              >
+                <Filter size={16} />
+                Filter
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Filter size={15} className="text-[var(--muted)]" />
-            <Select value={statusFilter} onChange={setStatusFilter} options={["ALL", ...controlStages]} />
-            <Select value={riskFilter} onChange={setRiskFilter} options={["ALL", "HIGH", "MEDIUM", "LOW"]} />
-            <Select
-              value={ownerFilter}
-              onChange={setOwnerFilter}
-              options={["ALL", ...Array.from(new Set(visibleControls.map((control) => control.ownerId)))]}
-              label={(value) => (value === "ALL" ? "All owners" : getOwnerLabel(visibleControls.find((control) => control.ownerId === value) ?? null, users))}
-            />
-            <Select value={dueFilter} onChange={setDueFilter} options={dueFilterOptions} label={formatDueFilterLabel} />
-            <Select value={sortBy} onChange={setSortBy} options={controlSortOptions} label={formatControlSortLabel} icon={<ArrowDownUp size={16} />} />
-          </div>
+          {showFilters ? (
+            <div className="flex flex-col gap-3 border border-black/5 bg-[var(--surface-soft)] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {!canUserSeeAllControls(activeUser) ? (
+                  <>
+                    <FilterPill label="My controls" active={audienceFilter === "ASSIGNED"} onClick={() => setAudienceFilter("ASSIGNED")} />
+                    <FilterPill label="All audit controls" active={audienceFilter === "ALL"} onClick={() => setAudienceFilter("ALL")} />
+                  </>
+                ) : (
+                  <FilterPill label="All audit controls" active />
+                )}
+                <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
+                <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Select value={statusFilter} onChange={setStatusFilter} options={["ALL", ...controlStages]} />
+                <Select value={riskFilter} onChange={setRiskFilter} options={["ALL", "HIGH", "MEDIUM", "LOW"]} />
+                <Select
+                  value={ownerFilter}
+                  onChange={setOwnerFilter}
+                  options={["ALL", ...Array.from(new Set(visibleControls.map((control) => control.ownerId)))]}
+                  label={(value) => (value === "ALL" ? "All owners" : getOwnerLabel(visibleControls.find((control) => control.ownerId === value) ?? null, users))}
+                />
+                <Select value={dueFilter} onChange={setDueFilter} options={dueFilterOptions} label={formatDueFilterLabel} />
+                <Select value={sortBy} onChange={setSortBy} options={controlSortOptions} label={formatControlSortLabel} icon={<ArrowDownUp size={16} />} />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className={embedded ? "mt-4 overflow-auto" : "mt-4 min-h-0 flex-1 overflow-auto"}>
           <table className="min-w-full border-separate border-spacing-y-2">
-            <thead>
-              <tr className="sticky top-0 z-10 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+            <thead className="sticky top-0 z-10 bg-[#fbfaf7]">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
                 <th className="bg-white px-3 py-2">Control</th>
                 <th className="bg-white px-3 py-2">Owner</th>
                 <th className="bg-white px-3 py-2">
@@ -374,6 +423,7 @@ export function ControlTestingView({
                 const derivedRiskLevel = getControlRiskLevel(control, auditContext);
                 const riskTone = derivedRiskLevel === "HIGH" ? "risk" : derivedRiskLevel === "MEDIUM" ? "warning" : "success";
                 const overdue = isControlOverdue(control, currentNow);
+                const exceptionCount = controlExceptionsByControlId[control.id]?.length ?? 0;
 
                 return (
                   <tr
@@ -385,6 +435,12 @@ export function ControlTestingView({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-[13px] font-semibold text-[var(--foreground)]">{control.referenceId ?? control.id}</p>
                         {overdue ? <StatusBadge status="Overdue" tone="risk" className="animate-pulse" /> : null}
+                        {exceptionCount > 0 ? (
+                          <StatusBadge
+                            status={exceptionCount === 1 ? "Exception Found" : `${exceptionCount} Exceptions`}
+                            tone="warning"
+                          />
+                        ) : null}
                       </div>
                       <p className="mt-1 text-[13px] text-[var(--foreground)]">{control.name}</p>
                       <p className="mt-0.5 text-[11px] text-[var(--muted)]">{control.businessUnit}</p>
@@ -463,8 +519,12 @@ export function ControlTestingView({
                   auditId={auditId}
                   canEditPlanningDecisions={canEditPlanningDecisions}
                   currentNow={currentNow}
+                  currentUserName={activeUser.name}
+                  currentUserId={activeUser.id}
+                  exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
                   isSaving={isSaving}
                   linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
+                  linkedTestingMatrix={selectedControl ? testingMatrixRows.find((entry) => entry.controlId === selectedControl.id) ?? null : null}
                   linkedWorkpapers={linkedWorkpapers}
                   mode={mode}
                   planningForm={planningForm}
@@ -474,9 +534,11 @@ export function ControlTestingView({
                   saveSuccess={saveSuccess}
                   selectedControl={selectedControl}
                   setControlRecords={setControlRecords}
+                  setControlExceptions={setControlExceptionsByControlId}
                   setPlanningForm={setPlanningForm}
                   setSaveError={setSaveError}
                   setSaveSuccess={setSaveSuccess}
+                  setSelectedTestingMatrixControlId={setSelectedTestingMatrixControlId}
                   setSelectedWorkpaperId={setSelectedWorkpaperId}
                   showNotification={showNotification}
                   startSaving={startSaving}
@@ -507,6 +569,28 @@ export function ControlTestingView({
             users={users}
           />
         ) : null}
+
+        {selectedControl && selectedTestingMatrixControlId === selectedControl.id && embedded ? (
+          <TestingMatrixDetailPanel
+            auditId={auditId}
+            contained
+            control={selectedControl}
+            matrix={selectedTestingMatrix}
+            mode={mode}
+            onClose={() => setSelectedTestingMatrixControlId("")}
+            onMatrixUpdated={(nextMatrix) => {
+              setTestingMatrixRows((current) => {
+                const existingIndex = current.findIndex((entry) => entry.controlId === nextMatrix.controlId);
+
+                if (existingIndex === -1) {
+                  return [...current, nextMatrix];
+                }
+
+                return current.map((entry) => (entry.controlId === nextMatrix.controlId ? nextMatrix : entry));
+              });
+            }}
+          />
+        ) : null}
       </section>
 
       {selectedControl ? (
@@ -522,8 +606,12 @@ export function ControlTestingView({
               auditId={auditId}
               canEditPlanningDecisions={canEditPlanningDecisions}
               currentNow={currentNow}
+              currentUserName={activeUser.name}
+              currentUserId={activeUser.id}
               isSaving={isSaving}
+              exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
               linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
+              linkedTestingMatrix={selectedControl ? testingMatrixRows.find((entry) => entry.controlId === selectedControl.id) ?? null : null}
               linkedWorkpapers={linkedWorkpapers}
               mode={mode}
               planningForm={planningForm}
@@ -533,9 +621,11 @@ export function ControlTestingView({
               saveSuccess={saveSuccess}
               selectedControl={selectedControl}
               setControlRecords={setControlRecords}
+              setControlExceptions={setControlExceptionsByControlId}
               setPlanningForm={setPlanningForm}
               setSaveError={setSaveError}
               setSaveSuccess={setSaveSuccess}
+              setSelectedTestingMatrixControlId={setSelectedTestingMatrixControlId}
               setSelectedWorkpaperId={setSelectedWorkpaperId}
               showNotification={showNotification}
               startSaving={startSaving}
@@ -566,6 +656,29 @@ export function ControlTestingView({
         />
         )
       ) : null}
+
+      {selectedControl && selectedTestingMatrixControlId === selectedControl.id ? (
+        embedded ? null : (
+          <TestingMatrixDetailPanel
+            auditId={auditId}
+            control={selectedControl}
+            matrix={selectedTestingMatrix}
+            mode={mode}
+            onClose={() => setSelectedTestingMatrixControlId("")}
+            onMatrixUpdated={(nextMatrix) => {
+              setTestingMatrixRows((current) => {
+                const existingIndex = current.findIndex((entry) => entry.controlId === nextMatrix.controlId);
+
+                if (existingIndex === -1) {
+                  return [...current, nextMatrix];
+                }
+
+                return current.map((entry) => (entry.controlId === nextMatrix.controlId ? nextMatrix : entry));
+              });
+            }}
+          />
+        )
+      ) : null}
     </div>
   );
 }
@@ -574,8 +687,12 @@ function ControlDetailContent({
   auditId,
   canEditPlanningDecisions,
   currentNow,
+  currentUserName,
+  currentUserId,
+  exceptions,
   isSaving,
   linkedNonWorkpaperDocuments,
+  linkedTestingMatrix,
   linkedWorkpapers,
   mode,
   planningForm,
@@ -585,9 +702,11 @@ function ControlDetailContent({
   saveSuccess,
   selectedControl,
   setControlRecords,
+  setControlExceptions,
   setPlanningForm,
   setSaveError,
   setSaveSuccess,
+  setSelectedTestingMatrixControlId,
   setSelectedWorkpaperId,
   showNotification,
   startSaving,
@@ -598,8 +717,12 @@ function ControlDetailContent({
   auditId: string | null;
   canEditPlanningDecisions: boolean;
   currentNow: string;
+  currentUserName: string;
+  currentUserId: string;
+  exceptions: ControlException[];
   isSaving: boolean;
   linkedNonWorkpaperDocuments: AuditDocument[];
+  linkedTestingMatrix: ControlTestingMatrix | null;
   linkedWorkpapers: AuditDocument[];
   mode: DashboardMode;
   planningForm: PlanningFormState;
@@ -609,9 +732,11 @@ function ControlDetailContent({
   saveSuccess: string;
   selectedControl: Control;
   setControlRecords: Dispatch<SetStateAction<Control[]>>;
+  setControlExceptions: Dispatch<SetStateAction<Record<string, ControlException[]>>>;
   setPlanningForm: Dispatch<SetStateAction<PlanningFormState>>;
   setSaveError: Dispatch<SetStateAction<string>>;
   setSaveSuccess: Dispatch<SetStateAction<string>>;
+  setSelectedTestingMatrixControlId: Dispatch<SetStateAction<string>>;
   setSelectedWorkpaperId: Dispatch<SetStateAction<string>>;
   showNotification: (args: { title: string; message: string; tone: "success" | "error" }) => void;
   startSaving: TransitionStartFunction;
@@ -619,6 +744,14 @@ function ControlDetailContent({
   workspaceQuery: URLSearchParams;
   router: { push: (href: string) => void; refresh: () => void };
 }) {
+  const [isAddingException, setIsAddingException] = useState(false);
+  const [exceptionDraft, setExceptionDraft] = useState("");
+
+  useEffect(() => {
+    setIsAddingException(false);
+    setExceptionDraft("");
+  }, [selectedControl.id]);
+
   return (
     <div className="grid gap-4">
       {mode === "live" && canEditPlanningDecisions ? (
@@ -781,6 +914,122 @@ function ControlDetailContent({
         ))}
       </LinkedSection>
 
+      <section className="rounded-[18px] border border-black/5 bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Control Exceptions</p>
+            <p className="mt-1.5 text-[13px] text-[var(--muted)]">Capture testing exceptions identified while reviewing this control.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAddingException(true)}
+            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-indigo-core)]"
+          >
+            <Plus size={14} />
+            Add exception
+          </button>
+        </div>
+
+        {isAddingException ? (
+          <div className="mt-4 rounded-[14px] bg-[var(--surface-tint)] p-3.5">
+            <label className="grid gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Exception details</span>
+              <textarea
+                value={exceptionDraft}
+                onChange={(event) => setExceptionDraft(event.target.value)}
+                rows={4}
+                placeholder="Describe the exception, impact, and follow-up needed."
+                className="rounded-[16px] border border-black/5 bg-white px-3.5 py-3 text-[13px] outline-none"
+              />
+            </label>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const note = exceptionDraft.trim();
+
+                  if (!note || !auditId) {
+                    return;
+                  }
+
+                  startSaving(async () => {
+                    try {
+                      const response = await fetch(`/api/controls/${selectedControl.id}/exceptions`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          auditId,
+                          createdByName: currentUserName,
+                          createdByUserId: currentUserId,
+                          note,
+                        }),
+                      });
+                      const result = (await response.json()) as ControlException | { error?: string };
+
+                      if (!response.ok) {
+                        throw new Error("error" in result ? result.error : "Unable to save the control exception.");
+                      }
+
+                      const createdException = result as ControlException;
+                      setControlExceptions((current) => ({
+                        ...current,
+                        [selectedControl.id]: [...(current[selectedControl.id] ?? []), createdException],
+                      }));
+                      setExceptionDraft("");
+                      setIsAddingException(false);
+                      router.refresh();
+                      showNotification({
+                        title: "Exception added",
+                        message: "The control exception was saved successfully.",
+                        tone: "success",
+                      });
+                    } catch (error) {
+                      showNotification({
+                        title: "Save failed",
+                        message: error instanceof Error ? error.message : "Unable to save the control exception.",
+                        tone: "error",
+                      });
+                    }
+                  });
+                }}
+                disabled={isSaving || !auditId || !exceptionDraft.trim()}
+                className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? "Saving..." : "Save exception"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExceptionDraft("");
+                  setIsAddingException(false);
+                }}
+                className="inline-flex items-center justify-center rounded-full border border-black/5 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-3 grid gap-2.5">
+          {exceptions.length > 0 ? (
+            exceptions.map((exception) => (
+              <div key={exception.id} className="rounded-[14px] bg-[var(--surface-tint)] px-3.5 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[13px] font-semibold text-[var(--foreground)]">{exception.createdBy}</p>
+                  <span className="text-[11px] text-[var(--muted)]">{formatDateTime(exception.createdAt)}</span>
+                </div>
+                <p className="mt-1.5 text-[13px] text-[var(--foreground)]">{exception.note}</p>
+              </div>
+            ))
+          ) : (
+            <p className="text-[13px] text-[var(--muted)]">No control exceptions have been added yet.</p>
+          )}
+        </div>
+      </section>
+
       <LinkedSection title="Linked questions" empty="No questions linked yet.">
         {getLinkedQuestions(selectedControl.id, questions).map((question) => (
           <LinkedRow
@@ -805,7 +1054,7 @@ function ControlDetailContent({
         ))}
       </LinkedSection>
 
-      <LinkedSection title="Linked workpapers" empty="No workpapers are linked to this control yet.">
+      <LinkedSection title="Linked testing artifacts" empty="No testing artifacts are linked to this control yet.">
         {linkedWorkpapers.map((document) => (
           <DocumentLinkedRow
             key={document.id}
@@ -814,6 +1063,11 @@ function ControlDetailContent({
             onAction={() => setSelectedWorkpaperId(document.id)}
           />
         ))}
+        <TestingMatrixLinkedRow
+          control={selectedControl}
+          matrix={linkedTestingMatrix}
+          onAction={() => setSelectedTestingMatrixControlId(selectedControl.id)}
+        />
       </LinkedSection>
 
       <LinkedSection title="Linked documents" empty="No non-workpaper documents linked yet.">
@@ -1038,6 +1292,52 @@ function DocumentLinkedRow({
   );
 }
 
+function TestingMatrixLinkedRow({
+  control,
+  matrix,
+  onAction,
+}: {
+  control: Control;
+  matrix: ControlTestingMatrix | null;
+  onAction: () => void;
+}) {
+  const exceptionRowCount = matrix
+    ? matrix.samples.filter((sample) => sample.exceptionNoted.trim().length > 0 || matrix.results.some((result) => result.sampleId === sample.id && result.result === "FAIL")).length
+    : 0;
+
+  return (
+    <div className="rounded-[14px] bg-[var(--surface-tint)] px-3.5 py-3.5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-[13px] font-semibold text-[var(--foreground)]">
+            {matrix?.title ?? `${control.name} Testing Matrix`}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            <StatusBadge status={`${matrix?.samples.length ?? 0} samples`} tone="neutral" />
+            <StatusBadge status={`${matrix?.attributes.length ?? 0} attributes`} tone="warning" />
+            <StatusBadge status={`${exceptionRowCount} exception rows`} tone={exceptionRowCount > 0 ? "risk" : "success"} />
+          </div>
+        </div>
+        <div className="flex flex-col items-start gap-3 lg:items-end">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Structured attribute testing</p>
+          <button
+            type="button"
+            onClick={onAction}
+            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--brand-indigo-core)]"
+          >
+            Launch testing matrix
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[13px] text-[var(--muted)]">
+        {matrix?.sampleDescription || "Set the population, sample rationale, per-attribute results, and row-level exception notes inside the dashboard."}
+      </p>
+    </div>
+  );
+}
+
 function getAuditContext(
   controls: Control[],
   documents: AuditDocument[],
@@ -1135,4 +1435,11 @@ function applyControlPlanningResponse(control: Control, response: ControlPlannin
     planningOverriddenAt: response.planningOverriddenAt ?? undefined,
     scopeStatus: response.scopeStatus ?? control.scopeStatus,
   };
+}
+
+function groupControlExceptions(exceptions: ControlException[]) {
+  return exceptions.reduce<Record<string, ControlException[]>>((grouped, exception) => {
+    grouped[exception.controlId] = [...(grouped[exception.controlId] ?? []), exception];
+    return grouped;
+  }, {});
 }

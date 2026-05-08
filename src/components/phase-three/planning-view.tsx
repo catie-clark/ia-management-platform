@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Bot, ChevronDown, Copy, FileText, Layers3, ShieldAlert, X } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -9,10 +10,11 @@ import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-c
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { sanitizeDraftMarkdown } from "@/lib/planning-narrative/format";
-import { formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 import type { AuditPhase, DocumentReviewStatus, PlanningSourceSet, RCSARecord } from "@/types/audit";
 
 type SourceFilter = PlanningSourceSet["sourceType"] | "ALL";
+type PlanningSubtab = "planning-inputs" | "scope-planning" | "planning-narrative" | "planning-tollgate";
 type NarrativePreviewSection = {
   body: string[];
   heading: string;
@@ -80,6 +82,9 @@ export function PlanningView({
   planningSources: PlanningSourceSet[];
   rcsaRecords: RCSARecord[];
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedSourceType, setSelectedSourceType] = useState<SourceFilter>("ALL");
   const [selectedSourceId, setSelectedSourceId] = useState<string>("");
   const [promptViewMode, setPromptViewMode] = useState<"prompt" | "json">("prompt");
@@ -101,6 +106,7 @@ export function PlanningView({
   const currentSignals = planningSources.filter((source) =>
     ["OUTSTANDING_ISSUE", "CONTINUOUS_MONITORING", "PRIOR_FINDING", "REGULATORY_UPDATE", "NEWS"].includes(source.sourceType),
   ).length;
+  const activeSubtab = getPlanningSubtab(searchParams.get("planningTab"));
 
   useEffect(() => {
     setIsSuggestionVisible(false);
@@ -113,22 +119,19 @@ export function PlanningView({
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
+    <div className="flex min-h-0 flex-col gap-4">
       <PageHeader
         title="Planning"
-        description={
-          isLiveAudit
-            ? "Planning consolidates imported source intelligence, RCSA grounding, live scope signals, and the draft outputs needed to move into controlled fieldwork."
-            : "Planning consolidates source intelligence, RCSA grounding, scope recommendations, and the draft outputs needed to move into controlled fieldwork."
-        }
+        description=""
         phaseStatus={{ label: currentPhase === "Planning" ? "Active" : `Current phase: ${currentPhase}`, active: currentPhase === "Planning" }}
+        variant="dashboard-compact"
       />
 
       <div>
         <PhaseCompletionCard auditId={auditId} auditLabel={auditLabel} auditStatus={auditStatus} currentPhase={currentPhase} pagePhase="Planning" />
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <PlanningMetric
           icon={<Layers3 size={18} />}
           label="Source inputs"
@@ -159,19 +162,38 @@ export function PlanningView({
         />
       </section>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[1.25fr_0.75fr]">
-        <section className="grid content-start gap-3 self-start">
-          <section className="relative flex h-[760px] flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="inline-flex w-fit items-center gap-6">
+        {planningSubtabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => switchSubtab(tab.id)}
+            className={cn(
+              "border-b-2 pb-1 text-sm transition-colors",
+              activeSubtab === tab.id
+                ? "border-[var(--brand-indigo-core)] font-semibold text-[var(--brand-indigo-core)]"
+                : "border-transparent text-[var(--muted)] hover:text-[var(--brand-indigo-core)]",
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSubtab === "planning-inputs" ? (
+        <section className="mt-2">
+          <section className="relative flex h-[760px] flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+            <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Planning inputs</p>
-                <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Source input inventory</h2>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Planning inputs</p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Source input inventory</h2>
               </div>
 
               <select
                 value={selectedSourceType}
                 onChange={(event) => setSelectedSourceType(event.target.value as SourceFilter)}
-                className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-sm text-[var(--foreground)] outline-none"
+                className="border border-black/10 bg-white px-4 py-2 text-sm text-[var(--foreground)] outline-none"
               >
                 {sourceFilterOptions.map((option) => (
                   <option key={option} value={option}>
@@ -180,25 +202,26 @@ export function PlanningView({
                 ))}
               </select>
             </div>
+            </div>
 
-            <div className="mt-6 min-h-0 flex-1 overflow-auto">
-              <table className="min-w-full border-separate border-spacing-y-3">
-                <thead className="sticky top-0 z-10 bg-white">
-                  <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                    <th className="px-4">Input</th>
-                    <th className="px-4">Source type</th>
-                    <th className="px-4">Document/data</th>
-                    <th className="px-4">Owner</th>
-                    <th className="px-4">Refresh</th>
-                    <th className="px-4">Updated</th>
-                    <th className="px-4">Action</th>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="min-w-full border-collapse">
+                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    <th className="border-b border-black/5 px-4 py-3">Input</th>
+                    <th className="border-b border-black/5 px-4 py-3">Source type</th>
+                    <th className="border-b border-black/5 px-4 py-3">Document/data</th>
+                    <th className="border-b border-black/5 px-4 py-3">Owner</th>
+                    <th className="border-b border-black/5 px-4 py-3">Refresh</th>
+                    <th className="border-b border-black/5 px-4 py-3">Updated</th>
+                    <th className="border-b border-black/5 px-4 py-3">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSources.length > 0 ? (
                     filteredSources.map((source) => (
-                      <tr key={source.id} className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
-                        <td className="rounded-l-3xl px-4 py-4">
+                      <tr key={source.id} className="border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]">
+                        <td className="px-4 py-4">
                           <p className="text-sm font-semibold text-[var(--foreground)]">{source.title}</p>
                           <p className="mt-1 text-sm text-[var(--muted)]">{source.summary}</p>
                           <p className="mt-1 text-xs text-[var(--muted)]">{source.sourceSystem}</p>
@@ -215,11 +238,11 @@ export function PlanningView({
                         <td className="px-4 py-4 text-sm text-[var(--muted)]">{source.owner}</td>
                         <td className="px-4 py-4 text-sm text-[var(--muted)]">{formatCadence(source.refreshCadence)}</td>
                         <td className="px-4 py-4 text-sm text-[var(--muted)]">{formatDateTime(source.lastUpdated)}</td>
-                        <td className="rounded-r-3xl px-4 py-4">
+                        <td className="px-4 py-4">
                           <button
                             type="button"
                             onClick={() => setSelectedSourceId(source.id)}
-                            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+                            className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
                           >
                             View input
                             <ArrowRight size={14} />
@@ -228,8 +251,8 @@ export function PlanningView({
                       </tr>
                     ))
                   ) : (
-                    <tr className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
-                      <td colSpan={7} className="rounded-3xl px-4 py-6 text-sm text-[var(--muted)]">
+                    <tr>
+                      <td colSpan={7} className="px-4 py-6 text-sm text-[var(--muted)]">
                         No planning source inputs are loaded for the selected filter.
                       </td>
                     </tr>
@@ -246,11 +269,11 @@ export function PlanningView({
                   onClick={() => setSelectedSourceId("")}
                   className="absolute inset-0 z-10 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
                 />
-                <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-xl flex-col border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[-24px_0_60px_rgba(1,30,65,0.12)]">
+                <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-xl flex-col border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[-18px_0_42px_rgba(1,30,65,0.1)]">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Planning input detail</p>
-                      <h3 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{`${selectedSource.id} · ${selectedSource.title}`}</h3>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Planning input detail</p>
+                      <h3 className="mt-2 text-xl font-semibold text-[var(--foreground)]">{`${selectedSource.id} - ${selectedSource.title}`}</h3>
                       <p className="mt-2 text-sm text-[var(--muted)]">
                         Planning input detail shows what the source actually contains and how the team intends to use it in scope formation.
                       </p>
@@ -258,7 +281,7 @@ export function PlanningView({
                     <button
                       type="button"
                       onClick={() => setSelectedSourceId("")}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+                      className="flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
                     >
                       <X size={18} />
                     </button>
@@ -275,13 +298,13 @@ export function PlanningView({
                         <InputInfoCard label="Last updated" value={formatDateTime(selectedSource.lastUpdated)} />
                       </section>
 
-                      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Planning use</p>
+                      <section className="border border-black/5 bg-white p-5">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Planning use</p>
                         <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">{selectedSource.planningUse}</p>
                       </section>
 
-                      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Key fields expected in the input</p>
+                      <section className="border border-black/5 bg-white p-5">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Key fields expected in the input</p>
                         <div className="mt-4 flex flex-wrap gap-2">
                           {selectedSource.keyFields.map((field) => (
                             <StatusBadge key={field} status={field} tone="neutral" />
@@ -289,13 +312,13 @@ export function PlanningView({
                         </div>
                       </section>
 
-                      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+                      <section className="border border-black/5 bg-white p-5">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
                           {isLiveAudit ? "Loaded input details" : "Generated sample input content"}
                         </p>
                         <div className="mt-4 grid gap-3">
                           {selectedSource.sampleDetails.map((detail) => (
-                            <div key={detail} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+                            <div key={detail} className="border border-black/5 bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--muted)]">
                               {detail}
                             </div>
                           ))}
@@ -307,49 +330,19 @@ export function PlanningView({
               </>
             ) : null}
           </section>
-
-          <PlanningArtifactCard
-            auditId={auditId}
-            auditLabel={auditLabel}
-            descriptionLive="Generate a planning narrative for the current live planning data so the audit team has a working document that captures process understanding, risks, controls, and preliminary scope rationale."
-            descriptionPrototype="Generation is only available for saved live audits because the narrative is built from imported audit records."
-            emptyPreviewMessage="No narrative has been generated yet. Use the action above to build a draft from the current audit record, imported planning inputs, issues, RCSA data, monitoring results, prior findings, and planning setup fields."
-            endpointPath="planning-narrative"
-            generateActionLabel="Generate narrative"
-            isCollapsed={isNarrativeCollapsed}
-            label="Planning narrative"
-            resetSuccessMessage="The planning narrative draft was reset successfully."
-            saveSuccessMessage="The planning narrative draft was saved successfully."
-            title="Generate planning narrative draft"
-            onToggleCollapsed={() => setIsNarrativeCollapsed((current) => !current)}
-          />
-
-          <PlanningArtifactCard
-            auditId={auditId}
-            auditLabel={auditLabel}
-            descriptionLive="Generate a planning tollgate draft using the current live planning inputs so leadership can review the proposed scope, audit approach, resources, timing, and fieldwork entry posture."
-            descriptionPrototype="Generation is only available for saved live audits because the tollgate is built from imported planning records."
-            emptyPreviewMessage="No planning tollgate has been generated yet. Use the action above to build a leadership-ready draft from the current planning record."
-            endpointPath="planning-tollgate"
-            generateActionLabel="Generate tollgate"
-          isCollapsed={isTollgateCollapsed}
-            label="Planning tollgate"
-            resetSuccessMessage="The planning tollgate draft was reset successfully."
-            saveSuccessMessage="The planning tollgate draft was saved successfully."
-            title="Generate planning tollgate draft"
-          onToggleCollapsed={() => setIsTollgateCollapsed((current) => !current)}
-          />
         </section>
+      ) : null}
 
-        <section className="grid gap-6">
-          <article className="rounded-[28px] border border-black/5 bg-[var(--surface-tint)] p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+      {activeSubtab === "scope-planning" ? (
+        <section className="mt-2">
+          <article className="border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(1,30,65,0.08)] text-[var(--brand-indigo-core)]">
+                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[rgba(1,30,65,0.08)] text-[var(--brand-indigo-core)]">
                   <Bot size={20} />
                 </span>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                     {isLiveAudit ? "Live AI scope prompt" : "AI scope prompt"}
                   </p>
                   <h3 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Generate a scope recommendation prompt</h3>
@@ -367,19 +360,19 @@ export function PlanningView({
                 isSuggestionVisible ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0"
               }`}
             >
-              <div className="rounded-[20px] bg-white px-4 py-4">
+              <div className="border border-black/5 bg-[var(--surface-soft)] px-4 py-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-[var(--foreground)]">Paste this into Copilot, ChatGPT, Claude, or a similar tool</p>
                     <p className="mt-1 text-sm text-[var(--muted)]">
-                      This prompt asks the external AI to recommend audit scope using only the loaded planning inputs and to justify every recommendation with inline quoted citations.
+                      This prompt asks the external AI to recommend which controls should be in scope, watchlisted, or out of scope using only the loaded planning inputs and inline quoted citations.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => copyText(promptPackage.prompt, "Prompt copied to clipboard.")}
-                      className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+                      className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
                     >
                       <Copy size={14} />
                       Copy prompt
@@ -387,7 +380,7 @@ export function PlanningView({
                     <button
                       type="button"
                       onClick={() => copyText(promptPackage.json, "JSON companion copied to clipboard.")}
-                      className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+                      className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
                     >
                       <Copy size={14} />
                       Copy JSON
@@ -401,17 +394,17 @@ export function PlanningView({
                   <PromptMetaCard label="Citation excerpts" value={`${promptPackage.metadata.citationCount}`} />
                 </div>
 
-                <div className="mt-4 rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+                <div className="mt-4 border border-black/5 bg-white px-4 py-3 text-sm text-[var(--muted)]">
                   Generated {formatDateTime(promptPackage.metadata.generatedAt)}. Switch between the prompt and JSON companion below before handing the package to the external AI tool.
                 </div>
 
-                <section className="mt-4 rounded-[18px] border border-black/5 bg-[#fcfbf8] p-4">
+                <section className="mt-4 border border-black/5 bg-white p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setPromptViewMode("prompt")}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                           promptViewMode === "prompt" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                         }`}
                       >
@@ -420,7 +413,7 @@ export function PlanningView({
                       <button
                         type="button"
                         onClick={() => setPromptViewMode("json")}
-                        className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                           promptViewMode === "json" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                         }`}
                       >
@@ -434,26 +427,71 @@ export function PlanningView({
                       readOnly
                       value={promptPackage.prompt}
                       rows={20}
-                      className="mt-3 w-full resize-y rounded-[16px] border border-black/5 bg-white px-4 py-4 font-mono text-sm leading-6 text-[var(--foreground)] outline-none"
+                      className="mt-3 w-full resize-y border border-black/10 bg-[var(--surface-soft)] px-4 py-4 font-mono text-sm leading-6 text-[var(--foreground)] outline-none"
                     />
                   ) : (
                     <textarea
                       readOnly
                       value={promptPackage.json}
                       rows={18}
-                      className="mt-3 w-full resize-y rounded-[16px] border border-black/5 bg-white px-4 py-4 font-mono text-sm leading-6 text-[var(--foreground)] outline-none"
+                      className="mt-3 w-full resize-y border border-black/10 bg-[var(--surface-soft)] px-4 py-4 font-mono text-sm leading-6 text-[var(--foreground)] outline-none"
                     />
                   )}
                 </section>
               </div>
             </div>
           </article>
-
         </section>
-      </div>
+      ) : null}
+
+      {activeSubtab === "planning-narrative" ? (
+        <section className="mt-2">
+          <PlanningArtifactCard
+            auditId={auditId}
+            auditLabel={auditLabel}
+            descriptionLive="Generate a planning narrative for the current live planning data so the audit team has a working document that captures process understanding, risks, controls, and preliminary scope rationale."
+            descriptionPrototype="Generation is only available for saved live audits because the narrative is built from imported audit records."
+            emptyPreviewMessage="No narrative has been generated yet. Use the action above to build a draft from the current audit record, imported planning inputs, issues, RCSA data, monitoring results, prior findings, and planning setup fields."
+            endpointPath="planning-narrative"
+            generateActionLabel="Generate narrative"
+            isCollapsed={isNarrativeCollapsed}
+            label="Planning narrative"
+            resetSuccessMessage="The planning narrative draft was reset successfully."
+            saveSuccessMessage="The planning narrative draft was saved successfully."
+            title="Generate planning narrative draft"
+            onToggleCollapsed={() => setIsNarrativeCollapsed((current) => !current)}
+          />
+        </section>
+      ) : null}
+
+      {activeSubtab === "planning-tollgate" ? (
+        <section className="mt-2">
+          <PlanningArtifactCard
+            auditId={auditId}
+            auditLabel={auditLabel}
+            descriptionLive="Generate a planning tollgate draft using the current live planning inputs so leadership can review the proposed scope, audit approach, resources, timing, and fieldwork entry posture."
+            descriptionPrototype="Generation is only available for saved live audits because the tollgate is built from imported planning records."
+            emptyPreviewMessage="No planning tollgate has been generated yet. Use the action above to build a leadership-ready draft from the current planning record."
+            endpointPath="planning-tollgate"
+            generateActionLabel="Generate tollgate"
+            isCollapsed={isTollgateCollapsed}
+            label="Planning tollgate"
+            resetSuccessMessage="The planning tollgate draft was reset successfully."
+            saveSuccessMessage="The planning tollgate draft was saved successfully."
+            title="Generate planning tollgate draft"
+            onToggleCollapsed={() => setIsTollgateCollapsed((current) => !current)}
+          />
+        </section>
+      ) : null}
 
     </div>
   );
+
+  function switchSubtab(nextTab: PlanningSubtab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("planningTab", nextTab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
 
   async function copyText(value: string, successMessage: string) {
     try {
@@ -745,11 +783,11 @@ function PlanningArtifactCard({
   }
 
   return (
-    <article className={`rounded-[28px] border border-black/5 bg-white shadow-[0_18px_50px_rgba(1,30,65,0.08)] ${isCollapsed ? "px-4 py-3" : "p-6"}`}>
+    <article className={`border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)] ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">{label}</p>
-          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-3 text-2xl"}`}>{title}</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-2 text-xl"}`}>{title}</h2>
           <p className={isCollapsed ? "mt-1 text-sm leading-6 text-[var(--foreground)]" : "mt-3 text-sm leading-7 text-[var(--foreground)]"}>
             {auditId ? descriptionLive : descriptionPrototype}
           </p>
@@ -758,7 +796,7 @@ function PlanningArtifactCard({
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
+            className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
             aria-label={isCollapsed ? `Expand ${label}` : `Collapse ${label}`}
             aria-expanded={!isCollapsed}
           >
@@ -770,7 +808,7 @@ function PlanningArtifactCard({
                 type="button"
                 disabled={!auditId || isPending || isReviewLocked}
                 onClick={generateDraft}
-                className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPending ? "Generating..." : hasPersistedDraft ? `Re-generate ${label.toLowerCase()}` : generateActionLabel}
               </button>
@@ -806,7 +844,7 @@ function PlanningArtifactCard({
                     }
                   });
                 }}
-                className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPending ? "Working..." : "Reset draft"}
               </button>
@@ -819,7 +857,7 @@ function PlanningArtifactCard({
         <>
           <div className="mt-5 grid gap-3">
             {generatedAt || draftTitle || documentStatus || ownerName || ownerRole ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+              <div className="flex flex-wrap items-center gap-2 border border-black/5 bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--muted)]">
                 {draftTitle ? <span>Saved draft: {draftTitle}</span> : null}
                 {documentStatus ? <span>{documentStatus.replaceAll("_", " ")}</span> : null}
                 {ownerName || ownerRole ? <span>Owner: {ownerName ?? "Assigned AIC"}{ownerRole ? ` (${ownerRole})` : ""}</span> : null}
@@ -827,31 +865,31 @@ function PlanningArtifactCard({
               </div>
             ) : null}
             {missingTokens.length > 0 ? (
-              <div className="rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+              <div className="border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                 Missing required template tokens: {missingTokens.join(", ")}
               </div>
             ) : null}
             {isReviewLocked ? (
-              <div className="rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+              <div className="border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                 This draft is locked while it is in review.
               </div>
             ) : null}
             {error ? (
-              <div className="rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
+              <div className="border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
                 {error}
               </div>
             ) : null}
           </div>
 
           <div className="mt-5 grid gap-5">
-            <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+            <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="mr-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Draft workspace</p>
                   <button
                     type="button"
                     onClick={() => setViewMode("preview")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "preview" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
                   >
@@ -861,7 +899,7 @@ function PlanningArtifactCard({
                     type="button"
                     disabled={isReviewLocked}
                     onClick={() => setViewMode("edit")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "edit" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
                   >
@@ -873,7 +911,7 @@ function PlanningArtifactCard({
                     type="button"
                     disabled={!canExport}
                     onClick={exportDraft}
-                    className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Export Word
                   </button>
@@ -882,7 +920,7 @@ function PlanningArtifactCard({
                       type="button"
                       disabled={!canSave}
                       onClick={saveDraftEdits}
-                      className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Saving..." : "Save edits"}
                     </button>
@@ -901,13 +939,13 @@ function PlanningArtifactCard({
               ) : previewSections.length > 0 ? (
                 <div className="mt-4 max-h-[520px] overflow-auto">
                   {previewSummary ? (
-                    <div className="rounded-[18px] bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">
+                  <div className="border border-black/5 bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">
                       {previewSummary}
                     </div>
                   ) : null}
                   <div className="mt-4 grid gap-4">
                     {previewSections.map((section, sectionIndex) => (
-                      <div key={`${section.heading}-${sectionIndex}`} className="rounded-[18px] bg-white px-4 py-4">
+                      <div key={`${section.heading}-${sectionIndex}`} className="border border-black/5 bg-white px-4 py-4">
                         <h3 className="text-base font-semibold text-[var(--foreground)]">{section.heading}</h3>
                         <div className="mt-3 grid gap-3">
                           {section.body.map((entry, entryIndex) =>
@@ -933,7 +971,7 @@ function PlanningArtifactCard({
             </section>
 
             {draftDocumentId ? (
-              <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+              <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Review workflow</p>
@@ -948,7 +986,7 @@ function PlanningArtifactCard({
                 </div>
 
                 {reviewComment ? (
-                  <div className="mt-4 rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+                  <div className="mt-4 border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                     {reviewComment}
                     {reviewCommentAuthor ? ` | ${reviewCommentAuthor}` : ""}
                     {reviewCommentDate ? ` | ${formatDateTime(reviewCommentDate)}` : ""}
@@ -961,7 +999,7 @@ function PlanningArtifactCard({
                     onChange={(event) => setReviewInput(event.target.value)}
                     rows={3}
                     placeholder={reviewStatus === "NOT_SUBMITTED" ? "Optional routing note for the next reviewer." : "Required reviewer comment for send back."}
-                    className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-3 text-sm leading-6 text-[var(--foreground)] outline-none"
+                    className="mt-4 w-full resize-y border border-black/10 bg-white px-4 py-3 text-sm leading-6 text-[var(--foreground)] outline-none"
                   />
                 ) : null}
 
@@ -971,7 +1009,7 @@ function PlanningArtifactCard({
                       type="button"
                       disabled={isPending || !canSendToReview}
                       onClick={() => handleReviewAction("submit")}
-                      className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Working..." : "Send to manager review"}
                     </button>
@@ -981,7 +1019,7 @@ function PlanningArtifactCard({
                       type="button"
                       disabled={isPending}
                       onClick={() => handleReviewAction("approve")}
-                      className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Working..." : reviewStatus === "MANAGER_REVIEW" ? "Approve to director" : "Approve final"}
                     </button>
@@ -991,7 +1029,7 @@ function PlanningArtifactCard({
                       type="button"
                       disabled={isPending || reviewInput.trim().length === 0}
                       onClick={() => handleReviewAction("send_back")}
-                      className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Working..." : "Send back to AIC"}
                     </button>
@@ -1009,6 +1047,21 @@ function PlanningArtifactCard({
       ) : null}
     </article>
   );
+}
+
+const planningSubtabs: Array<{ id: PlanningSubtab; label: string }> = [
+  { id: "planning-inputs", label: "Planning Inputs" },
+  { id: "scope-planning", label: "Scope Planning" },
+  { id: "planning-narrative", label: "Planning Narrative" },
+  { id: "planning-tollgate", label: "Planning Tollgate" },
+];
+
+function getPlanningSubtab(value: string | null): PlanningSubtab {
+  if (value === "scope-planning" || value === "planning-narrative" || value === "planning-tollgate") {
+    return value;
+  }
+
+  return "planning-inputs";
 }
 
 function normalizePlanningReviewStatus(status?: string | null): DocumentReviewStatus {
@@ -1067,9 +1120,9 @@ function PlanningMetric({
   tone: "neutral" | "warning" | "risk" | "success";
 }) {
   return (
-    <article className="rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+    <article className="border border-black/5 bg-white p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
         <span className="text-[var(--brand-indigo-core)]">{icon}</span>
       </div>
       <div className="mt-3 flex items-end gap-3">
@@ -1083,8 +1136,8 @@ function PlanningMetric({
 
 function InputInfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[22px] border border-black/5 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+    <div className="border border-black/5 bg-white p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
       <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
     </div>
   );
@@ -1092,7 +1145,7 @@ function InputInfoCard({ label, value }: { label: string; value: string }) {
 
 function PromptMetaCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
+    <div className="border border-black/5 bg-white px-4 py-3">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
       <p className="mt-1.5 text-sm font-semibold text-[var(--foreground)]">{value}</p>
     </div>
@@ -1341,14 +1394,19 @@ function buildScopePromptText({
     `Use the JSON companion I provide with this prompt. It contains ${planningSourceCount} planning source inputs and ${rcsaCount} RCSA records.`,
     "",
     "Your job is to recommend the scope of the audit using only the evidence in that JSON.",
+    "Prioritize specific control-level recommendations whenever the JSON includes control identifiers, control names, or direct control references.",
     "Do not invent facts, risks, systems, vendors, controls, or evidence outside the provided inputs.",
     "",
     "Return your response in this structure:",
     "1. Executive summary",
-    "2. Recommended in-scope areas",
-    "3. Recommended targeted-scope or watchlist areas",
-    "4. Recommended out-of-scope or limited-scope areas",
+    "2. Recommended in-scope controls and areas",
+    "3. Recommended targeted-scope or watchlist controls and areas",
+    "4. Recommended out-of-scope or limited-scope controls and areas",
     "5. Open questions or missing inputs",
+    "",
+    "Within sections 2 through 4, separate the output into:",
+    "- Specific controls",
+    "- Broader process, system, vendor, or risk areas",
     "",
     "For every recommendation, include inline citations using this exact pattern:",
     '[SOURCE_ID | artifact label | "quoted excerpt"]',
@@ -1360,6 +1418,9 @@ function buildScopePromptText({
     "- If the evidence is weak or conflicting, say so explicitly and cite the conflicting inputs.",
     "",
     "Decision rules:",
+    "- If a specific control can be identified, name it explicitly using the control identifier and control name when available.",
+    "- For each control recommendation, explain why it belongs in scope, targeted scope, or out of scope based on the cited evidence.",
+    "- Distinguish between controls that should receive full testing versus controls that should stay as watchlist items only.",
     "- Use high residual-risk RCSA themes to justify deeper scope where supported.",
     "- Use open issues, monitoring signals, prior findings, applications, and third-party records to justify scope depth, dependency coverage, or watchlist treatment.",
     "- If evidence is insufficient for a confident recommendation, place the area under open questions instead of overstating the scope.",

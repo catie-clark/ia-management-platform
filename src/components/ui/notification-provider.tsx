@@ -56,7 +56,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             <div
               key={notification.id}
               className={cn(
-                "pointer-events-auto rounded-[22px] border bg-white px-4 py-4 shadow-[0_18px_50px_rgba(1,30,65,0.18)] animate-[slide-in_240ms_ease-out]",
+                "pointer-events-auto animate-[slide-in_240ms_ease-out] rounded-[22px] border bg-[var(--surface)] px-4 py-4 shadow-[0_18px_50px_rgba(1,30,65,0.18)]",
                 notification.tone === "success"
                   ? "border-[rgba(5,171,140,0.18)]"
                   : "border-[rgba(229,55,107,0.18)]",

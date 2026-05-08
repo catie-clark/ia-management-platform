@@ -2,12 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+[data-theme="light"] {
   --background: #f6f4ef;
   --foreground: #14273f;
   --muted: #4f4f4f;
+  --surface: #ffffff;
+  --surface-soft: #fcfbf8;
+  --surface-strong: #f6f1e7;
   --surface-tint: #ece8df;
   --muted-on-dark: rgba(255, 255, 255, 0.68);
+  --border-subtle: rgba(1, 30, 65, 0.08);
+  --main-bg: rgba(247, 245, 240, 0.96);
+  --main-border: rgba(1, 30, 65, 0.05);
+  --app-shell-background: radial-gradient(circle at top, rgba(245, 168, 0, 0.18), transparent 32%),
+    linear-gradient(180deg, #082346 0%, #071a33 17rem, #f4f2ee 17rem, #f6f4ef 100%);
+  --app-header-bg: rgba(1, 30, 65, 0.9);
+  --app-header-border: rgba(255, 255, 255, 0.1);
+  --app-header-surface: rgba(255, 255, 255, 0.04);
+  --app-header-surface-hover: rgba(255, 255, 255, 0.1);
+  --app-header-text: #ffffff;
+  --app-header-panel-bg: rgba(7, 26, 51, 0.96);
+  --app-header-panel-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  --table-header-bg: #f6f1e7;
+  --table-row-bg: #fcfbf8;
+  --table-row-hover-bg: rgba(245, 168, 0, 0.06);
+  --chart-grid: rgba(1, 30, 65, 0.08);
+  --chart-axis: #4f4f4f;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: rgba(1, 30, 65, 0.08);
+  --chart-planned: #011e41;
+  --chart-actual: #f5a800;
 
   --brand-amber-core: #f5a800;
   --brand-amber-bright: #ffd231;
@@ -19,13 +44,52 @@
   --brand-coral: #e5376b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #081a33;
-    --foreground: #f7f5ef;
-    --muted: rgba(255, 255, 255, 0.72);
-    --surface-tint: rgba(255, 255, 255, 0.06);
-  }
+[data-theme="dark"] {
+  --background: #081a33;
+  --foreground: #f7f5ef;
+  --muted: rgba(255, 255, 255, 0.72);
+  --surface: #0d2747;
+  --surface-soft: #143252;
+  --surface-strong: #0a1f3b;
+  --surface-tint: rgba(255, 255, 255, 0.08);
+  --muted-on-dark: rgba(255, 255, 255, 0.72);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --main-bg: rgba(9, 27, 51, 0.94);
+  --main-border: rgba(255, 255, 255, 0.08);
+  --app-shell-background: radial-gradient(circle at top, rgba(84, 192, 232, 0.16), transparent 34%),
+    linear-gradient(180deg, #020d1f 0%, #06152b 17rem, #081a33 17rem, #0a1d38 100%);
+  --app-header-bg: rgba(4, 18, 38, 0.92);
+  --app-header-border: rgba(255, 255, 255, 0.12);
+  --app-header-surface: rgba(255, 255, 255, 0.06);
+  --app-header-surface-hover: rgba(255, 255, 255, 0.12);
+  --app-header-text: #f7f5ef;
+  --app-header-panel-bg: rgba(5, 20, 40, 0.98);
+  --app-header-panel-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+  --table-header-bg: #0b2342;
+  --table-row-bg: #143252;
+  --table-row-hover-bg: rgba(84, 192, 232, 0.12);
+  --chart-grid: rgba(255, 255, 255, 0.12);
+  --chart-axis: rgba(255, 255, 255, 0.78);
+  --chart-tooltip-bg: #102948;
+  --chart-tooltip-border: rgba(255, 255, 255, 0.14);
+  --chart-planned: #54c0e8;
+  --chart-actual: #ffd231;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html:not([data-theme]) {
+  color-scheme: light;
 }
 
 * {
@@ -45,7 +109,77 @@ body {
     "Helvetica Now Text",
     Arial,
     Helvetica,
-    sans-serif;
+  sans-serif;
+}
+
+.landing-aurora-text {
+  animation: landing-aurora-shift 8s ease-in-out infinite;
+  filter: drop-shadow(0 10px 24px rgba(245, 168, 0, 0.18));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-aurora-text {
+    animation: none;
+  }
+}
+
+[data-theme="dark"] .bg-white {
+  background-color: var(--surface) !important;
+}
+
+[data-theme="dark"] th.bg-white,
+[data-theme="dark"] thead.bg-white,
+[data-theme="dark"] thead.sticky {
+  background-color: var(--table-header-bg) !important;
+}
+
+[data-theme="dark"] .bg-\[\#fcfbf8\] {
+  background-color: var(--table-row-bg) !important;
+}
+
+[data-theme="dark"] .bg-\[\#fbfaf7\] {
+  background-color: var(--surface-strong) !important;
+}
+
+[data-theme="dark"] .bg-white\/70 {
+  background-color: rgba(13, 39, 71, 0.7) !important;
+}
+
+[data-theme="dark"] .border-black\/5 {
+  border-color: var(--border-subtle) !important;
+}
+
+[data-theme="dark"] .border-black\/10 {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+[data-theme="dark"] .divide-black\/5 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border-subtle) !important;
+}
+
+[data-theme="dark"] .bg-\[rgba\(247\,245\,240\,0\.96\)\] {
+  background-color: var(--main-bg) !important;
+}
+
+[data-theme="dark"] .bg-\[rgba\(1\,30\,65\,0\.04\)\] {
+  background-color: var(--table-header-bg) !important;
+}
+
+[data-theme="dark"] tbody.bg-white {
+  background-color: var(--table-row-bg) !important;
+}
+
+[data-theme="dark"] tr.bg-\[\#fcfbf8\] {
+  background-color: var(--table-row-bg) !important;
+}
+
+[data-theme="dark"] tr.hover\:bg-\[rgba\(245\,168\,0\,0\.06\)\]:hover,
+[data-theme="dark"] .hover\:bg-\[rgba\(245\,168\,0\,0\.06\)\]:hover {
+  background-color: var(--table-row-hover-bg) !important;
+}
+
+[data-theme="dark"] .text-slate-900 {
+  color: var(--foreground) !important;
 }
 
 a {
@@ -96,5 +230,19 @@ tr:hover .control-cell-overdue-last {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes landing-aurora-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
   }
 }

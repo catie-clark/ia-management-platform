@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { loadAuditControlTestingMatrices } from "@/lib/control-testing-matrix-persistence";
 import { documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import { getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
@@ -6,6 +7,7 @@ import {
   type AuditDocumentRow,
   type AuditRecord,
   type BusinessUnitRow,
+  type ControlExceptionRow,
   type ControlRow,
   type DashboardMode,
   type QuestionRow,
@@ -13,6 +15,7 @@ import {
   type UserRow,
   formatAuditScopePeriod,
   mapControl,
+  mapControlException,
   mapDocument,
   mapQuestionsWithDisplayIds,
   mapRequestsWithDisplayIds,
@@ -20,7 +23,7 @@ import {
 } from "@/lib/live-audit";
 import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { controls } from "@/lib/data/mock-data";
-import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
+import type { AuditDocument, AuditPhase, Control, ControlException, ControlTestingMatrix, Question, Request, User } from "@/types/audit";
 
 type RiskControlLinkRow = {
   control_id: string | null;
@@ -38,6 +41,8 @@ export type ControlTestingViewModel = {
   auditLabel: string;
   auditPeriodLabel: string;
   controls: Control[];
+  controlExceptions: ControlException[];
+  testingMatrices: ControlTestingMatrix[];
   currentPhase: AuditPhase;
   documents: AuditDocument[];
   mode: DashboardMode;
@@ -68,6 +73,8 @@ export async function getControlTestingViewModel({
     auditLabel: auditLabel ?? "Live audit workspace",
     auditPeriodLabel: "No audit selected",
     controls: [],
+    controlExceptions: [],
+    testingMatrices: [],
     currentPhase: "Fieldwork",
     documents: [],
     mode,
@@ -90,6 +97,7 @@ async function getLiveControlTestingViewModel({
   const [
     auditResult,
     controlsResult,
+    controlExceptionsResult,
     riskControlLinksResult,
     risksResult,
     questionsResult,
@@ -97,6 +105,7 @@ async function getLiveControlTestingViewModel({
     documentsResult,
     usersResult,
     businessUnitsResult,
+    testingMatrices,
   ] = await Promise.all([
     getControlTestingAuditRecord(supabase, auditId),
     supabase
@@ -104,6 +113,12 @@ async function getLiveControlTestingViewModel({
       .select("id, source_record_key, control_name, business_unit_id, control_owner_user_id, assigned_owner_user_id, status, due_date, assigned_due_date, planned_hours, assigned_planned_hours, actual_hours, risk_rating, planning_overridden_at, source_payload")
       .eq("audit_id", auditId)
       .returns<ControlRow[]>(),
+    supabase
+      .from("control_exceptions")
+      .select("id, control_id, created_at, created_by_name, created_by_user_id, note")
+      .eq("audit_id", auditId)
+      .order("created_at", { ascending: true })
+      .returns<ControlExceptionRow[]>(),
     supabase
       .from("risk_control_links")
       .select("control_id, risk_id")
@@ -126,6 +141,7 @@ async function getLiveControlTestingViewModel({
       .returns<AuditDocumentRow[]>(),
     supabase.from("users").select("id, full_name, email, role, team").order("full_name", { ascending: true }).returns<UserRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitRow[]>(),
+    loadAuditControlTestingMatrices(supabase, auditId),
   ]);
 
   const userMap = new Map((usersResult.data ?? []).map((user) => [user.id, mapUser(user)]));
@@ -177,6 +193,8 @@ async function getLiveControlTestingViewModel({
         ? formatAuditScopePeriod(auditResult.data)
         : "Saved audit",
     controls: syncedHours.controls,
+    controlExceptions: (controlExceptionsResult.data ?? []).map(mapControlException),
+    testingMatrices,
     currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
     documents: mapControlTestingDocuments(
       normalizeAuditDocuments({

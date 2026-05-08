@@ -30,7 +30,7 @@ export function DashboardPhaseSelector({
   return (
     <label
       className={cn(
-        "inline-flex min-w-[220px] items-center justify-between gap-3 rounded-[18px] border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[var(--brand-indigo-core)] shadow-[0_12px_30px_rgba(1,30,65,0.08)]",
+        "inline-flex min-w-[220px] items-center justify-between gap-3 rounded-[18px] border border-[color:var(--border-subtle)] bg-[var(--surface)] px-4 py-3 text-sm font-semibold text-[var(--brand-indigo-core)] shadow-[0_12px_30px_rgba(1,30,65,0.08)]",
         className,
       )}
     >
@@ -56,7 +56,7 @@ export function DashboardPhaseSelector({
             <option
               key={option}
               value={option}
-              className={cn("bg-white text-slate-900", optionClassName)}
+              className={cn("bg-[var(--surface)] text-[var(--foreground)]", optionClassName)}
             >
               {option}
             </option>

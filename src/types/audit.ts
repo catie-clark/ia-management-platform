@@ -27,6 +27,7 @@ export type ReportReviewCommentStatus = "OPEN" | "RESOLVED";
 export type ReviewStatus = "upcoming" | "active" | "complete" | "at_risk";
 export type AuditPhase = "Planning" | "Fieldwork" | "Reporting";
 export type ControlScopeStatus = "IN_SCOPE" | "OUT_OF_SCOPE";
+export type TestingMatrixAttributeResult = "PASS" | "FAIL" | "NOT_TESTED";
 
 export interface WorkpaperContent {
   summary: string;
@@ -44,6 +45,7 @@ export interface User {
   email: string;
   role: Role;
   team?: string;
+  companyName?: string;
 }
 
 export interface Control {
@@ -53,6 +55,7 @@ export interface Control {
   description: string;
   businessUnit: string;
   scopeStatus: ControlScopeStatus;
+  hasExplicitScopeAssignment?: boolean;
   ownerId: string;
   importedOwnerId?: string;
   assignedOwnerId?: string;
@@ -74,6 +77,59 @@ export interface Control {
   narrative?: string;
   hasPlanningOverride?: boolean;
   planningOverriddenAt?: string;
+}
+
+export interface ControlException {
+  id: string;
+  controlId: string;
+  createdAt: string;
+  createdBy: string;
+  createdByUserId?: string;
+  note: string;
+}
+
+export interface ControlTestingMatrixAttribute {
+  id: string;
+  matrixId: string;
+  attributeKey: string;
+  label: string;
+  guidance: string;
+  displayOrder: number;
+}
+
+export interface ControlTestingMatrixSample {
+  id: string;
+  matrixId: string;
+  sampleIdentifier: string;
+  sampleDescription: string;
+  sourceReference: string;
+  exceptionNoted: string;
+  displayOrder: number;
+}
+
+export interface ControlTestingMatrixResult {
+  id: string;
+  matrixId: string;
+  sampleId: string;
+  attributeId: string;
+  result: TestingMatrixAttributeResult;
+}
+
+export interface ControlTestingMatrix {
+  id: string;
+  auditId: string;
+  controlId: string;
+  title: string;
+  populationDescription: string;
+  populationSize?: number;
+  sampleDescription: string;
+  sampleSize?: number;
+  conclusion: string;
+  attributes: ControlTestingMatrixAttribute[];
+  samples: ControlTestingMatrixSample[];
+  results: ControlTestingMatrixResult[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Question {

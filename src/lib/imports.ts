@@ -1,13 +1,14 @@
 import { z } from "zod";
 
+import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 import { parseCsvDocument } from "@/lib/csv";
 
 export const uploadFieldNames = [
   "controls",
   "questions",
   "requests",
-  "documents",
   "applications",
+  "users",
   "thirdParties",
   "risks",
   "riskControlLinks",
@@ -21,6 +22,7 @@ export type UploadFieldName = (typeof uploadFieldNames)[number];
 
 export type SourceEntity =
   | "applications"
+  | "users"
   | "third_parties"
   | "controls"
   | "risks"
@@ -35,6 +37,7 @@ export type SourceEntity =
 
 const sourceEntitySchema = z.enum([
   "applications",
+  "users",
   "third_parties",
   "controls",
   "risks",
@@ -54,6 +57,12 @@ const uploadMetadataSchema = z.object({
   auditPeriodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Audit period end must use YYYY-MM-DD."),
   scopePeriodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Scope period start must use YYYY-MM-DD."),
   scopePeriodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Scope period end must use YYYY-MM-DD."),
+  importSourceAuditId: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined))
+    .pipe(z.string().uuid().optional()),
   totalBudgetHours: z
     .string()
     .trim()
@@ -92,6 +101,7 @@ export function parseUploadMetadata(formData: FormData) {
     auditPeriodEnd: formData.get("auditPeriodEnd") ?? formData.get("periodEnd"),
     scopePeriodStart: formData.get("scopePeriodStart") ?? formData.get("periodStart"),
     scopePeriodEnd: formData.get("scopePeriodEnd") ?? formData.get("periodEnd"),
+    importSourceAuditId: formData.get("importSourceAuditId") ?? undefined,
     totalBudgetHours: formData.get("totalBudgetHours") ?? undefined,
     sourceSystem: formData.get("sourceSystem") ?? "archer",
     uploadedBy: formData.get("uploadedBy") ?? undefined,
@@ -118,6 +128,7 @@ export function parseUploadMetadata(formData: FormData) {
 
   return {
     ...parsed.data,
+    companyName: DEFAULT_COMPANY_NAME,
     totalBudgetHours,
   };
 }
@@ -200,8 +211,8 @@ const defaultSourceEntityMap: Record<UploadFieldName, SourceEntity> = {
   controls: "controls",
   questions: "questions",
   requests: "requests",
-  documents: "documents",
   applications: "applications",
+  users: "users",
   thirdParties: "third_parties",
   risks: "risks",
   riskControlLinks: "risk_control_links",

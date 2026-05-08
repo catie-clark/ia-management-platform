@@ -73,7 +73,7 @@ export function HoursUploadControls({
         type="button"
         disabled={!canUpload || isPending}
         onClick={() => fileInputRef.current?.click()}
-        className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand-indigo-core)] px-3.5 py-2 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Upload size={16} />
         {isPending ? "Uploading..." : "Upload hours"}
@@ -89,7 +89,7 @@ export function HoursUploadControls({
 
           window.location.href = `/api/audits/${auditId}/hours-import/sample`;
         }}
-        className="inline-flex items-center justify-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-3.5 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-soft)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Download size={16} />
         Download sample CSV

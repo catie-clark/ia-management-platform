@@ -102,9 +102,14 @@ export function WorkpaperDetailPanel({
 
   const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
   const effectiveAuthorUserId = authorUserId ?? getLinkedControlOwnerId(document, controls) ?? document.ownerId;
-  const canAuthor = !canPersist || !effectiveAuthorUserId || activeUser.id === effectiveAuthorUserId || activeUser.id === document.ownerId;
+  const canAuthor =
+    !canPersist ||
+    !effectiveAuthorUserId ||
+    isUserMatchedToOwnerId(activeUser, effectiveAuthorUserId, users) ||
+    isUserMatchedToOwnerId(activeUser, document.ownerId, users);
   const canActAsReviewer = canReview(reviewStatus, activeUser.role);
-  const canSaveDraft = canAuthor;
+  const canAuthorEdit = canAuthor && isWorkpaperEditableForAuthor(reviewStatus);
+  const canSaveDraft = canAuthorEdit;
   const canSendToReview = canAuthor && reviewStatus === "NOT_SUBMITTED";
   const readOnly = !canSaveDraft && !canActAsReviewer;
 
@@ -141,7 +146,9 @@ export function WorkpaperDetailPanel({
 
             {readOnly ? (
               <div className="mt-5 rounded-[18px] border border-[rgba(1,30,65,0.08)] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
-                You can inspect this workpaper here, but only the assigned control owner or the active reviewer can take action.
+                {canAuthor && !canAuthorEdit
+                  ? "This workpaper is locked for the assigned staff author while it is in review. Editing reopens when the workpaper is sent back to staff."
+                  : "You can inspect this workpaper here, but only the assigned control owner or the active reviewer can take action."}
               </div>
             ) : null}
 
@@ -570,6 +577,31 @@ function canReview(reviewStatus: DocumentReviewStatus, role: User["role"]) {
   }
 
   return false;
+}
+
+function isWorkpaperEditableForAuthor(reviewStatus: DocumentReviewStatus) {
+  return reviewStatus === "NOT_SUBMITTED";
+}
+
+function isUserMatchedToOwnerId(activeUser: User, ownerUserId: string | undefined, users: User[]) {
+  if (!ownerUserId) {
+    return false;
+  }
+
+  if (ownerUserId === activeUser.id) {
+    return true;
+  }
+
+  const ownerUser = users.find((user) => user.id === ownerUserId);
+
+  if (!ownerUser) {
+    return false;
+  }
+
+  return (
+    ownerUser.name.trim().toLowerCase() === activeUser.name.trim().toLowerCase() ||
+    ownerUser.email.trim().toLowerCase() === activeUser.email.trim().toLowerCase()
+  );
 }
 
 function getPrototypeNextReviewStatus(currentReviewStatus: DocumentReviewStatus, action: "approve" | "send_back" | "send_to_review"): DocumentReviewStatus {

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   type ChangeEvent,
@@ -13,7 +14,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { CalendarRange, CheckCircle2, Database, FolderOpen, ShieldCheck, Sparkles, Upload, X } from "lucide-react";
+import { CheckCircle2, FolderOpen, ShieldCheck, Sparkles, Upload, X } from "lucide-react";
+
+import { AuroraText } from "@/components/ui/aurora-text";
+import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 
 type UploadRequirement = {
   id:
@@ -22,6 +26,7 @@ type UploadRequirement = {
     | "requests"
     | "documents"
     | "applications"
+    | "users"
     | "thirdParties"
     | "risks"
     | "riskControlLinks"
@@ -41,6 +46,7 @@ type UploadRequirement = {
     | "requests"
     | "documents"
     | "applications"
+    | "users"
     | "third_parties"
     | "risks"
     | "risk_control_links"
@@ -60,6 +66,7 @@ type AuditForm = {
   scopePeriodStart: string;
   scopePeriodEnd: string;
   totalBudgetHours: string;
+  importSourceAuditId: string;
 };
 
 type UploadedFiles = Record<UploadRequirement["id"], File | null>;
@@ -67,9 +74,14 @@ type UploadedFiles = Record<UploadRequirement["id"], File | null>;
 type ExistingAuditOption = {
   id: string;
   name: string;
+  companyName?: string | null;
   period: string;
   status: string;
   activePhase?: string;
+  totalBudgetHours: number | null;
+  planningBudgetHours: number | null;
+  fieldworkBudgetHours: number | null;
+  reportingBudgetHours: number | null;
 };
 
 type SavedImportSummary = {
@@ -116,7 +128,23 @@ const uploadRequirements: UploadRequirement[] = [
     required: true,
     category: "core",
     sourceEntity: "controls",
-    keywords: ["control", "scope", "population", "archer", "testing"],
+    keywords: [
+      "control",
+      "controls",
+      "control inventory",
+      "control population",
+      "control list",
+      "control universe",
+      "scope",
+      "scope list",
+      "scoped controls",
+      "population",
+      "test population",
+      "testing",
+      "control testing",
+      "archer",
+      "rcm",
+    ],
   },
   {
     id: "questions",
@@ -127,7 +155,7 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "workflow",
     sourceEntity: "questions",
-    keywords: ["question", "inquiry", "ask", "issue log", "qlog"],
+    keywords: ["question", "questions", "inquiry", "inquiries", "ask", "asks", "issue log", "qlog", "query"],
   },
   {
     id: "requests",
@@ -138,18 +166,17 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "workflow",
     sourceEntity: "requests",
-    keywords: ["request", "pbc", "evidence", "fulfillment", "supporting request"],
-  },
-  {
-    id: "documents",
-    label: "Document inventory dataset",
-    description: "Optional workpaper or document tracker data for the documents and evidence views.",
-    helpText: "Expected examples: documents, workpapers, evidence inventory, report artifacts.",
-    accept: ".csv",
-    required: false,
-    category: "workflow",
-    sourceEntity: "documents",
-    keywords: ["document", "workpaper", "evidence", "artifact", "report"],
+    keywords: [
+      "request",
+      "requests",
+      "pbc",
+      "provided by client",
+      "evidence",
+      "evidence request",
+      "fulfillment",
+      "supporting request",
+      "support request",
+    ],
   },
   {
     id: "applications",
@@ -160,7 +187,42 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "applications",
-    keywords: ["application", "app", "system", "inventory", "catalog"],
+    keywords: [
+      "application",
+      "applications",
+      "app",
+      "app inventory",
+      "system",
+      "systems",
+      "system inventory",
+      "inventory",
+      "catalog",
+    ],
+  },
+  {
+    id: "users",
+    label: "Users directory data",
+    description: "Optional user roster to seed audit participants, owners, and request contacts before other datasets are transformed.",
+    helpText: "Expected examples: users, user directory, personnel, audit team roster, employee contacts.",
+    accept: ".csv",
+    required: false,
+    category: "advanced",
+    sourceEntity: "users",
+    keywords: [
+      "user",
+      "users",
+      "user directory",
+      "directory",
+      "personnel",
+      "employee",
+      "employees",
+      "roster",
+      "contact",
+      "contacts",
+      "team",
+      "owner",
+      "owners",
+    ],
   },
   {
     id: "thirdParties",
@@ -171,7 +233,19 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "third_parties",
-    keywords: ["thirdparty", "third_party", "vendor", "supplier", "provider"],
+    keywords: [
+      "thirdparty",
+      "third party",
+      "third_party",
+      "vendor",
+      "vendors",
+      "supplier",
+      "suppliers",
+      "provider",
+      "providers",
+      "service provider",
+      "service providers",
+    ],
   },
   {
     id: "risks",
@@ -182,7 +256,7 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "risks",
-    keywords: ["risk", "riskregister", "inherent", "residual"],
+    keywords: ["risk", "risks", "risk register", "riskregister", "inherent", "residual"],
   },
   {
     id: "riskControlLinks",
@@ -193,7 +267,20 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "risk_control_links",
-    keywords: ["riskcontrol", "risk_control", "risktocontrol", "controlmapping", "controlmatrix", "mitigates"],
+    keywords: [
+      "riskcontrol",
+      "risk control",
+      "risk_control",
+      "risk to control",
+      "risktocontrol",
+      "risk control mapping",
+      "control mapping",
+      "risk control links",
+      "risk control matrix",
+      "controlmatrix",
+      "mitigates",
+      "mitigation mapping",
+    ],
   },
   {
     id: "rcsaRecords",
@@ -204,7 +291,14 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "rcsa_records",
-    keywords: ["rcsa", "selfassessment", "riskcontrolselfassessment"],
+    keywords: [
+      "rcsa",
+      "self assessment",
+      "selfassessment",
+      "risk control self assessment",
+      "riskcontrolselfassessment",
+      "control self assessment",
+    ],
   },
   {
     id: "issues",
@@ -215,7 +309,18 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "issues",
-    keywords: ["issue", "finding", "remediation", "action", "tracker"],
+    keywords: [
+      "issue",
+      "issues",
+      "finding",
+      "findings",
+      "remediation",
+      "action",
+      "actions",
+      "tracker",
+      "issue tracker",
+      "remediation tracker",
+    ],
   },
   {
     id: "monitoringResults",
@@ -226,7 +331,17 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "monitoring_results",
-    keywords: ["monitoring", "exception", "results", "continuous", "run"],
+    keywords: [
+      "monitoring",
+      "monitoring results",
+      "exception",
+      "exceptions",
+      "results",
+      "continuous",
+      "continuous monitoring",
+      "run",
+      "run results",
+    ],
   },
   {
     id: "priorAuditFindings",
@@ -237,7 +352,23 @@ const uploadRequirements: UploadRequirement[] = [
     required: false,
     category: "advanced",
     sourceEntity: "prior_audit_findings",
-    keywords: ["prioraudit", "priorfinding", "historicalfinding", "auditfinding"],
+    keywords: [
+      "prior audit",
+      "prior audits",
+      "prioraudit",
+      "prior finding",
+      "prior findings",
+      "priorfinding",
+      "audit finding",
+      "audit findings",
+      "auditfinding",
+      "historical finding",
+      "historical findings",
+      "historicalfinding",
+      "legacy findings",
+      "repeat issue",
+      "repeat issues",
+    ],
   },
 ];
 
@@ -247,6 +378,7 @@ const emptyUploadedFiles: UploadedFiles = {
   requests: null,
   documents: null,
   applications: null,
+  users: null,
   thirdParties: null,
   risks: null,
   riskControlLinks: null,
@@ -298,6 +430,7 @@ export default function HomePage() {
     scopePeriodStart: "",
     scopePeriodEnd: "",
     totalBudgetHours: "",
+    importSourceAuditId: "",
   });
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFiles>(emptyUploadedFiles);
   const [uploadMode, setUploadMode] = useState<UploadMode>("guided");
@@ -337,6 +470,7 @@ export default function HomePage() {
           mode: "live",
           auditId: savedImportSummary.auditId,
           auditLabel: auditForm.auditName.trim(),
+          companyName: DEFAULT_COMPANY_NAME,
           scopePeriodLabel: `${formatDate(auditForm.scopePeriodStart)} to ${formatDate(auditForm.scopePeriodEnd)}`,
         }
       : null;
@@ -345,11 +479,12 @@ export default function HomePage() {
         mode: "live",
         auditId: selectedExistingAudit.id,
         auditLabel: selectedExistingAudit.name,
+        companyName: selectedExistingAudit.companyName ?? "",
         scopePeriodLabel: selectedExistingAudit.period,
       } as const)
     : null;
-  const launchDashboardQuery = selectedAuditDashboardQuery ?? liveDashboardQuery;
-  const canLaunchDashboard = launchDashboardQuery !== null;
+  const canLaunchNewAuditDashboard = liveDashboardQuery !== null && selectedAuditDashboardQuery === null;
+  const canLaunchExistingAuditDashboard = selectedAuditDashboardQuery !== null && liveDashboardQuery === null;
   const configuredFileCount = useMemo(
     () => Object.values(uploadedFiles).filter((file) => file !== null).length,
     [uploadedFiles],
@@ -365,13 +500,18 @@ export default function HomePage() {
         const payload = (await response.json()) as
           | Array<{
               active_phase: string;
+              company_name?: string | null;
+              fieldwork_budget_hours?: number | null;
               id: string;
               name: string;
               period_end: string;
               period_start: string;
+              planning_budget_hours?: number | null;
+              reporting_budget_hours?: number | null;
               scope_period_end?: string;
               scope_period_start?: string;
               status: string;
+              total_budget_hours?: number | null;
             }>
           | { error?: string };
 
@@ -383,9 +523,26 @@ export default function HomePage() {
           payload.map((audit) => ({
             id: audit.id,
             name: audit.name,
+            companyName: audit.company_name ?? null,
             period: `${formatDate(audit.scope_period_start ?? audit.period_start)} to ${formatDate(audit.scope_period_end ?? audit.period_end)}`,
             status: `${audit.status} · ${audit.active_phase}`,
             activePhase: audit.active_phase,
+            totalBudgetHours:
+              audit.total_budget_hours === null || audit.total_budget_hours === undefined
+                ? null
+                : Number(audit.total_budget_hours),
+            planningBudgetHours:
+              audit.planning_budget_hours === null || audit.planning_budget_hours === undefined
+                ? null
+                : Number(audit.planning_budget_hours),
+            fieldworkBudgetHours:
+              audit.fieldwork_budget_hours === null || audit.fieldwork_budget_hours === undefined
+                ? null
+                : Number(audit.fieldwork_budget_hours),
+            reportingBudgetHours:
+              audit.reporting_budget_hours === null || audit.reporting_budget_hours === undefined
+                ? null
+                : Number(audit.reporting_budget_hours),
           })),
         );
       } catch {
@@ -408,6 +565,19 @@ export default function HomePage() {
 
   function closeModal() {
     setIsModalOpen(false);
+  }
+
+  function handleImportSourceAuditChange(nextAuditId: string) {
+    const selectedAudit = existingAuditOptions.find((audit) => audit.id === nextAuditId) ?? null;
+
+    setAuditForm((current) => ({
+      ...current,
+      importSourceAuditId: nextAuditId,
+      totalBudgetHours:
+        selectedAudit?.totalBudgetHours !== null && selectedAudit?.totalBudgetHours !== undefined
+          ? formatBudgetInput(selectedAudit.totalBudgetHours)
+          : "",
+    }));
   }
 
   function handleUploadModeChange(nextMode: UploadMode) {
@@ -482,6 +652,7 @@ export default function HomePage() {
       formData.append("scopePeriodStart", auditForm.scopePeriodStart);
       formData.append("scopePeriodEnd", auditForm.scopePeriodEnd);
       formData.append("totalBudgetHours", auditForm.totalBudgetHours.trim());
+      formData.append("importSourceAuditId", auditForm.importSourceAuditId);
       formData.append("sourceSystem", "archer");
 
       for (const requirement of uploadRequirements) {
@@ -530,13 +701,14 @@ export default function HomePage() {
   }
 
   function resetAuditSetup() {
-    setAuditForm({
-      auditName: "",
-      auditPeriodStart: "",
+      setAuditForm({
+        auditName: "",
+        auditPeriodStart: "",
       auditPeriodEnd: "",
       scopePeriodStart: "",
       scopePeriodEnd: "",
       totalBudgetHours: "",
+      importSourceAuditId: "",
     });
     setUploadedFiles(emptyUploadedFiles);
     setFolderMappedFiles([]);
@@ -549,168 +721,103 @@ export default function HomePage() {
 
   return (
     <>
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,168,0,0.18),_transparent_28%),linear-gradient(180deg,_#082346_0%,_#071a33_100%)] text-white">
-        <div className="mx-auto flex min-h-screen max-w-7xl items-center px-4 py-6 sm:px-6 lg:px-8 lg:py-6">
-          <section className="grid w-full gap-5 rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-panel backdrop-blur sm:p-6 lg:grid-cols-[1.02fr_0.98fr] lg:p-8">
-            <div className="flex flex-col gap-4 lg:justify-start">
-              <div className="max-w-2xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-amber-bright)]">
-                  Crowe Internal Audit
-                </p>
-                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-[3.2rem] lg:leading-[1.02]">
-                  Start a new audit engagement
-                </h1>
-                <p className="mt-4 max-w-xl text-sm leading-6 text-[var(--muted-on-dark)] sm:text-base">
-                  Launch the intake flow, capture the audited scope period, and load the controls, questions, requests,
-                  and document data that the platform uses downstream.
-                </p>
-              </div>
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,168,0,0.14),_transparent_26%),linear-gradient(180deg,_#f8f4ea_0%,_#f6f4ef_52%,_#f2eee5_100%)] text-[var(--foreground)]">
+        <header className="border-b border-[rgba(255,255,255,0.08)] bg-[var(--brand-indigo-dark)]">
+          <div className="mx-auto flex max-w-7xl items-center px-4 py-4 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-4">
+              <Image src="/crowe_logo_2c_w.png" alt="Crowe" width={128} height={36} className="h-6 w-auto" priority />
+              <div className="hidden h-8 w-px bg-white/12 sm:block" aria-hidden="true" />
+              <p className="hidden text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)] sm:block">
+                Internal audit platform
+              </p>
+            </div>
+          </div>
+        </header>
 
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                <div className="rounded-[24px] border border-white/10 bg-[rgba(255,255,255,0.06)] p-4 lg:p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
-                    Audit setup
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">Popup-guided intake</h2>
-                  <p className="mt-2 text-sm leading-5 text-[var(--muted-on-dark)]">
-                    Capture the engagement name and scope period first, then map incoming audit files to the right operating
-                    screens before importing anything.
-                  </p>
-                </div>
-
-                <div className="rounded-[24px] border border-white/10 bg-[rgba(245,168,0,0.12)] p-4 lg:p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
-                    Intake model
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold text-white">Entity-based data mapping</h2>
-                  <p className="mt-2 text-sm leading-5 text-[var(--muted-on-dark)]">
-                    The intake now mirrors the platform workflows: controls, questions, requests, and document
-                    inventory.
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-white/10 bg-[rgba(255,255,255,0.04)] p-4 lg:p-5">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
-                      Planning
-                    </p>
-                    <p className="mt-2 text-sm leading-5 text-[var(--muted-on-dark)]">
-                      Core intake anchors the population and sets the operating baseline for the engagement.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
-                      Fieldwork
-                    </p>
-                    <p className="mt-2 text-sm leading-5 text-[var(--muted-on-dark)]">
-                      Workflow data can flow straight into the operating logs instead of being rebuilt.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
-                      Evidence
-                    </p>
-                    <p className="mt-2 text-sm leading-5 text-[var(--muted-on-dark)]">
-                      Advanced reference data adds planning, risk, and historical context without blocking the audit launch.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <section className="rounded-[26px] border border-white/10 bg-[rgba(255,255,255,0.04)] p-5 shadow-[0_20px_40px_rgba(0,0,0,0.12)]">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-amber-bright)]">
-                      Connect to database
-                    </p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Direct source connection</h2>
-                  </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-on-dark)]">
-                    <Database size={14} />
-                    Coming soon
-                  </div>
-                </div>
-
-                <div className="mt-4 inline-flex rounded-full border border-white/10 bg-[rgba(1,30,65,0.28)] p-1">
-                  <div className="rounded-full bg-[rgba(245,168,0,0.16)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-bright)]">
-                    Coming soon
-                  </div>
-                </div>
-
-                <p className="mt-4 text-sm leading-5 text-[var(--muted-on-dark)]">
-                  Future versions can connect directly to governed audit sources, but the current flow is focused on
-                  reviewed file-based imports with visible mapping.
-                </p>
-              </section>
+        <div className="mx-auto flex min-h-[calc(100vh-68px)] max-w-7xl items-center px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+          <section className="w-full rounded-[36px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.84)] p-5 shadow-panel backdrop-blur sm:p-7 lg:p-8">
+            <div className="max-w-4xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-[var(--brand-indigo-core)]">
+                Crowe Internal Audit
+              </p>
+              <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] sm:text-6xl lg:text-[5.8rem] lg:leading-[0.96]">
+                <AuroraText>AuditDESK</AuroraText>
+              </h1>
+              <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-indigo-core)] sm:text-base">
+                A hub for internal audit management
+              </p>
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--muted)] sm:text-base">
+                Launch a new engagement or reopen an active workspace below.
+              </p>
             </div>
 
-            <div className="grid gap-4 content-start">
-              <section className="rounded-[26px] border border-white/10 bg-[rgba(255,255,255,0.06)] p-5 shadow-[0_20px_40px_rgba(0,0,0,0.16)]">
+            <div className="mt-8 grid gap-5 lg:grid-cols-2">
+              <section className="rounded-[28px] border border-[rgba(1,30,65,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,241,231,0.92)_100%)] p-6 shadow-[0_20px_44px_rgba(1,30,65,0.08)]">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-amber-bright)]">
-                      New audit
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-indigo-core)]">
+                      Start new audit engagement
                     </p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Create the engagement in a popup</h2>
+                    <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-[var(--foreground)]">
+                      Create the engagement in a guided popup
+                    </h2>
                   </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-on-dark)]">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(1,30,65,0.08)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-core)]">
                     <Sparkles size={14} />
                     Guided intake
                   </div>
                 </div>
 
-                <p className="mt-3 text-sm leading-5 text-[var(--muted-on-dark)]">
-                  Click `New Audit` to open a modal where the user enters the audit name, chooses the audited scope period,
-                  and then works through core intake, workflow data, and advanced reference data with either manual or
-                  folder-based mapping.
+                <p className="mt-4 text-sm leading-7 text-[var(--muted)]">
+                  Open the existing intake modal to define audit and scope periods, then map controls, questions,
+                  requests, and reference datasets before import. Testing matrices and workpapers are generated from the imported controls.
                 </p>
 
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
                   <button
                     type="button"
                     onClick={openModal}
                     className="inline-flex items-center justify-center gap-2 rounded-full border border-[rgba(245,168,0,0.24)] bg-[var(--brand-amber-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-indigo-dark)] transition-transform duration-200 hover:-translate-y-0.5 hover:bg-[var(--brand-amber-bright)]"
                   >
                     <FolderOpen size={16} />
-                    New Audit
+                    Start new audit
                   </button>
 
                   <Link
-                    href={launchDashboardQuery ? { pathname: "/dashboard", query: launchDashboardQuery } : "/dashboard"}
-                    aria-disabled={!canLaunchDashboard}
+                    href={liveDashboardQuery ? { pathname: "/dashboard", query: liveDashboardQuery } : "/dashboard"}
+                    aria-disabled={!canLaunchNewAuditDashboard}
                     className={`inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] transition-all duration-200 ${
-                      canLaunchDashboard
-                        ? "bg-white text-[var(--brand-indigo-dark)] hover:-translate-y-0.5"
-                        : "pointer-events-none border border-white/10 bg-white/5 text-[rgba(255,255,255,0.42)]"
+                      canLaunchNewAuditDashboard
+                        ? "border border-[rgba(1,30,65,0.08)] bg-white text-[var(--brand-indigo-dark)] hover:-translate-y-0.5"
+                        : "pointer-events-none border border-[rgba(1,30,65,0.08)] bg-[var(--surface-soft)] text-[rgba(1,30,65,0.36)]"
                     }`}
                   >
                     Launch platform
                   </Link>
                 </div>
 
-                <div className="mt-4 rounded-[22px] border border-white/10 bg-[rgba(1,30,65,0.22)] p-4">
+                <div className="mt-5 rounded-[24px] border border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-dark)] p-5 text-white">
                   {hasConfiguredAudit ? (
                     <div className="grid gap-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8af0dd]">
-                              Audit configured
-                            </p>
-                            <h3 className="mt-1.5 text-lg font-semibold text-white">{auditForm.auditName}</h3>
-                            <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
-                              Scope period: {formatDate(auditForm.scopePeriodStart)} to {formatDate(auditForm.scopePeriodEnd)}
-                            </p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8af0dd]">
+                            Audit configured
+                          </p>
+                          <h3 className="mt-1.5 text-lg font-semibold text-white">{auditForm.auditName}</h3>
+                          <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">Company: {DEFAULT_COMPANY_NAME}</p>
+                          <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
+                            Scope period: {formatDate(auditForm.scopePeriodStart)} to {formatDate(auditForm.scopePeriodEnd)}
+                          </p>
+                          <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
+                            Audit period: {formatDate(auditForm.auditPeriodStart)} to {formatDate(auditForm.auditPeriodEnd)}
+                          </p>
+                          {auditForm.totalBudgetHours.trim().length > 0 ? (
                             <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
-                              Audit period: {formatDate(auditForm.auditPeriodStart)} to {formatDate(auditForm.auditPeriodEnd)}
+                              Total audit hours: {auditForm.totalBudgetHours}h
                             </p>
-                            {auditForm.totalBudgetHours.trim().length > 0 ? (
-                              <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
-                                Total audit hours: {auditForm.totalBudgetHours}h
-                              </p>
-                            ) : null}
-                          </div>
+                          ) : null}
+                        </div>
                         <CheckCircle2 className="shrink-0 text-[#8af0dd]" size={20} />
                       </div>
 
@@ -761,8 +868,8 @@ export default function HomePage() {
                           Loaded {savedImportSummary.transformSummary.controlsUpserted} controls,{" "}
                           {savedImportSummary.transformSummary.riskControlLinksUpserted} risk-to-control links,{" "}
                           {savedImportSummary.transformSummary.questionsUpserted} questions,{" "}
-                          {savedImportSummary.transformSummary.requestsUpserted} requests, and{" "}
-                          {savedImportSummary.transformSummary.documentsUpserted} documents into cleaned tables.
+                          {savedImportSummary.transformSummary.requestsUpserted} requests, and generated{" "}
+                          {savedImportSummary.transformSummary.documentsUpserted} testing workpapers.
                         </div>
                       ) : null}
 
@@ -790,46 +897,49 @@ export default function HomePage() {
                 </div>
               </section>
 
-              <section className="rounded-[26px] border border-white/10 bg-[rgba(255,255,255,0.05)] p-5 shadow-[0_20px_40px_rgba(0,0,0,0.14)]">
+              <section className="rounded-[28px] border border-[rgba(1,30,65,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,241,231,0.9)_100%)] p-6 shadow-[0_20px_44px_rgba(1,30,65,0.08)]">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-amber-bright)]">
-                      Existing audits
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-indigo-core)]">
+                      Return to existing audit
                     </p>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Return to a saved audit workspace</h2>
+                    <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-[var(--foreground)]">
+                      Reopen a saved audit workspace
+                    </h2>
                   </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-on-dark)]">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(1,30,65,0.08)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-core)]">
                     <ShieldCheck size={14} />
                     Supabase-backed
                   </div>
                 </div>
 
-                <p className="mt-3 text-sm leading-5 text-[var(--muted-on-dark)]">
-                  Select an existing audit saved to Supabase to reopen the workspace with its audit name and reporting period.
+                <p className="mt-4 text-sm leading-7 text-[var(--muted)]">
+                  Select an existing audit saved to Supabase to reopen the workspace with its audit name, scope period,
+                  and current status.
                 </p>
 
-                <div className="mt-4 grid gap-3">
+                <div className="mt-5 grid gap-3">
                   <label className="grid gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-on-dark)]">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                       Select existing audit
                     </span>
                     <select
                       value={selectedExistingAuditId}
                       onChange={(event) => setSelectedExistingAuditId(event.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-[rgba(1,30,65,0.3)] px-4 py-2.5 text-sm text-white outline-none transition-colors focus:border-[var(--brand-amber-bright)]"
+                      className="w-full rounded-2xl border border-[rgba(1,30,65,0.08)] bg-white px-4 py-2.5 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-[var(--brand-amber-bright)]"
                     >
-                      <option value="" className="bg-[#082346] text-white">
+                      <option value="" className="bg-white text-[var(--foreground)]">
                         {existingAuditOptions.length > 0 ? "Choose an audit" : "No saved audits yet"}
                       </option>
                       {existingAuditOptions.map((audit) => (
-                        <option key={audit.id} value={audit.id} className="bg-[#082346] text-white">
+                        <option key={audit.id} value={audit.id} className="bg-white text-[var(--foreground)]">
                           {audit.name}
                         </option>
                       ))}
                     </select>
                   </label>
 
-                  <div className="rounded-[22px] border border-white/10 bg-[rgba(1,30,65,0.22)] p-4">
+                  <div className="rounded-[24px] border border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-dark)] p-5 text-white">
                     {selectedExistingAudit ? (
                       <div className="grid gap-3">
                         <div className="flex items-start justify-between gap-3">
@@ -841,6 +951,11 @@ export default function HomePage() {
                           </div>
                           <CheckCircle2 className="shrink-0 text-[#8af0dd]" size={20} />
                         </div>
+                        {selectedExistingAudit.companyName ? (
+                          <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
+                            Company: {selectedExistingAudit.companyName}
+                          </p>
+                        ) : null}
                         <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
                           Period: {selectedExistingAudit.period}
                         </p>
@@ -848,13 +963,15 @@ export default function HomePage() {
                           Status: {selectedExistingAudit.status}
                         </p>
                         <Link
-                          href={{
-                            pathname: "/dashboard",
-                            query: { mode: "live", auditId: selectedExistingAudit.id, auditLabel: selectedExistingAudit.name },
-                          }}
-                          className="mt-1 inline-flex w-fit items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-dark)] transition-transform duration-200 hover:-translate-y-0.5"
+                          href={selectedAuditDashboardQuery ? { pathname: "/dashboard", query: selectedAuditDashboardQuery } : "/dashboard"}
+                          aria-disabled={!canLaunchExistingAuditDashboard}
+                          className={`mt-1 inline-flex w-fit items-center justify-center rounded-full px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] transition-transform duration-200 ${
+                            canLaunchExistingAuditDashboard
+                              ? "bg-white text-[var(--brand-indigo-dark)] hover:-translate-y-0.5"
+                              : "pointer-events-none bg-white/30 text-white/55"
+                          }`}
                         >
-                          Launch dashboard
+                          Launch platform
                         </Link>
                       </div>
                     ) : (
@@ -874,28 +991,31 @@ export default function HomePage() {
                 </div>
               </section>
             </div>
+
           </section>
         </div>
       </main>
 
-        <NewAuditModal
-          open={isModalOpen}
+      <NewAuditModal
+        open={isModalOpen}
         form={auditForm}
         files={uploadedFiles}
+        existingAuditOptions={existingAuditOptions}
         folderMappedFiles={folderMappedFiles}
         uploadMode={uploadMode}
         onUploadModeChange={handleUploadModeChange}
         onClose={closeModal}
         onSubmit={handleCreateAudit}
         onFormChange={setAuditForm}
+        onImportSourceAuditChange={handleImportSourceAuditChange}
         onFileChange={handleFileChange}
         onFolderFilesChange={handleFolderFilesChange}
-          onMappedFileTargetChange={handleMappedFileTargetChange}
-          canCreateAudit={canLaunchPlatform}
-          isSavingAudit={isSavingAudit}
-          saveError={saveError}
-          missingRequiredRequirementIds={missingRequiredRequirementIds}
-        />
+        onMappedFileTargetChange={handleMappedFileTargetChange}
+        canCreateAudit={canLaunchPlatform}
+        isSavingAudit={isSavingAudit}
+        saveError={saveError}
+        missingRequiredRequirementIds={missingRequiredRequirementIds}
+      />
     </>
   );
 }
@@ -904,12 +1024,14 @@ function NewAuditModal({
   open,
   form,
   files,
+  existingAuditOptions,
   folderMappedFiles,
   uploadMode,
   onUploadModeChange,
   onClose,
   onSubmit,
   onFormChange,
+  onImportSourceAuditChange,
   onFileChange,
   onFolderFilesChange,
   onMappedFileTargetChange,
@@ -921,12 +1043,14 @@ function NewAuditModal({
   open: boolean;
   form: AuditForm;
   files: UploadedFiles;
+  existingAuditOptions: ExistingAuditOption[];
   folderMappedFiles: FolderMappedFile[];
   uploadMode: UploadMode;
   onUploadModeChange: (nextMode: UploadMode) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onFormChange: Dispatch<SetStateAction<AuditForm>>;
+  onImportSourceAuditChange: (nextAuditId: string) => void;
   onFileChange: (fileType: UploadRequirement["id"], event: ChangeEvent<HTMLInputElement>) => void;
   onFolderFilesChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onMappedFileTargetChange: (fileId: string, nextTarget: UploadRequirement["id"] | "") => void;
@@ -952,6 +1076,8 @@ function NewAuditModal({
   const mappedFiles = folderMappedFiles.filter((item) => item.assignedTarget !== null);
   const requiredRequirementIds = getRequiredUploadRequirementIds(files);
   const requiredRequirements = uploadRequirements.filter((requirement) => requiredRequirementIds.includes(requirement.id));
+  const selectedImportSourceAudit =
+    existingAuditOptions.find((audit) => audit.id === form.importSourceAuditId) ?? null;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(1,30,65,0.4)] p-4 backdrop-blur-sm">
@@ -978,8 +1104,8 @@ function NewAuditModal({
 
           <form className="mt-6 flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
             <div className="grid min-h-0 gap-6 overflow-y-auto pr-1">
-              <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-                <div className="grid gap-4">
+              <div className="grid gap-4">
+                <div className="grid gap-3">
                   <Field label="Audit name">
                     <input
                       ref={firstInputRef}
@@ -988,18 +1114,18 @@ function NewAuditModal({
                       value={form.auditName}
                       onChange={(event) => onFormChange((current) => ({ ...current, auditName: event.target.value }))}
                       placeholder="Example: Q3 SOX ITGC Control Testing"
-                      className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                      className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                     />
                   </Field>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Audit period start">
                       <input
                         required
                         type="date"
                         value={form.auditPeriodStart}
                         onChange={(event) => onFormChange((current) => ({ ...current, auditPeriodStart: event.target.value }))}
-                        className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                       />
                     </Field>
 
@@ -1009,19 +1135,19 @@ function NewAuditModal({
                         type="date"
                         value={form.auditPeriodEnd}
                         onChange={(event) => onFormChange((current) => ({ ...current, auditPeriodEnd: event.target.value }))}
-                        className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                       />
                     </Field>
                   </div>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Scope period start">
                       <input
                         required
                         type="date"
                         value={form.scopePeriodStart}
                         onChange={(event) => onFormChange((current) => ({ ...current, scopePeriodStart: event.target.value }))}
-                        className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                       />
                     </Field>
 
@@ -1031,22 +1157,53 @@ function NewAuditModal({
                         type="date"
                         value={form.scopePeriodEnd}
                         onChange={(event) => onFormChange((current) => ({ ...current, scopePeriodEnd: event.target.value }))}
-                        className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
                       />
                     </Field>
                   </div>
 
-                  <Field label="Total audit hours">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.25"
-                      value={form.totalBudgetHours}
-                      onChange={(event) => onFormChange((current) => ({ ...current, totalBudgetHours: event.target.value }))}
-                      placeholder="Example: 240"
-                      className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                    />
-                  </Field>
+                  <div className="grid gap-3 lg:grid-cols-[0.72fr_1.28fr]">
+                    <Field label="Total audit hours">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        value={form.totalBudgetHours}
+                        onChange={(event) => onFormChange((current) => ({ ...current, totalBudgetHours: event.target.value }))}
+                        placeholder="Example: 240"
+                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                      />
+                    </Field>
+
+                    <Field label="Import planning hours from">
+                      <select
+                        value={form.importSourceAuditId}
+                        onChange={(event) => onImportSourceAuditChange(event.target.value)}
+                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+                      >
+                        <option value="">Do not import a prior audit budget</option>
+                        {existingAuditOptions.map((audit) => (
+                          <option key={audit.id} value={audit.id}>
+                            {audit.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  {selectedImportSourceAudit ? (
+                    <div className="rounded-[18px] border border-[rgba(1,30,65,0.08)] bg-white px-4 py-3 text-sm text-[var(--muted)]">
+                      <p className="font-semibold text-[var(--foreground)]">
+                        Importing budget defaults from {selectedImportSourceAudit.name}
+                      </p>
+                      <p className="mt-1.5">
+                        Total: {formatBudgetPreview(selectedImportSourceAudit.totalBudgetHours)} | Planning:{" "}
+                        {formatBudgetPreview(selectedImportSourceAudit.planningBudgetHours)} | Fieldwork:{" "}
+                        {formatBudgetPreview(selectedImportSourceAudit.fieldworkBudgetHours)} | Reporting:{" "}
+                        {formatBudgetPreview(selectedImportSourceAudit.reportingBudgetHours)}
+                      </p>
+                    </div>
+                  ) : null}
 
                   {form.auditPeriodStart && form.auditPeriodEnd && form.auditPeriodStart > form.auditPeriodEnd ? (
                     <p className="text-sm font-medium text-[var(--brand-coral)]">
@@ -1067,30 +1224,6 @@ function NewAuditModal({
                   ) : null}
                 </div>
 
-                <div className="rounded-[26px] border border-black/5 bg-[var(--surface-tint)] p-5">
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[var(--brand-indigo-core)]">
-                    <CalendarRange size={18} />
-                  </div>
-                  <h3 className="mt-4 text-lg font-semibold">What this intake captures</h3>
-                  <div className="mt-4 grid gap-3 text-sm leading-6 text-[var(--muted)]">
-                    <p>The audit period defines the actual engagement timeline used for planning and phase dates.</p>
-                    <p>The scope period defines the period being audited and is shown in the app header.</p>
-                    <p>Total audit hours seed the planning-stage hour allocation popup so managers can split work across phases quickly.</p>
-                    <p>Core intake is the minimum required to launch the audit. Workflow and advanced data can be layered in when available.</p>
-                    <p>Folder import infers likely matches, but required datasets still have to be fully mapped before upload.</p>
-                  </div>
-                  {files.risks ? (
-                    <p className="mt-4 rounded-[18px] border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--muted)]">
-                      Risk register detected. Add the matching risk-to-control file so the audit can load explicit risk-control relationships.
-                    </p>
-                  ) : null}
-                  {missingRequiredRequirementIds.length > 0 ? (
-                    <p className="mt-4 rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
-                      Missing required intake:{" "}
-                      {missingRequiredRequirementIds.map((requirementId) => getRequirementLabel(requirementId)).join(", ")}.
-                    </p>
-                  ) : null}
-                </div>
               </div>
 
               <section className="rounded-[26px] border border-black/5 bg-white p-5">
@@ -1403,8 +1536,8 @@ function NewAuditModal({
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="grid gap-2">
-      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</span>
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-semibold uppercase leading-none tracking-[0.18em] text-[var(--muted)]">{label}</span>
       {children}
     </label>
   );
@@ -1474,13 +1607,14 @@ function buildUploadedFilesFromMappedFiles(mappedFiles: FolderMappedFile[]): Upl
 function inferUploadTarget(file: File) {
   const searchableText = `${file.name} ${getRelativePath(file)}`.trim();
   const normalizedSearchableText = normalizeValue(searchableText);
+  const searchableTokens = tokenizeValue(searchableText);
   let bestMatch: UploadRequirement["id"] | null = null;
   let bestScore = 0;
   let bestReasons: string[] = [];
 
   for (const requirement of uploadRequirements) {
     const matchedKeywords = requirement.keywords.filter((keyword) =>
-      normalizedSearchableText.includes(normalizeValue(keyword)),
+      matchesKeywordSignal(normalizedSearchableText, searchableTokens, keyword),
     );
     const score = matchedKeywords.reduce((total, keyword) => total + getKeywordWeight(keyword), 0);
 
@@ -1506,6 +1640,30 @@ function normalizeValue(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function tokenizeValue(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function matchesKeywordSignal(normalizedSearchableText: string, searchableTokens: string[], keyword: string) {
+  const normalizedKeyword = normalizeValue(keyword);
+
+  if (normalizedKeyword.length === 0) {
+    return false;
+  }
+
+  if (normalizedSearchableText.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const keywordTokens = tokenizeValue(keyword);
+
+  return keywordTokens.length > 1 && keywordTokens.every((token) => searchableTokens.includes(token));
+}
+
 function getRelativePath(file: File) {
   return "webkitRelativePath" in file && typeof file.webkitRelativePath === "string" && file.webkitRelativePath.length > 0
     ? file.webkitRelativePath
@@ -1517,20 +1675,34 @@ function getKeywordWeight(keyword: string) {
 
   if (
     normalizedKeyword === "controls" ||
+    normalizedKeyword === "controlinventory" ||
+    normalizedKeyword === "controlpopulation" ||
     normalizedKeyword === "riskcontrol" ||
-    normalizedKeyword === "riskcontrollinks" ||
     normalizedKeyword === "riskcontrolmapping" ||
+    normalizedKeyword === "riskcontrollinks" ||
     normalizedKeyword === "questions" ||
     normalizedKeyword === "requests" ||
     normalizedKeyword === "documents" ||
     normalizedKeyword === "applications" ||
     normalizedKeyword === "risks" ||
-    normalizedKeyword === "issues"
+    normalizedKeyword === "issues" ||
+    normalizedKeyword === "prioraudit" ||
+    normalizedKeyword === "priorfindings" ||
+    normalizedKeyword === "priorauditfindings" ||
+    normalizedKeyword === "auditfindings"
   ) {
     return 3;
   }
 
   return 1;
+}
+
+function formatBudgetInput(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toString();
+}
+
+function formatBudgetPreview(value: number | null) {
+  return value === null ? "Not set" : `${formatBudgetInput(value)}h`;
 }
 
 function formatDate(value: string) {

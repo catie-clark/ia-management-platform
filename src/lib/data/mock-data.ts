@@ -9,16 +9,17 @@ import type {
   TimelineItem,
   User,
 } from "@/types/audit";
+import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 
 export const users: User[] = [
-  { id: "U1", name: "Jordan Lee", email: "jordan.lee@mfcorp.com", role: "AIC", team: "Internal Audit" },
-  { id: "U2", name: "Priya Shah", email: "priya.shah@mfcorp.com", role: "STAFF", team: "Internal Audit" },
-  { id: "U3", name: "Elena Martin", email: "elena.martin@mfcorp.com", role: "MANAGER", team: "Internal Audit" },
-  { id: "U4", name: "Marcus Kim", email: "marcus.kim@mfcorp.com", role: "DIRECTOR", team: "Internal Audit" },
-  { id: "U5", name: "Mia Chen", email: "mia.chen@mfcorp.com", role: "STAFF", team: "Internal Audit" },
-  { id: "U6", name: "Noah Bennett", email: "noah.bennett@mfcorp.com", role: "STAFF", team: "Internal Audit" },
-  { id: "U7", name: "Sofia Ramirez", email: "sofia.ramirez@mfcorp.com", role: "STAFF", team: "Internal Audit" },
-  { id: "U8", name: "Avery Collins", email: "avery.collins@mfcorp.com", role: "STAFF", team: "Finance Lead" },
+  { id: "U1", name: "Jordan Lee", email: "jordan.lee@mfcorp.com", role: "AIC", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U2", name: "Priya Shah", email: "priya.shah@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U3", name: "Elena Martin", email: "elena.martin@mfcorp.com", role: "MANAGER", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U4", name: "Marcus Kim", email: "marcus.kim@mfcorp.com", role: "DIRECTOR", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U5", name: "Mia Chen", email: "mia.chen@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U6", name: "Noah Bennett", email: "noah.bennett@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U7", name: "Sofia Ramirez", email: "sofia.ramirez@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U8", name: "Avery Collins", email: "avery.collins@mfcorp.com", role: "STAFF", team: "Finance Lead", companyName: DEFAULT_COMPANY_NAME },
 ];
 
 export const controls: Control[] = [

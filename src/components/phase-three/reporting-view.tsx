@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, MessageSquareMore, Send } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -28,18 +28,21 @@ import {
   type ReportingResultItem,
 } from "@/lib/reporting";
 import type { ReportingArtifactDraft, ReportingSummaryCard, ReportingViewModel } from "@/lib/reporting-data";
-import { formatDateTime, formatShortDate } from "@/lib/utils";
+import { cn, formatDateTime, formatShortDate } from "@/lib/utils";
 import type { AuditDocument, ReportArtifactKey, ReportReviewComment, ReportReviewStage, User } from "@/types/audit";
 
 type ResultFilter = "READY" | "ALL";
 type ArtifactViewMode = "preview" | "edit";
+type ReportingSubtab = "fieldwork-results" | "reporting-tollgate" | "final-report";
 
 export function ReportingView({
   viewModel,
 }: {
   viewModel: ReportingViewModel;
 }) {
+  const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { activeUser } = useActiveUser();
   const { showNotification } = useNotification();
   const [isPending, startUiTransition] = useTransition();
@@ -105,16 +108,18 @@ export function ReportingView({
     ? getLinkedBlockers(selectedDocument, viewModel.controls, viewModel.questions, viewModel.requests, viewModel.now)
     : [];
   const canEditLive = viewModel.mode === "live" && Boolean(viewModel.auditId);
+  const activeSubtab = getReportingSubtab(searchParams.get("reportingTab"));
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
+    <div className="flex min-h-0 flex-col gap-4">
       <PageHeader
         title="Reporting"
-        description="Reporting now assembles approved fieldwork support into a results workspace, then uses that support to build the final audit report and reporting tollgate package."
+        description=""
         phaseStatus={{
           label: viewModel.currentPhase === "Reporting" ? "Active" : `Current phase: ${viewModel.currentPhase}`,
           active: viewModel.currentPhase === "Reporting",
         }}
+        variant="dashboard-compact"
       />
 
       <PhaseCompletionCard
@@ -125,82 +130,79 @@ export function ReportingView({
         pagePhase="Reporting"
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {summaryCards.map((card) => (
           <SummaryCard key={card.label} card={card} />
         ))}
       </section>
 
-      <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Reporting results</p>
-            <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Fieldwork support feeding the report package</h2>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Review raw workpapers and evidence directly from reporting. Results can be filtered to reporting-ready support or the full fieldwork record.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <FilterPill label="Reporting-ready only" active={resultFilter === "READY"} onClick={() => setResultFilter("READY")} />
-            <FilterPill label="All fieldwork results" active={resultFilter === "ALL"} onClick={() => setResultFilter("ALL")} />
-          </div>
-        </div>
+      <div className="inline-flex w-fit items-center gap-6">
+        {reportingSubtabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => switchSubtab(tab.id)}
+            className={cn(
+              "border-b-2 pb-1 text-sm transition-colors",
+              activeSubtab === tab.id
+                ? "border-[var(--brand-indigo-core)] font-semibold text-[var(--brand-indigo-core)]"
+                : "border-transparent text-[var(--muted)] hover:text-[var(--brand-indigo-core)]",
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="mt-6 h-[480px] overflow-auto rounded-[20px] border border-black/5 bg-[#fcfbf8] pr-2">
-          <table className="min-w-full border-separate border-spacing-y-3">
-            <thead className="sticky top-0 z-10 bg-[#fcfbf8]">
-              <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                <th className="px-4 py-3">Result</th>
-                <th className="px-4 py-3">Linked control</th>
-                <th className="px-4 py-3">Owner</th>
-                <th className="px-4 py-3">Readiness</th>
-                <th className="px-4 py-3">Open blockers</th>
-                <th className="px-4 py-3">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleResults.length > 0 ? (
-                visibleResults.map((result) => (
-                  <ResultRow key={result.id} result={result} onOpen={() => setSelectedResultId(result.id)} />
-                ))
-              ) : (
-                <tr className="bg-white shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
-                  <td colSpan={6} className="rounded-3xl px-4 py-6 text-sm text-[var(--muted)]">
-                    No reporting results are available for the current filter.
-                  </td>
+      {activeSubtab === "fieldwork-results" ? (
+        <section className="border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+          <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Reporting results</p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Fieldwork support feeding the report package</h2>
+                <p className="mt-2 text-sm text-[var(--muted)]">
+                  Review raw workpapers and evidence directly from reporting. Results can be filtered to reporting-ready support or the full fieldwork record.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <FilterPill label="Reporting-ready only" active={resultFilter === "READY"} onClick={() => setResultFilter("READY")} />
+                <FilterPill label="All fieldwork results" active={resultFilter === "ALL"} onClick={() => setResultFilter("ALL")} />
+              </div>
+            </div>
+          </div>
+
+          <div className="h-[480px] overflow-auto">
+            <table className="min-w-full border-collapse">
+              <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                  <th className="border-b border-black/5 px-4 py-3">Result</th>
+                  <th className="border-b border-black/5 px-4 py-3">Linked control</th>
+                  <th className="border-b border-black/5 px-4 py-3">Owner</th>
+                  <th className="border-b border-black/5 px-4 py-3">Readiness</th>
+                  <th className="border-b border-black/5 px-4 py-3">Open blockers</th>
+                  <th className="border-b border-black/5 px-4 py-3">Action</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {visibleResults.length > 0 ? (
+                  visibleResults.map((result) => (
+                    <ResultRow key={result.id} result={result} onOpen={() => setSelectedResultId(result.id)} />
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-6 text-sm text-[var(--muted)]">
+                      No reporting results are available for the current filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
-      <div className="grid gap-6">
-        <ArtifactCard
-          artifactKey="FINAL_REPORT"
-          activeUserName={activeUser.name}
-          activeUserRole={activeUser.role}
-          canEditLive={canEditLive}
-          comments={viewModel.reportComments}
-          draft={viewModel.finalReportDraft}
-          isPending={isPending}
-          label="Final report"
-          markdown={reportMarkdown}
-          onChangeMarkdown={setReportMarkdown}
-          onGenerate={() => handleArtifactGenerate("FINAL_REPORT")}
-          onReset={() => handleArtifactReset("FINAL_REPORT")}
-          onReviewAction={(action) => handleReviewAction("FINAL_REPORT", action)}
-          onSave={() => handleArtifactSave("FINAL_REPORT", reportMarkdown, viewModel.finalReportDraft.title)}
-          readinessMessage={getArtifactReadinessMessage("FINAL_REPORT")}
-          reviewCommentInput={reviewCommentInputs.FINAL_REPORT}
-          setReviewCommentInput={(value) => setReviewCommentInputs((current) => ({ ...current, FINAL_REPORT: value }))}
-          isCollapsed={collapsedArtifacts.FINAL_REPORT}
-          onToggleCollapsed={() => setCollapsedArtifacts((current) => ({ ...current, FINAL_REPORT: !current.FINAL_REPORT }))}
-          viewMode={artifactViewMode.FINAL_REPORT}
-          setViewMode={(nextMode) => setArtifactViewMode((current) => ({ ...current, FINAL_REPORT: nextMode }))}
-          workflow={viewModel.reportWorkflow}
-          auditLabel={viewModel.auditLabel}
-        />
+      {activeSubtab === "reporting-tollgate" ? (
         <ArtifactCard
           artifactKey="REPORTING_TOLLGATE"
           activeUserName={activeUser.name}
@@ -226,7 +228,35 @@ export function ReportingView({
           workflow={viewModel.tollgateWorkflow}
           auditLabel={viewModel.auditLabel}
         />
-      </div>
+      ) : null}
+
+      {activeSubtab === "final-report" ? (
+        <ArtifactCard
+          artifactKey="FINAL_REPORT"
+          activeUserName={activeUser.name}
+          activeUserRole={activeUser.role}
+          canEditLive={canEditLive}
+          comments={viewModel.reportComments}
+          draft={viewModel.finalReportDraft}
+          isPending={isPending}
+          label="Final report"
+          markdown={reportMarkdown}
+          onChangeMarkdown={setReportMarkdown}
+          onGenerate={() => handleArtifactGenerate("FINAL_REPORT")}
+          onReset={() => handleArtifactReset("FINAL_REPORT")}
+          onReviewAction={(action) => handleReviewAction("FINAL_REPORT", action)}
+          onSave={() => handleArtifactSave("FINAL_REPORT", reportMarkdown, viewModel.finalReportDraft.title)}
+          readinessMessage={getArtifactReadinessMessage("FINAL_REPORT")}
+          reviewCommentInput={reviewCommentInputs.FINAL_REPORT}
+          setReviewCommentInput={(value) => setReviewCommentInputs((current) => ({ ...current, FINAL_REPORT: value }))}
+          isCollapsed={collapsedArtifacts.FINAL_REPORT}
+          onToggleCollapsed={() => setCollapsedArtifacts((current) => ({ ...current, FINAL_REPORT: !current.FINAL_REPORT }))}
+          viewMode={artifactViewMode.FINAL_REPORT}
+          setViewMode={(nextMode) => setArtifactViewMode((current) => ({ ...current, FINAL_REPORT: nextMode }))}
+          workflow={viewModel.reportWorkflow}
+          auditLabel={viewModel.auditLabel}
+        />
+      ) : null}
 
       {selectedDocument?.type === "WORKPAPER" ? (
         <WorkpaperDetailPanel
@@ -410,12 +440,32 @@ export function ReportingView({
       }
     });
   }
+
+  function switchSubtab(nextTab: ReportingSubtab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("reportingTab", nextTab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+}
+
+const reportingSubtabs: Array<{ id: ReportingSubtab; label: string }> = [
+  { id: "fieldwork-results", label: "Fieldwork Results" },
+  { id: "reporting-tollgate", label: "Reporting Tollgate" },
+  { id: "final-report", label: "Final Report" },
+];
+
+function getReportingSubtab(value: string | null): ReportingSubtab {
+  if (value === "reporting-tollgate" || value === "final-report") {
+    return value;
+  }
+
+  return "fieldwork-results";
 }
 
 function ResultRow({ onOpen, result }: { onOpen: () => void; result: ReportingResultItem }) {
   return (
-    <tr className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
-      <td className="rounded-l-3xl px-4 py-4">
+    <tr className="border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]">
+      <td className="px-4 py-4">
         <p className="text-sm font-semibold text-[var(--foreground)]">{result.displayId}</p>
         <p className="mt-1 text-sm text-[var(--foreground)]">{result.title}</p>
         <p className="mt-1 text-xs text-[var(--muted)]">{result.type === "WORKPAPER" ? "Structured workpaper" : "Evidence support"}</p>
@@ -433,11 +483,11 @@ function ResultRow({ onOpen, result }: { onOpen: () => void; result: ReportingRe
       <td className="px-4 py-4">
         <StatusBadge status={`${result.blockerCount} open`} tone={result.blockerCount > 0 ? result.blockerTone : "success"} />
       </td>
-      <td className="rounded-r-3xl px-4 py-4">
+      <td className="px-4 py-4">
         <button
           type="button"
           onClick={onOpen}
-          className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+          className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
         >
           Open support
           <ArrowRight size={14} />
@@ -509,18 +559,18 @@ function ArtifactCard({
   const reviewSummary = activeStage ? `${activeStage.reviewerRole} ${activeStage.status.replaceAll("_", " ")}` : null;
 
   return (
-    <article className={`rounded-[28px] border border-black/5 bg-white shadow-[0_18px_50px_rgba(1,30,65,0.08)] ${isCollapsed ? "px-4 py-3" : "p-6"}`}>
+    <article className={`border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)] ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">{label}</p>
-          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-3 text-2xl"}`}>{title}</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-2 text-xl"}`}>{title}</h2>
           <p className={isCollapsed ? "mt-1 text-sm leading-6 text-[var(--foreground)]" : "mt-3 text-sm leading-7 text-[var(--foreground)]"}>{readinessMessage}</p>
         </div>
         <div className="flex shrink-0 items-start gap-3">
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
+            className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
             aria-label={isCollapsed ? `Expand ${label}` : `Collapse ${label}`}
             aria-expanded={!isCollapsed}
           >
@@ -532,7 +582,7 @@ function ArtifactCard({
                 type="button"
                 onClick={onGenerate}
                 disabled={!canEditLive || isPending}
-                className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPending ? "Generating..." : draft.documentId || draft.markdown.trim().length > 0 ? regenerateLabel : generateLabel}
               </button>
@@ -540,7 +590,7 @@ function ArtifactCard({
                 type="button"
                 onClick={onReset}
                 disabled={!canEditLive || !canReset || isPending}
-                className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPending ? "Working..." : "Reset draft"}
               </button>
@@ -552,7 +602,7 @@ function ArtifactCard({
       {!isCollapsed ? (
         <>
           <div className="mt-5 grid gap-3">
-            <div className="flex flex-wrap items-center gap-2 rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+            <div className="flex flex-wrap items-center gap-2 border border-black/5 bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--muted)]">
               <span>Saved draft: {draft.title}</span>
               <span>{draft.status.replaceAll("_", " ")}</span>
               <span>Owner: {ownerLabel} (AIC)</span>
@@ -562,14 +612,14 @@ function ArtifactCard({
           </div>
 
           <div className="mt-5 grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
-            <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+            <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="mr-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Draft workspace</p>
                   <button
                     type="button"
                     onClick={() => setViewMode("preview")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "preview" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
                   >
@@ -578,7 +628,7 @@ function ArtifactCard({
                   <button
                     type="button"
                     onClick={() => setViewMode("edit")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "edit" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
                   >
@@ -614,16 +664,16 @@ function ArtifactCard({
                   rows={18}
                   disabled={!canEditLive}
                   placeholder="Generate a draft, then edit it here."
-                  className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:opacity-70"
+                  className="mt-4 w-full resize-y border border-black/10 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:opacity-70"
                 />
               ) : draft.previewSections.length > 0 ? (
                 <div className="mt-4 max-h-[520px] overflow-auto">
                   {draft.previewSummary ? (
-                    <div className="rounded-[18px] bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">{draft.previewSummary}</div>
+                    <div className="border border-black/5 bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">{draft.previewSummary}</div>
                   ) : null}
                   <div className="mt-4 grid gap-4">
                     {draft.previewSections.map((section, index) => (
-                      <div key={`${section.heading}-${index}`} className="rounded-[18px] bg-white px-4 py-4">
+                      <div key={`${section.heading}-${index}`} className="border border-black/5 bg-white px-4 py-4">
                         <h3 className="text-base font-semibold text-[var(--foreground)]">{section.heading}</h3>
                         <div className="mt-3 grid gap-3">
                           {section.body.map((entry, entryIndex) =>
@@ -653,7 +703,7 @@ function ArtifactCard({
             </section>
 
             <div className="grid gap-4">
-              <section className="rounded-[22px] border border-black/5 bg-white p-4">
+              <section className="border border-black/5 bg-white p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Review workflow</p>
@@ -674,7 +724,7 @@ function ArtifactCard({
                 {workflow.length > 0 ? (
                   <div className="mt-4 grid gap-3">
                     {workflow.map((stage) => (
-                      <div key={stage.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
+                      <div key={stage.id} className="border border-black/5 bg-[var(--surface-soft)] px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-[var(--foreground)]">{stage.reviewerRole}</p>
@@ -688,13 +738,13 @@ function ArtifactCard({
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-4 rounded-[18px] bg-[var(--surface-tint)] px-4 py-4 text-sm text-[var(--muted)]">
+                  <div className="mt-4 border border-black/5 bg-[var(--surface-soft)] px-4 py-4 text-sm text-[var(--muted)]">
                     No live review workflow rows have been created for this artifact yet.
                   </div>
                 )}
 
                 {canEditLive && (canAct || isAicResolving) ? (
-                  <div className="mt-4 rounded-[18px] border border-black/5 bg-[var(--surface-tint)] p-4">
+                  <div className="mt-4 border border-black/5 bg-[var(--surface-soft)] p-4">
                     <p className="text-sm font-semibold text-[var(--foreground)]">
                       Signed in as {activeUserName} ({activeUserRole})
                     </p>
@@ -703,7 +753,7 @@ function ArtifactCard({
                       onChange={(event) => setReviewCommentInput(event.target.value)}
                       rows={4}
                       placeholder="Optional approval note or required send-back comment."
-                      className="mt-3 w-full resize-none rounded-[18px] border border-black/5 bg-white px-4 py-3 text-sm text-[var(--foreground)] outline-none"
+                      className="mt-3 w-full resize-none border border-black/10 bg-white px-4 py-3 text-sm text-[var(--foreground)] outline-none"
                     />
                     <div className="mt-4 flex flex-wrap gap-3">
                       {canAct ? (
@@ -742,7 +792,7 @@ function ArtifactCard({
                 ) : null}
               </section>
 
-              <section className="rounded-[22px] border border-black/5 bg-white p-4">
+              <section className="border border-black/5 bg-white p-4">
                 <div className="flex items-center gap-2">
                   <MessageSquareMore size={16} className="text-[var(--brand-indigo-core)]" />
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Review log</p>
@@ -750,7 +800,7 @@ function ArtifactCard({
                 <div className="mt-4 grid gap-3">
                   {comments.length > 0 ? (
                     comments.map((comment) => (
-                      <div key={comment.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
+                      <div key={comment.id} className="border border-black/5 bg-[var(--surface-soft)] px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <p className="text-sm font-semibold text-[var(--foreground)]">{comment.authorName}</p>
                           <StatusBadge status={comment.status} tone={comment.status === "RESOLVED" ? "success" : "warning"} />
@@ -763,7 +813,7 @@ function ArtifactCard({
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-4 text-sm text-[var(--muted)]">
+                    <div className="border border-black/5 bg-[var(--surface-soft)] px-4 py-4 text-sm text-[var(--muted)]">
                       No review comments have been logged for this artifact yet.
                     </div>
                   )}
@@ -830,8 +880,8 @@ function EvidenceInspectPanel({
 
 function SummaryCard({ card }: { card: ReportingSummaryCard }) {
   return (
-    <article className="rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">{card.label}</p>
+    <article className="border border-black/5 bg-white p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{card.label}</p>
       <p className="mt-3 text-3xl font-semibold text-[var(--foreground)]">{card.value}</p>
       <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{card.detail}</p>
     </article>
@@ -851,10 +901,10 @@ function FilterPill({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+      className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
         active
           ? "border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-core)] text-white"
-          : "border-black/5 bg-white text-[var(--muted)]"
+          : "border-black/10 bg-white text-[var(--muted)]"
       }`}
     >
       {label}

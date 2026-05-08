@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowDownUp, ArrowRight, CircleHelp, Plus, Search, Upload, X } from "lucide-react";
+import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Plus, Search, Upload, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -10,6 +10,7 @@ import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { ReminderButton } from "@/components/ui/reminder-button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { formatBusinessContactLabel, type BusinessContact } from "@/lib/business-contacts";
 import {
   getRequestChainDelayHours,
   getRequestCurrentDelayHours,
@@ -78,6 +79,7 @@ export function RequestLogView({
   const searchParams = useSearchParams();
   const { activeUser } = useActiveUser();
   const { showNotification } = useNotification();
+  const [businessContacts, setBusinessContacts] = useState<BusinessContact[]>([]);
   const [isPending, startTransition] = useTransition();
   const [questionRows, setQuestionRows] = useState<Question[]>(questions);
   const [requestRows, setRequestRows] = useState<Request[]>(requests);
@@ -88,6 +90,7 @@ export function RequestLogView({
   const [assignedToFilter, setAssignedToFilter] = useState<string>("ALL");
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
   const [sortBy, setSortBy] = useState<RequestSort>("DUE_ASC");
+  const [showFilters, setShowFilters] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [followUpTarget, setFollowUpTarget] = useState<{ parentQuestionId?: string; parentRequestId?: string } | null>(null);
   const [responseDraft, setResponseDraft] = useState("");
@@ -113,6 +116,49 @@ export function RequestLogView({
     () => filterQuestionsForControls(questionRows, visibleControls, activeUser, "ALL"),
     [activeUser, questionRows, visibleControls],
   );
+  useEffect(() => {
+    if (!auditId) {
+      setBusinessContacts([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadBusinessContacts() {
+      try {
+        const response = await fetch(`/api/audits/${auditId}/business-contacts`, { cache: "no-store" });
+        const payload = (await response.json()) as { contacts?: BusinessContact[]; error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Unable to load business contacts.");
+        }
+
+        if (!cancelled) {
+          setBusinessContacts(payload.contacts ?? []);
+        }
+      } catch {
+        if (!cancelled) {
+          setBusinessContacts([]);
+        }
+      }
+    }
+
+    void loadBusinessContacts();
+    const handleContactsUpdated = () => {
+      void loadBusinessContacts();
+    };
+    window.addEventListener("business-contacts-updated", handleContactsUpdated);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("business-contacts-updated", handleContactsUpdated);
+    };
+  }, [auditId]);
+
+  const businessContactLabels = useMemo(
+    () => businessContacts.map((contact) => formatBusinessContactLabel(contact)),
+    [businessContacts],
+  );
   const visibleRequests = useMemo(
     () => filterRequestsForControls(requestRows, visibleControls, activeUser, "ALL"),
     [activeUser, requestRows, visibleControls],
@@ -124,12 +170,12 @@ export function RequestLogView({
   const controlLabelById = useMemo(() => new Map(controls.map((control) => [control.id, getControlLabel(control)])), [controls]);
   const createControlOptions = useMemo(() => controls, [controls]);
   const requestOwners = useMemo(
-    () => Array.from(new Set([...stakeholderRoleOptions, ...visibleRequests.map((request) => request.assignedTo)])),
-    [visibleRequests],
+    () => Array.from(new Set([...stakeholderRoleOptions, ...businessContactLabels, ...visibleRequests.map((request) => request.assignedTo)])),
+    [businessContactLabels, visibleRequests],
   );
   const stakeholderOptions = useMemo(
-    () => Array.from(new Set([...stakeholderRoleOptions, ...visibleQuestions.map((question) => question.assignedTo)])),
-    [visibleQuestions],
+    () => Array.from(new Set([...stakeholderRoleOptions, ...businessContactLabels, ...visibleQuestions.map((question) => question.assignedTo)])),
+    [businessContactLabels, visibleQuestions],
   );
   const defaultRequestForm = useMemo(
     () => ({
@@ -592,20 +638,18 @@ export function RequestLogView({
       {!embedded ? (
         <PageHeader
           title="Request log"
-          description={
-            mode === "live"
-              ? `Request tracking for ${auditLabel}. Live rows and response notes are loaded from Supabase for this audit.`
-              : "Evidence-request tracking with overdue highlighting, fulfillment notes, and document placeholders tied back to audit controls."
-          }
+          description=""
           phaseStatus={{
             label: mode === "live" ? "Live audit data" : "Prototype mode",
             active: mode === "live",
           }}
+          variant="dashboard-compact"
         />
       ) : null}
 
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+        <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex w-full flex-col gap-3 lg:max-w-xl">
             <div className="relative w-full">
               <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
@@ -613,91 +657,106 @@ export function RequestLogView({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search requests or owners"
-                className="w-full rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-11 py-3 text-sm outline-none"
+                className="w-full border border-black/10 bg-white px-11 py-3 text-sm outline-none"
               />
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as Request["status"] | "ALL")}
-              className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-sm"
+            <button
+              type="button"
+              onClick={() => setShowFilters((current) => !current)}
+              className={showFilters ? "inline-flex items-center gap-2 rounded-md border border-[var(--brand-indigo-core)] bg-[var(--surface-soft)] px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]" : "inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"}
             >
-              <option value="ALL">All statuses</option>
-              <option value="OPEN">Open</option>
-              <option value="IN_PROGRESS">In progress</option>
-              <option value="COMPLETED">Completed</option>
-            </select>
-            <select
-              value={assignedToFilter}
-              onChange={(event) => setAssignedToFilter(event.target.value)}
-              className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-sm"
-            >
-              <option value="ALL">All contacts</option>
-              {requestOwners.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <select
-              value={dueFilter}
-              onChange={(event) => setDueFilter(event.target.value as DueFilter)}
-              className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-sm"
-            >
-              {dueFilterOptions.map((option) => (
-                <option key={option} value={option}>
-                  {formatDueFilterLabel(option)}
-                </option>
-              ))}
-            </select>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]">
-                <ArrowDownUp size={16} />
-              </span>
-              <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as RequestSort)}
-                className="rounded-full border border-black/5 bg-[var(--surface-tint)] py-2 pl-10 pr-4 text-sm"
-              >
-                {requestSortOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {formatRequestSortLabel(option)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
+              <Filter size={16} />
+              Filter
+            </button>
             {canCreateInLiveMode ? (
               <button
                 type="button"
                 onClick={() => setIsCreating(true)}
                 disabled={isPending}
-                className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white shadow-[0_14px_28px_rgba(1,30,65,0.18)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus size={16} />
                 New Request
               </button>
             ) : (
-              <div className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+              <div className="border border-black/10 bg-[var(--surface-soft)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                 Select a live audit to create requests
               </div>
             )}
           </div>
         </div>
+        </div>
 
-        <div className="mt-6 min-h-0 flex-1 overflow-auto">
-          <table className="min-w-full border-separate border-spacing-y-3">
-            <thead>
-              <tr className="sticky top-0 z-10 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                <th className="bg-white px-4 py-2">Request</th>
-                <th className="bg-white px-4 py-2">Tagged person</th>
-                <th className="bg-white px-4 py-2">Requested</th>
-                <th className="bg-white px-4 py-2">Due</th>
-                <th className="bg-white px-4 py-2">Delay impact</th>
-                <th className="bg-white px-4 py-2">Status</th>
-                <th className="bg-white px-4 py-2">Actions</th>
+        {showFilters ? (
+          <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as Request["status"] | "ALL")}
+                className="border border-black/10 bg-white px-4 py-2 text-sm"
+              >
+                <option value="ALL">All statuses</option>
+                <option value="OPEN">Open</option>
+                <option value="IN_PROGRESS">In progress</option>
+                <option value="COMPLETED">Completed</option>
+              </select>
+              <select
+                value={assignedToFilter}
+                onChange={(event) => setAssignedToFilter(event.target.value)}
+                className="border border-black/10 bg-white px-4 py-2 text-sm"
+              >
+                <option value="ALL">All contacts</option>
+                {requestOwners.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={dueFilter}
+                onChange={(event) => setDueFilter(event.target.value as DueFilter)}
+                className="border border-black/10 bg-white px-4 py-2 text-sm"
+              >
+                {dueFilterOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {formatDueFilterLabel(option)}
+                  </option>
+                ))}
+              </select>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]">
+                  <ArrowDownUp size={16} />
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value as RequestSort)}
+                  className="border border-black/10 bg-white py-2 pl-10 pr-4 text-sm"
+                >
+                  {requestSortOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {formatRequestSortLabel(option)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="min-w-full border-collapse">
+            <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                <th className="border-b border-black/5 px-4 py-3">Request</th>
+                <th className="border-b border-black/5 px-4 py-3">Tagged person</th>
+                <th className="border-b border-black/5 px-4 py-3">Requested</th>
+                <th className="border-b border-black/5 px-4 py-3">Due</th>
+                <th className="border-b border-black/5 px-4 py-3">Delay impact</th>
+                <th className="border-b border-black/5 px-4 py-3">Status</th>
+                <th className="border-b border-black/5 px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -711,10 +770,10 @@ export function RequestLogView({
                 return (
                   <tr
                     key={request.id}
-                    className="cursor-pointer bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)] transition-transform duration-200 hover:-translate-y-0.5"
+                    className="cursor-pointer border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]"
                     onClick={() => openRequest(request.id)}
                   >
-                    <td className="rounded-l-3xl px-4 py-4">
+                    <td className="px-4 py-4">
                       <p className="text-sm font-semibold text-[var(--foreground)]">{getRequestLabel(request)}</p>
                       <p className="mt-1 max-w-md text-sm text-[var(--foreground)]">{request.description}</p>
                       <p className="mt-1 text-xs text-[var(--muted)]">
@@ -730,7 +789,7 @@ export function RequestLogView({
                     <td className="px-4 py-4">
                       <StatusBadge status={overdue ? "OVERDUE" : request.status} tone={tone} />
                     </td>
-                    <td className="rounded-r-3xl px-4 py-4">
+                    <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <ReminderButton visible={shouldShowReminder(request, currentNow)} tooltip="Need-by date approaching" />
                         <button
@@ -739,7 +798,7 @@ export function RequestLogView({
                             event.stopPropagation();
                             openRequest(request.id);
                           }}
-                          className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+                          className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
                         >
                           Inspect
                           <ArrowRight size={14} />

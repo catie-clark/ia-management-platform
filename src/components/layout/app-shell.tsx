@@ -13,11 +13,14 @@ import {
   Clock3,
   FileStack,
   LayoutDashboard,
+  Moon,
   NotebookTabs,
+  Sun,
 } from "lucide-react";
 
 import { ActiveUserContext, getUserById } from "@/components/layout/active-user-context";
 import { DashboardPhaseSelector } from "@/components/dashboard/dashboard-phase-selector";
+import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 import { users } from "@/lib/data/mock-data";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types/audit";
@@ -38,7 +41,11 @@ const navItems = [
   { href: "/planning", label: "Planning", icon: BriefcaseBusiness },
   { href: "/fieldwork", label: "Fieldwork", icon: NotebookTabs },
   { href: "/reporting", label: "Reporting", icon: FileStack },
+  { href: "/admin", label: "Admin", icon: CircleUserRound },
 ];
+
+const THEME_STORAGE_KEY = "theme-preference";
+type ThemeMode = "light" | "dark";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -52,15 +59,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [notificationItems, setNotificationItems] = useState<NotificationItem[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [themePreference, setThemePreference] = useState<ThemeMode | null>(null);
+  const [resolvedTheme, setResolvedTheme] = useState<ThemeMode>("light");
+  const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const activeUser = availableUsers.find((user) => user.id === activeUserId) ?? getUserById(activeUserId);
   const auditMode = "live" as const;
   const currentAudit = getCurrentAuditLabel(searchParams);
+  const currentCompany = getCurrentCompanyName(searchParams);
   const currentScopePeriod = getCurrentScopePeriodLabel(searchParams);
   const [resolvedScopePeriod, setResolvedScopePeriod] = useState(currentScopePeriod);
   const currentAuditQuery = buildAuditQuery(searchParams);
   const liveAuditId = searchParams.get("auditId");
   const switchableUsers = availableUsers;
   const notifications = notificationItems;
+  const themeToggleLabel = resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  const ThemeIcon = resolvedTheme === "dark" ? Sun : Moon;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const storedTheme = readStoredTheme();
+    const initialTheme = readDomTheme(root) ?? storedTheme ?? getSystemTheme();
+
+    setThemePreference(storedTheme);
+    setResolvedTheme(initialTheme);
+    applyTheme(initialTheme);
+  }, []);
+
+  useEffect(() => {
+    if (themePreference) {
+      applyTheme(themePreference);
+      window.localStorage.setItem(THEME_STORAGE_KEY, themePreference);
+      setResolvedTheme(themePreference);
+      return;
+    }
+
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncSystemTheme = () => {
+      const systemTheme = mediaQuery.matches ? "dark" : "light";
+      applyTheme(systemTheme);
+      setResolvedTheme(systemTheme);
+    };
+
+    syncSystemTheme();
+    mediaQuery.addEventListener("change", syncSystemTheme);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncSystemTheme);
+    };
+  }, [themePreference]);
 
   useEffect(() => {
     setResolvedScopePeriod(currentScopePeriod);
@@ -102,10 +149,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
     }
 
+    function handleAuditTeamUpdated(event: Event) {
+      const detail = event instanceof CustomEvent ? (event.detail as { auditId?: string } | undefined) : undefined;
+
+      if (!detail?.auditId || detail.auditId !== liveAuditId) {
+        return;
+      }
+
+      void loadSwitchableUsers();
+    }
+
     void loadSwitchableUsers();
+    window.addEventListener("audit-team-updated", handleAuditTeamUpdated);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("audit-team-updated", handleAuditTeamUpdated);
     };
   }, [auditMode, demoUsers, liveAuditId]);
 
@@ -198,9 +257,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ActiveUserContext.Provider value={{ activeUser, setActiveUserId }}>
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,168,0,0.18),_transparent_32%),linear-gradient(180deg,_#082346_0%,_#071a33_17rem,_#f4f2ee_17rem,_#f6f4ef_100%)] text-[var(--foreground)]">
+      <div className="min-h-screen text-[var(--foreground)]" style={{ background: "var(--app-shell-background)" }}>
         <div className="min-h-screen w-full px-4 py-2 lg:px-6">
-          <header className="relative z-40 rounded-[24px] border border-white/10 bg-[rgba(1,30,65,0.9)] px-4 py-3 shadow-panel backdrop-blur sm:px-5 lg:px-6">
+          <header className="relative z-40 rounded-[24px] border border-[color:var(--app-header-border)] bg-[var(--app-header-bg)] px-4 py-3 shadow-panel backdrop-blur sm:px-5 lg:px-6">
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 flex-1">
@@ -216,14 +275,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           priority
                         />
                       </Link>
-                      <h1 className="mt-1 text-xl font-semibold text-white lg:text-2xl">Internal Audit Platform</h1>
+                      <div className="mt-1">
+                        <h1 className="text-xl font-semibold text-[var(--app-header-text)] lg:text-2xl">AuditDESK</h1>
+                        <p className="mt-1 text-xs font-medium text-[var(--muted-on-dark)]">
+                          Audit | Documentation, Evidence, Stages, and Knowledge
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--muted-on-dark)]">A hub for internal audit management</p>
+                      </div>
                     </div>
 
-                    <div className="inline-flex flex-wrap items-center gap-2.5 self-start rounded-[16px] border border-white/10 bg-white/[0.04] px-3 py-2">
+                    <div className="inline-flex flex-wrap items-center gap-2.5 self-start rounded-[16px] border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] px-3 py-2">
                       <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
                         Current audit
                       </span>
-                      <span className="text-[13px] font-semibold text-white">{currentAudit}</span>
+                      <span className="text-[13px] font-semibold text-[var(--app-header-text)]">{currentAudit}</span>
                       {resolvedScopePeriod ? (
                         <>
                           <span className="text-[rgba(255,255,255,0.3)]" aria-hidden="true">
@@ -232,56 +297,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)]">
                             Scope period
                           </span>
-                          <span className="text-[13px] font-semibold text-white">{resolvedScopePeriod}</span>
+                          <span className="text-[13px] font-semibold text-[var(--app-header-text)]">{resolvedScopePeriod}</span>
                         </>
                       ) : null}
                     </div>
 
-                    <nav className="-mx-1 overflow-x-auto">
-                      <div className="flex min-w-max gap-2 px-1">
-                        {navItems.map((item) => {
-                          const Icon = item.icon;
-                          const isActive = pathname === item.href;
-
-                          return (
-                            <Link
-                              key={item.href}
-                              href={
-                                currentAuditQuery
-                                  ? {
-                                      pathname: item.href,
-                                      query: currentAuditQuery,
-                                    }
-                                  : item.href
-                              }
-                              className={cn(
-                                "group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-all duration-200",
-                                isActive
-                                  ? "bg-[rgba(245,168,0,0.14)] text-white shadow-glow"
-                                  : "border border-white/10 bg-white/[0.04] text-[var(--muted-on-dark)] hover:bg-white/10 hover:text-white",
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
-                                  isActive
-                                    ? "border-[rgba(245,168,0,0.38)] bg-[rgba(245,168,0,0.18)]"
-                                    : "border-white/10 bg-white/5 group-hover:border-white/20",
-                                )}
-                              >
-                                <Icon size={17} />
-                              </span>
-                              <span className="whitespace-nowrap font-medium">{item.label}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </nav>
                   </div>
                 </div>
 
                 <div className="relative z-20 flex flex-col items-start gap-2 self-start lg:items-end lg:self-start">
                   <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      title={themeToggleLabel}
+                      aria-label={themeToggleLabel}
+                      aria-pressed={resolvedTheme === "dark"}
+                      onClick={() => {
+                        setThemePreference((current) => {
+                          const currentTheme = current ?? resolvedTheme;
+                          return currentTheme === "dark" ? "light" : "dark";
+                        });
+                        setShowNotifications(false);
+                        setShowProfileMenu(false);
+                      }}
+                      className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] text-[var(--muted-on-dark)] transition-colors hover:bg-[var(--app-header-surface-hover)] hover:text-[var(--app-header-text)]"
+                    >
+                      <ThemeIcon size={17} />
+                    </button>
                     <button
                       type="button"
                       title="Notifications"
@@ -290,8 +332,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         setShowProfileMenu(false);
                       }}
                       className={cn(
-                        "relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[var(--muted-on-dark)] transition-colors hover:bg-white/10 hover:text-white",
-                        showNotifications && "bg-white/10 text-white",
+                        "relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] text-[var(--muted-on-dark)] transition-colors hover:bg-[var(--app-header-surface-hover)] hover:text-[var(--app-header-text)]",
+                        showNotifications && "bg-[var(--app-header-surface-hover)] text-[var(--app-header-text)]",
                       )}
                     >
                       <BellRing size={17} />
@@ -306,20 +348,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         setShowProfileMenu((current) => !current);
                         setShowNotifications(false);
                       }}
-                      className="inline-flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/5 px-3 py-1.5 text-left text-[var(--muted-on-dark)] transition-colors hover:bg-white/10 hover:text-white"
+                      className="inline-flex items-center gap-2.5 rounded-2xl border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] px-3 py-1.5 text-left text-[var(--muted-on-dark)] transition-colors hover:bg-[var(--app-header-surface-hover)] hover:text-[var(--app-header-text)]"
                     >
                       <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[rgba(245,168,0,0.24)] bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-bright)]">
                         <CircleUserRound size={16} />
                       </span>
                       <span className="hidden sm:block">
-                        <span className="block text-[13px] font-semibold text-white">{activeUser.name}</span>
+                        <span className="block text-[13px] font-semibold text-[var(--app-header-text)]">{activeUser.name}</span>
                         <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">{getUserProfileLabel(activeUser)}</span>
                       </span>
                     </button>
                   </div>
 
                   {showNotifications ? (
-                    <div className="z-50 w-full max-w-[360px] rounded-[24px] border border-white/10 bg-[rgba(7,26,51,0.96)] p-4 shadow-[0_24px_60px_rgba(0,0,0,0.28)] lg:fixed lg:right-6 lg:top-20">
+                    <div className="z-50 w-full max-w-[360px] rounded-[24px] border border-[color:var(--app-header-border)] bg-[var(--app-header-panel-bg)] p-4 lg:fixed lg:right-6 lg:top-20" style={{ boxShadow: "var(--app-header-panel-shadow)" }}>
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-bright)]">
@@ -329,7 +371,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             Workflow updates for {activeUser.name}.
                           </p>
                         </div>
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-white">
+                        <span className="rounded-full border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--app-header-text)]">
                           {auditMode === "live" ? unreadNotificationCount : notifications.length} new
                         </span>
                       </div>
@@ -337,7 +379,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <div className="mt-4 grid gap-3">
                         {notifications.length > 0 ? (
                           notifications.map((item) => (
-                            <div key={item.id} className="rounded-[18px] border border-white/10 bg-white/[0.04] p-3">
+                            <div key={item.id} className="rounded-[18px] border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] p-3">
                               <div className="flex items-start justify-between gap-3">
                                 <button
                                   type="button"
@@ -361,7 +403,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                   </span>
                                   <div className="min-w-0 flex-1">
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <p className="text-sm font-semibold text-white">{item.title}</p>
+                                      <p className="text-sm font-semibold text-[var(--app-header-text)]">{item.title}</p>
                                       {item.status === "unread" ? (
                                         <span className="rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-amber-bright)]">
                                           Unread
@@ -381,7 +423,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                       onClick={() => {
                                         void handleNotificationAction(item.id);
                                       }}
-                                      className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-on-dark)] transition-colors hover:bg-white/10 hover:text-white"
+                                      className="rounded-full border border-[color:var(--app-header-border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-on-dark)] transition-colors hover:bg-[var(--app-header-surface-hover)] hover:text-[var(--app-header-text)]"
                                     >
                                       Dismiss
                                     </button>
@@ -391,7 +433,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             </div>
                           ))
                         ) : (
-                          <div className="rounded-[18px] border border-white/10 bg-white/[0.04] p-4 text-sm text-[var(--muted-on-dark)]">
+                          <div className="rounded-[18px] border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] p-4 text-sm text-[var(--muted-on-dark)]">
                             No notifications are waiting for {activeUser.name}.
                           </div>
                         )}
@@ -400,7 +442,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ) : null}
 
                   {showProfileMenu ? (
-                    <div className="z-50 w-full min-w-[300px] max-w-[340px] rounded-[24px] border border-white/10 bg-[rgba(7,26,51,0.96)] p-4 shadow-[0_24px_60px_rgba(0,0,0,0.28)] lg:absolute lg:right-0 lg:top-14">
+                    <div className="z-50 w-full min-w-[300px] max-w-[340px] rounded-[24px] border border-[color:var(--app-header-border)] bg-[var(--app-header-panel-bg)] p-4 lg:absolute lg:right-0 lg:top-14" style={{ boxShadow: "var(--app-header-panel-shadow)" }}>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-amber-bright)]">Switch active user</p>
                       <p className="mt-1 text-sm text-[var(--muted-on-dark)]">
                         Preview the workflow from audit preparation and final reporting reviewer perspectives.
@@ -418,11 +460,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               "flex items-center justify-between rounded-[18px] border px-3 py-3 text-left transition-colors",
                               activeUser.id === user.id
                                 ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)]"
-                                : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]",
+                                : "border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] hover:bg-[var(--app-header-surface-hover)]",
                             )}
                           >
                             <span>
-                              <span className="block text-sm font-semibold text-white">{user.name}</span>
+                              <span className="block text-sm font-semibold text-[var(--app-header-text)]">{user.name}</span>
                               <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted-on-dark)]">{getUserProfileLabel(user)}</span>
                             </span>
                             {activeUser.id === user.id ? (
@@ -445,16 +487,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     >
                       Supabase live data
                     </span>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--muted-on-dark)]">
-                      Midwest Financial Corp
+                    <span className="rounded-full border border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--muted-on-dark)]">
+                      {currentCompany}
                     </span>
                   </div>
                   <div className="w-full lg:flex lg:justify-end">
                     <DashboardPhaseSelector
                       phase={getCurrentPhase(searchParams)}
-                      className="w-full border-white/10 bg-white/[0.04] text-white shadow-none sm:w-auto"
+                      className="w-full border-[color:var(--app-header-border)] bg-[var(--app-header-surface)] text-[var(--app-header-text)] shadow-none sm:w-auto"
                       labelClassName="text-[var(--muted-on-dark)]"
-                      selectClassName="border-white/10 bg-[rgba(255,255,255,0.08)] text-white hover:bg-[rgba(255,255,255,0.12)] focus:bg-[rgba(255,255,255,0.12)]"
+                      optionClassName="bg-[var(--surface)] text-[var(--foreground)]"
+                      selectClassName="border-[color:var(--app-header-border)] bg-[var(--app-header-surface-hover)] text-[var(--app-header-text)] hover:bg-[var(--app-header-surface-hover)] focus:bg-[var(--app-header-surface-hover)]"
                     />
                   </div>
                 </div>
@@ -462,9 +505,78 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="mt-4 rounded-[32px] border border-black/5 bg-[rgba(247,245,240,0.96)] p-4 shadow-panel backdrop-blur sm:p-6 lg:p-8">
-            {children}
-          </main>
+          <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-stretch">
+            <aside
+              className={cn(
+                "lg:sticky lg:top-6 lg:flex-shrink-0 lg:self-start",
+                isNavCollapsed ? "lg:w-[96px]" : "lg:w-[220px]",
+              )}
+            >
+              <nav className="rounded-[28px] border border-[color:var(--main-border)] bg-[var(--main-bg)] p-3 shadow-panel backdrop-blur sm:p-4 lg:min-h-[calc(100vh-7.5rem)]">
+                <div className="mb-3 flex items-center justify-between gap-2 px-2 lg:mb-4">
+                  <p className={cn("text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]", isNavCollapsed && "lg:hidden")}>
+                    Navigation
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsNavCollapsed((current) => !current)}
+                    className="hidden h-9 w-9 items-center justify-center rounded-xl border border-[color:var(--main-border)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)] lg:inline-flex"
+                    aria-label={isNavCollapsed ? "Expand navigation" : "Collapse navigation"}
+                    title={isNavCollapsed ? "Expand navigation" : "Collapse navigation"}
+                  >
+                    {isNavCollapsed ? ">" : "<"}
+                  </button>
+                </div>
+                <div className="-mx-1 overflow-x-auto lg:mx-0 lg:overflow-visible">
+                  <div className="flex min-w-max gap-2 px-1 lg:min-w-0 lg:flex-col lg:px-0">
+                    {navItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = pathname === item.href;
+
+                      return (
+                        <Link
+                          key={item.href}
+                          href={
+                            currentAuditQuery
+                              ? {
+                                  pathname: item.href,
+                                  query: currentAuditQuery,
+                                }
+                              : item.href
+                          }
+                          className={cn(
+                            "group flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-200",
+                            isNavCollapsed && "lg:justify-center lg:px-2",
+                            isActive
+                              ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] text-[var(--foreground)] shadow-glow"
+                              : "border-[color:var(--main-border)] bg-white/70 text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]",
+                          )}
+                          >
+                            <span
+                              className={cn(
+                                "flex h-9 w-9 items-center justify-center rounded-xl border transition-colors",
+                                isActive
+                                ? "border-[rgba(245,168,0,0.34)] bg-[rgba(245,168,0,0.16)] text-[var(--brand-amber-dark)]"
+                                : "border-[color:var(--main-border)] bg-[var(--surface)] text-[var(--foreground)] group-hover:border-[rgba(1,30,65,0.14)]",
+                            )}
+                            >
+                              <Icon size={17} />
+                            </span>
+                          <span className={cn("min-w-0 flex-1 text-[13px] font-medium leading-5 break-words", isNavCollapsed && "lg:hidden")}>
+                            {item.label}
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              </nav>
+            </aside>
+
+            <main className="min-w-0 flex-1 rounded-[32px] border border-[color:var(--main-border)] bg-[var(--main-bg)] p-4 shadow-panel backdrop-blur sm:p-6 lg:p-8">
+              {children}
+            </main>
+          </div>
         </div>
       </div>
     </ActiveUserContext.Provider>
@@ -495,17 +607,26 @@ function buildAuditQuery(searchParams: ReturnType<typeof useSearchParams>) {
   const auditId = searchParams.get("auditId");
   const auditLabel = searchParams.get("auditLabel");
   const scopePeriodLabel = searchParams.get("scopePeriodLabel");
+  const companyName = searchParams.get("companyName");
   const phase = searchParams.get("phase");
   const sync = searchParams.get("sync");
 
   if (auditId) {
     const baseQuery = auditLabel
       ? scopePeriodLabel
-        ? { mode: "live", auditId, auditLabel, scopePeriodLabel }
-        : { mode: "live", auditId, auditLabel }
+        ? companyName
+          ? { mode: "live", auditId, auditLabel, companyName, scopePeriodLabel }
+          : { mode: "live", auditId, auditLabel, scopePeriodLabel }
+        : companyName
+          ? { mode: "live", auditId, auditLabel, companyName }
+          : { mode: "live", auditId, auditLabel }
       : scopePeriodLabel
-        ? { mode: "live", auditId, scopePeriodLabel }
-        : { mode: "live", auditId };
+        ? companyName
+          ? { mode: "live", auditId, companyName, scopePeriodLabel }
+          : { mode: "live", auditId, scopePeriodLabel }
+        : companyName
+          ? { mode: "live", auditId, companyName }
+          : { mode: "live", auditId };
     const queryWithPhase = phase ? { ...baseQuery, phase } : baseQuery;
     return sync ? { ...queryWithPhase, sync } : queryWithPhase;
   }
@@ -515,6 +636,10 @@ function buildAuditQuery(searchParams: ReturnType<typeof useSearchParams>) {
 
 function getCurrentAuditLabel(searchParams: ReturnType<typeof useSearchParams>) {
   return searchParams.get("auditLabel")?.trim() || "Live audit workspace";
+}
+
+function getCurrentCompanyName(searchParams: ReturnType<typeof useSearchParams>) {
+  return searchParams.get("companyName")?.trim() || DEFAULT_COMPANY_NAME;
 }
 
 function getCurrentScopePeriodLabel(searchParams: ReturnType<typeof useSearchParams>) {
@@ -529,6 +654,25 @@ function getCurrentPhase(searchParams: ReturnType<typeof useSearchParams>) {
   }
 
   return "Planning";
+}
+
+function applyTheme(theme: ThemeMode) {
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+}
+
+function getSystemTheme(): ThemeMode {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function readStoredTheme(): ThemeMode | null {
+  const value = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return value === "dark" || value === "light" ? value : null;
+}
+
+function readDomTheme(root: HTMLElement): ThemeMode | null {
+  const value = root.dataset.theme;
+  return value === "dark" || value === "light" ? value : null;
 }
 
 function selectSwitcherUsers(userPool: User[], supplementalUsers: User[] = []) {

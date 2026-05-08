@@ -32,7 +32,7 @@ export function PageHeader({
         {eyebrow ? <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-indigo-core)]">{eyebrow}</p> : null}
         <h1
           className={`font-semibold tracking-tight text-[var(--foreground)] ${
-            eyebrow ? (isDashboardCompact ? "mt-2 text-[2rem] leading-tight lg:text-[2.35rem]" : "mt-3 text-4xl") : isDashboardCompact ? "text-[2rem] leading-tight lg:text-[2.35rem]" : "text-4xl"
+            eyebrow ? (isDashboardCompact ? "mt-2 text-[1.65rem] leading-tight lg:text-[1.9rem]" : "mt-3 text-[2rem] lg:text-[2.35rem]") : isDashboardCompact ? "text-[1.65rem] leading-tight lg:text-[1.9rem]" : "text-[2rem] lg:text-[2.35rem]"
           }`}
         >
           {title}

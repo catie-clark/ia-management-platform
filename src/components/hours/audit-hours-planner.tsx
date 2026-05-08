@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarRange, PieChart, Save } from "lucide-react";
+import { Save } from "lucide-react";
 
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -39,7 +39,6 @@ export function AuditHoursPlanner({
   const router = useRouter();
   const { showNotification } = useNotification();
   const [isPending, startTransition] = useTransition();
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [totalBudgetInput, setTotalBudgetInput] = useState(toNumericInputValue(totalBudgetHours));
   const [periodStartInput, setPeriodStartInput] = useState(toDateInputValue(periodStart));
   const [periodEndInput, setPeriodEndInput] = useState(toDateInputValue(periodEnd));
@@ -102,391 +101,296 @@ export function AuditHoursPlanner({
   const planningEndPreview = fieldworkStartInput || "Not set";
   const fieldworkEndPreview = reportingStartInput || "Not set";
   const reportingEndPreview = periodEndInput || "Not set";
+  const phaseEndPreviewByPhase: Record<AuditPhase, string> = {
+    Planning: planningEndPreview,
+    Fieldwork: fieldworkEndPreview,
+    Reporting: reportingEndPreview,
+  };
+  const phaseStartInputByPhase: Record<AuditPhase, string> = {
+    Planning: planningStartInput,
+    Fieldwork: fieldworkStartInput,
+    Reporting: reportingStartInput,
+  };
+  const liveAuditTotalValue = parsedTotalBudget === null ? "Not set" : formatHours(parsedTotalBudget);
+  const livePlannedHoursValue = formatHours(plannedHourSum);
+  const liveEnteredSplitValue = hasUsableTotalBudget ? `${formatPercent(enteredPercentageSum)}%` : "Not active";
+  const liveScheduleStart = planningStartInput || periodStartInput;
+  const liveScheduleEnd = reportingEndPreview !== "Not set" ? reportingEndPreview : periodEndInput;
+  const liveScheduleWindowValue =
+    liveScheduleStart && liveScheduleEnd ? `${formatShortDate(liveScheduleStart)} - ${formatShortDate(liveScheduleEnd)}` : "Not set";
 
   return (
-    <>
-      <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+    <section className="border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+      <div className="border-b border-black/5 px-5 py-4 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Planning allocator</p>
-            <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Phase hours planner</h2>
-            <p className="mt-2 text-sm text-[var(--muted)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Planning workspace</p>
+            <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Phase hours plan</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
               {canEdit
-                ? "Launch the planner to set the audit total, split hours by percentage or manual entry, and lock in the phase start schedule."
+                ? "Set the audit total, allocate hours by phase and maintain the working schedule in one workspace."
                 : currentPhase !== "Planning"
-                  ? "This planner is editable during planning only. Later phases keep the saved budget and schedule."
+                  ? "This workspace is editable during planning only. Later phases keep the saved budget and schedule."
                   : "Prototype mode shows the current sample allocation only."}
             </p>
           </div>
 
-          <button
-            type="button"
-            disabled={!canEdit}
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <PieChart size={16} />
-            Open planner
-          </button>
-        </div>
-
-        <div className="mt-6 grid gap-3">
-          <SummaryRow
-            label="Audit total target"
-            value={totalBudgetHours === null ? "Not set" : formatHours(totalBudgetHours)}
-            detail="Budget target captured at the audit level and used to guide phase allocations."
-          />
-          {phaseBudgets.map((phaseBudget) => (
-            <SummaryRow
-              key={phaseBudget.phase}
-              label={`${phaseBudget.phase} plan`}
-              value={phaseBudget.isSet ? formatHours(phaseBudget.plannedHours) : "Not set"}
-              detail={
-                phaseBudget.phase === "Planning"
-                  ? `Starts ${formatShortDate(planningStartDate ?? periodStart ?? undefined)} and ends ${formatShortDate(fieldworkStartDate ?? undefined)}`
-                  : phaseBudget.phase === "Fieldwork"
-                    ? `Starts ${formatShortDate(fieldworkStartDate ?? undefined)} and ends ${formatShortDate(reportingStartDate ?? undefined)}`
-                    : `Starts ${formatShortDate(reportingStartDate ?? undefined)} and ends ${formatShortDate(periodEnd ?? undefined)}`
-              }
-            />
-          ))}
-        </div>
-      </section>
-
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(1,30,65,0.42)] p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="flex min-h-full items-start justify-center py-2 sm:py-6">
-            <div className="w-full max-w-5xl rounded-[30px] border border-black/5 bg-[#fbfaf7] p-6 text-[var(--foreground)] shadow-[0_24px_80px_rgba(1,30,65,0.22)] sm:p-8">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Hours and schedule planner</p>
-                  <h3 className="mt-3 text-2xl font-semibold">Allocate total audit hours across phases</h3>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-                    Start with the audit total, use percentages to distribute hours, then adjust planned hours directly if needed.
-                    Phase end dates are derived automatically from the next phase start and the audit end date.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="mt-6 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-                <section className="grid gap-4">
-                  <div className="rounded-[24px] border border-black/5 bg-white p-5">
-                    <div className="flex items-start gap-3">
-                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-tint)] text-[var(--brand-indigo-core)]">
-                        <PieChart size={18} />
-                      </span>
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Budget target</p>
-                        <Field label="Total audit hours">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            value={totalBudgetInput}
-                            onChange={(event) => setTotalBudgetInput(event.target.value)}
-                            className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-3 py-2 text-sm font-medium text-[var(--foreground)] outline-none"
-                          />
-                        </Field>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <StatPill label="Phase hour sum" value={formatHours(plannedHourSum)} tone={exceedsTotalBudget ? "risk" : "neutral"} />
-                      <StatPill
-                        label="Entered split"
-                        value={`${enteredPercentageSum.toFixed(0)}%`}
-                        tone={enteredPercentageSum === 100 || !hasUsableTotalBudget ? "success" : "warning"}
-                      />
-                    </div>
-                    {parsedTotalBudget === null ? (
-                      <p className="mt-4 rounded-[18px] border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--muted)]">
-                        Add a total hour target to enable percentage-based allocation. Manual phase-hour entry still works.
-                      </p>
-                    ) : null}
-                    {exceedsTotalBudget ? (
-                      <p className="mt-4 rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
-                        Planned phase hours exceed the audit total by {formatHours(plannedHourSum - parsedTotalBudget)}. You can still save this override.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="grid gap-3">
-                    {phases.map((phase) => {
-                      const actualHours = phaseBudgets.find((item) => item.phase === phase)?.actualHours ?? 0;
-
-                      return (
-                        <div key={phase} className="rounded-[24px] border border-black/5 bg-white p-5">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-semibold text-[var(--foreground)]">{phase}</p>
-                                {phase === currentPhase ? <StatusBadge status="Current phase" tone="warning" /> : null}
-                              </div>
-                              <p className="mt-1 text-sm text-[var(--muted)]">{formatHours(actualHours)} actual synced so far</p>
-                            </div>
-                          </div>
-                          <div className="mt-4 grid gap-3 md:grid-cols-2">
-                            <Field label="Percent of total">
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                disabled={!hasUsableTotalBudget}
-                                value={percentageInputs[phase]}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setPercentageInputs((current) => ({ ...current, [phase]: value }));
-                                  const parsedPercentage = parseNullableNumber(value);
-                                  setHourInputs((current) => ({
-                                    ...current,
-                                    [phase]:
-                                      parsedPercentage === null || parsedTotalBudget === null
-                                        ? value.trim().length === 0
-                                          ? ""
-                                          : current[phase]
-                                        : formatPlannerNumber((parsedTotalBudget * parsedPercentage) / 100),
-                                  }));
-                                }}
-                                className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-3 py-2 text-sm font-medium text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:bg-[#f3f1ec]"
-                              />
-                            </Field>
-                            <Field label="Planned hours">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={hourInputs[phase]}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setHourInputs((current) => ({ ...current, [phase]: value }));
-                                  const parsedValue = parseNullableNumber(value);
-                                  setPercentageInputs((current) => ({
-                                    ...current,
-                                    [phase]:
-                                      parsedValue === null || parsedTotalBudget === null || parsedTotalBudget === 0
-                                        ? value.trim().length === 0
-                                          ? ""
-                                          : current[phase]
-                                        : formatPlannerNumber((parsedValue / parsedTotalBudget) * 100),
-                                  }));
-                                }}
-                                className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-3 py-2 text-sm font-medium text-[var(--foreground)] outline-none"
-                              />
-                            </Field>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className="grid gap-4">
-                  <div className="rounded-[24px] border border-black/5 bg-white p-5">
-                    <div className="flex items-start gap-3">
-                      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-tint)] text-[var(--brand-indigo-core)]">
-                        <CalendarRange size={18} />
-                      </span>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Phase schedule</p>
-                        <h4 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Set audit and phase start dates</h4>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <Field label="Audit start">
-                        <input
-                          type="date"
-                          value={periodStartInput}
-                          onChange={(event) => {
-                            setPeriodStartInput(event.target.value);
-                            if (!planningStartInput || planningStartInput < event.target.value) {
-                              setPlanningStartInput(event.target.value);
-                            }
-                          }}
-                          className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-3 py-2 text-sm font-medium text-[var(--foreground)] outline-none"
-                        />
-                      </Field>
-                      <Field label="Audit end">
-                        <input
-                          type="date"
-                          value={periodEndInput}
-                          onChange={(event) => setPeriodEndInput(event.target.value)}
-                          className="w-full rounded-2xl border border-black/10 bg-[#fbfaf7] px-3 py-2 text-sm font-medium text-[var(--foreground)] outline-none"
-                        />
-                      </Field>
-                    </div>
-
-                    <div className="mt-4 grid gap-3">
-                      <PlannerDateRow
-                        label="Planning"
-                        startValue={planningStartInput}
-                        endValue={planningEndPreview}
-                        onStartChange={setPlanningStartInput}
-                      />
-                      <PlannerDateRow
-                        label="Fieldwork"
-                        startValue={fieldworkStartInput}
-                        endValue={fieldworkEndPreview}
-                        onStartChange={setFieldworkStartInput}
-                      />
-                      <PlannerDateRow
-                        label="Reporting"
-                        startValue={reportingStartInput}
-                        endValue={reportingEndPreview}
-                        onStartChange={setReportingStartInput}
-                      />
-                    </div>
-
-                    {hasInvalidDateRange ? (
-                      <p className="mt-4 rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
-                        Dates must stay in order: audit start, planning start, fieldwork start, reporting start, then audit end.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-[24px] border border-black/5 bg-white p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Derived schedule</p>
-                    <div className="mt-4 grid gap-3">
-                      <ScheduleLine label="Planning end" value={planningEndPreview} />
-                      <ScheduleLine label="Fieldwork end" value={fieldworkEndPreview} />
-                      <ScheduleLine label="Reporting end" value={reportingEndPreview} />
-                    </div>
-                  </div>
-                </section>
-              </div>
-
-              <div className="mt-6 flex flex-col gap-3 border-t border-black/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-[var(--muted)]">
-                  Saving updates the audit total, phase budgets, and phase start schedule in one step.
-                </p>
-                <button
-                  type="button"
-                  disabled={isPending || !canEdit || !hasChanges || hasInvalidDateRange || hasInvalidHours || periodStartInput.length === 0 || periodEndInput.length === 0}
-                  onClick={() => {
-                    startTransition(async () => {
-                      try {
-                        const response = await fetch(`/api/audits/${auditId}/planner`, {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                          },
-                          body: JSON.stringify({
-                            totalBudgetHours: parsedTotalBudget,
-                            planningBudgetHours: parsedHours.Planning,
-                            fieldworkBudgetHours: parsedHours.Fieldwork,
-                            reportingBudgetHours: parsedHours.Reporting,
-                            periodStart: periodStartInput,
-                            periodEnd: periodEndInput,
-                            planningStartDate: toNullableDateInputValue(planningStartInput) ?? periodStartInput,
-                            fieldworkStartDate: toNullableDateInputValue(fieldworkStartInput),
-                            reportingStartDate: toNullableDateInputValue(reportingStartInput),
-                          }),
-                        });
-                        const result = (await response.json()) as { error?: string };
-
-                        if (!response.ok) {
-                          throw new Error(result.error ?? "Unable to save the audit planner.");
-                        }
-
-                        showNotification({
-                          title: "Planner saved",
-                          message: exceedsTotalBudget
-                            ? "Planner saved with a manual over-allocation above the audit total."
-                            : "Audit hours and phase schedule were saved successfully.",
-                          tone: "success",
-                        });
-                        setIsModalOpen(false);
-                        router.refresh();
-                      } catch (error) {
-                        showNotification({
-                          title: "Save failed",
-                          message: error instanceof Error ? error.message : "There was an error saving the audit planner.",
-                          tone: "error",
-                        });
-                      }
+          <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
+            <StatusBadge status={currentPhase === "Planning" ? "Editable in planning" : "Read only"} tone={currentPhase === "Planning" && canEdit ? "success" : "neutral"} />
+            <button
+              type="button"
+              disabled={isPending || !canEdit || !hasChanges || hasInvalidDateRange || hasInvalidHours || periodStartInput.length === 0 || periodEndInput.length === 0}
+              onClick={() => {
+                startTransition(async () => {
+                  try {
+                    const response = await fetch(`/api/audits/${auditId}/planner`, {
+                      method: "PATCH",
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        totalBudgetHours: parsedTotalBudget,
+                        planningBudgetHours: parsedHours.Planning,
+                        fieldworkBudgetHours: parsedHours.Fieldwork,
+                        reportingBudgetHours: parsedHours.Reporting,
+                        periodStart: periodStartInput,
+                        periodEnd: periodEndInput,
+                        planningStartDate: toNullableDateInputValue(planningStartInput) ?? periodStartInput,
+                        fieldworkStartDate: toNullableDateInputValue(fieldworkStartInput),
+                        reportingStartDate: toNullableDateInputValue(reportingStartInput),
+                      }),
                     });
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Save size={16} />
-                  {isPending ? "Saving..." : "Save planner"}
-                </button>
-              </div>
-            </div>
+                    const result = (await response.json()) as { error?: string };
+
+                    if (!response.ok) {
+                      throw new Error(result.error ?? "Unable to save the audit planner.");
+                    }
+
+                    showNotification({
+                      title: "Planner saved",
+                      message: exceedsTotalBudget
+                        ? "Planner saved with a manual over-allocation above the audit total."
+                        : "Audit hours and phase schedule were saved successfully.",
+                      tone: "success",
+                    });
+                    router.refresh();
+                  } catch (error) {
+                    showNotification({
+                      title: "Save failed",
+                      message: error instanceof Error ? error.message : "There was an error saving the audit planner.",
+                      tone: "error",
+                    });
+                  }
+                });
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand-indigo-core)] px-3.5 py-2 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save size={16} />
+              {isPending ? "Saving..." : "Save plan"}
+            </button>
           </div>
         </div>
-      ) : null}
-    </>
-  );
-}
-
-function SummaryRow({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-[22px] bg-[var(--surface-tint)] px-4 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-[var(--foreground)]">{label}</p>
-          <p className="mt-1 text-sm text-[var(--muted)]">{detail}</p>
-        </div>
-        <p className="text-sm font-semibold text-[var(--foreground)]">{value}</p>
       </div>
-    </div>
-  );
-}
 
-function StatPill({ label, value, tone }: { label: string; value: string; tone: "neutral" | "warning" | "risk" | "success" }) {
-  return (
-    <div className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-      <div className="mt-2 flex items-center gap-2">
-        <p className="text-lg font-semibold text-[var(--foreground)]">{value}</p>
-        <StatusBadge status={label} tone={tone} />
-      </div>
-    </div>
-  );
-}
-
-function PlannerDateRow({
-  label,
-  startValue,
-  endValue,
-  onStartChange,
-}: {
-  label: string;
-  startValue: string;
-  endValue: string;
-  onStartChange: (value: string) => void;
-}) {
-  return (
-    <div className="rounded-[20px] bg-[var(--surface-tint)] px-4 py-4">
-      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-        <Field label={`${label} start`}>
-          <input
-            type="date"
-            value={startValue}
-            onChange={(event) => onStartChange(event.target.value)}
-            className="w-full rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-[var(--foreground)] outline-none"
+      <div className="px-5 py-4 sm:px-6">
+        <div className="grid gap-px border border-black/5 bg-black/5 sm:grid-cols-2 xl:grid-cols-4">
+          <CompactStat label="Audit total target" value={liveAuditTotalValue} detail="Audit-level budget target" />
+          <CompactStat label="Planned hours" value={livePlannedHoursValue} detail="Current phase plan total" />
+          <CompactStat
+            label="Entered split"
+            value={liveEnteredSplitValue}
+            detail={hasUsableTotalBudget ? "Percent of total allocated" : "Add a total to enable split logic"}
           />
-        </Field>
-        <div className="rounded-full bg-white px-4 py-2 text-sm font-medium text-[var(--foreground)]">
-          Ends: {endValue === "Not set" ? endValue : formatShortDate(endValue)}
+          <CompactStat
+            label="Schedule window"
+            value={liveScheduleWindowValue}
+            detail="Current working schedule range"
+          />
+        </div>
+
+        {(parsedTotalBudget === null || exceedsTotalBudget || hasInvalidDateRange || hasInvalidHours) ? (
+          <div className="mt-4 grid gap-2">
+            {parsedTotalBudget === null ? (
+              <AlertRow tone="warning">
+                Add a total hour target to enable percentage-based allocation. Manual phase-hour entry still works.
+              </AlertRow>
+            ) : null}
+            {exceedsTotalBudget ? (
+              <AlertRow tone="risk">
+                Planned phase hours exceed the audit total by {formatHours(plannedHourSum - parsedTotalBudget)}. You can still save this override.
+              </AlertRow>
+            ) : null}
+            {hasInvalidDateRange ? (
+              <AlertRow tone="risk">
+                Dates must stay in order: audit start, planning start, fieldwork start, reporting start, then audit end.
+              </AlertRow>
+            ) : null}
+            {hasInvalidHours ? (
+              <AlertRow tone="risk">
+                Review the entered hours and percentages. Values must be non-negative numbers.
+              </AlertRow>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-4 overflow-x-auto border border-black/5">
+          <table className="min-w-full border-collapse">
+            <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                <th className="border-b border-black/5 px-4 py-3">Phase</th>
+                <th className="border-b border-black/5 px-4 py-3">Actual</th>
+                <th className="border-b border-black/5 px-4 py-3">Percent of total</th>
+                <th className="border-b border-black/5 px-4 py-3">Planned hours</th>
+                <th className="border-b border-black/5 px-4 py-3">Phase start</th>
+                <th className="border-b border-black/5 px-4 py-3">Phase end</th>
+                <th className="border-b border-black/5 px-4 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-black/5 bg-[var(--surface-soft)] align-top">
+                <td className="px-4 py-3 text-sm font-medium text-[var(--foreground)]">Audit total</td>
+                <td className="px-4 py-3 text-sm text-[var(--muted)]">All phases</td>
+                <td className="px-4 py-3 text-sm text-[var(--muted)]">{hasUsableTotalBudget ? "100%" : "Not active"}</td>
+                <td className="px-4 py-3">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    disabled={!canEdit}
+                    value={totalBudgetInput}
+                    onChange={(event) => setTotalBudgetInput(event.target.value)}
+                    className="w-full min-w-[140px] rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:bg-[var(--surface-tint)]"
+                  />
+                </td>
+                <td className="px-4 py-3 text-sm text-[var(--muted)]">{periodStartInput ? formatShortDate(periodStartInput) : "Not set"}</td>
+                <td className="px-4 py-3 text-sm text-[var(--muted)]">{periodEndInput ? formatShortDate(periodEndInput) : "Not set"}</td>
+                <td className="px-4 py-3"><StatusBadge status="Audit baseline" tone="neutral" /></td>
+              </tr>
+              {phases.map((phase) => {
+                const actualHours = phaseBudgets.find((item) => item.phase === phase)?.actualHours ?? 0;
+
+                return (
+                  <tr key={phase} className="border-b border-black/5 bg-white align-top last:border-b-0">
+                    <td className="px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{phase}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">Phase allocation and start boundary</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-[var(--muted)]">{formatHours(actualHours)}</td>
+                    <td className="px-4 py-3">
+                      <div className="relative min-w-[132px]">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          disabled={!canEdit || !hasUsableTotalBudget}
+                          value={percentageInputs[phase]}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setPercentageInputs((current) => ({ ...current, [phase]: value }));
+                            const parsedPercentage = parseNullableNumber(value);
+                            setHourInputs((current) => ({
+                              ...current,
+                              [phase]:
+                                parsedPercentage === null || parsedTotalBudget === null
+                                  ? value.trim().length === 0
+                                    ? ""
+                                    : current[phase]
+                                  : formatPlannerNumber((parsedTotalBudget * parsedPercentage) / 100),
+                            }));
+                          }}
+                          className="w-full rounded-md border border-black/10 bg-white px-3 py-2 pr-8 text-sm text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:bg-[var(--surface-tint)]"
+                        />
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-[var(--muted)]">%</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        disabled={!canEdit}
+                        value={hourInputs[phase]}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setHourInputs((current) => ({ ...current, [phase]: value }));
+                          const parsedValue = parseNullableNumber(value);
+                          setPercentageInputs((current) => ({
+                            ...current,
+                            [phase]:
+                              parsedValue === null || parsedTotalBudget === null || parsedTotalBudget === 0
+                                ? value.trim().length === 0
+                                  ? ""
+                                  : current[phase]
+                                : formatPlannerNumber((parsedValue / parsedTotalBudget) * 100),
+                          }));
+                        }}
+                        className="w-full min-w-[132px] rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:bg-[var(--surface-tint)]"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="date"
+                        disabled={!canEdit}
+                        value={phaseStartInputByPhase[phase]}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          if (phase === "Planning") {
+                            setPlanningStartInput(nextValue);
+                            return;
+                          }
+                          if (phase === "Fieldwork") {
+                            setFieldworkStartInput(nextValue);
+                            return;
+                          }
+                          setReportingStartInput(nextValue);
+                        }}
+                        className="w-full min-w-[160px] rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:bg-[var(--surface-tint)]"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-sm text-[var(--muted)]">
+                      {phaseEndPreviewByPhase[phase] === "Not set" ? "Not set" : formatShortDate(phaseEndPreviewByPhase[phase])}
+                    </td>
+                    <td className="px-4 py-3">
+                      {phase === currentPhase ? <StatusBadge status="Current phase" tone="warning" /> : <StatusBadge status="Planned phase" tone="neutral" />}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 border-t border-black/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-[var(--muted)]">Saving updates the audit total, phase budgets and phase start schedule in one step.</p>
+          {!canEdit ? <p className="text-sm font-medium text-[var(--muted)]">Editing is available on live audits during planning.</p> : null}
         </div>
       </div>
+    </section>
+  );
+}
+
+function CompactStat({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="bg-white px-4 py-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--foreground)]">{value}</p>
+      <p className="mt-1 text-sm text-[var(--muted)]">{detail}</p>
     </div>
   );
 }
 
-function ScheduleLine({ label, value }: { label: string; value: string }) {
+function AlertRow({ tone, children }: { tone: "warning" | "risk"; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
-      <p className="text-sm font-medium text-[var(--foreground)]">{label}</p>
-      <p className="text-sm text-[var(--muted)]">{value === "Not set" ? value : formatShortDate(value)}</p>
+    <div
+      className={
+        tone === "risk"
+          ? "border border-[rgba(229,55,107,0.2)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]"
+          : "border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--muted)]"
+      }
+    >
+      {children}
     </div>
   );
 }
@@ -568,4 +472,9 @@ function formatPlannerNumber(value: number) {
 
   const rounded = Math.round(value * 100) / 100;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatPercent(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }

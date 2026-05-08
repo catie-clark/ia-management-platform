@@ -1,13 +1,19 @@
 import type {
   AuditDocument,
+  ControlException,
   AuditFinding,
   AuditPhase,
   Control,
   ControlScopeStatus,
+  ControlTestingMatrix,
+  ControlTestingMatrixAttribute,
+  ControlTestingMatrixResult,
+  ControlTestingMatrixSample,
   Question,
   ReportReviewComment,
   ReportReviewStage,
   Request,
+  TestingMatrixAttributeResult,
   User,
 } from "@/types/audit";
 import { readWorkpaperContent } from "@/lib/workpaper-content";
@@ -150,9 +156,59 @@ export type UserRow = {
   team: string | null;
 };
 
+export type ControlExceptionRow = {
+  id: string;
+  control_id: string;
+  created_at: string;
+  created_by_name: string;
+  created_by_user_id: string | null;
+  note: string;
+};
+
 export type BusinessUnitRow = {
   id: string;
   name: string;
+};
+
+export type ControlTestingMatrixRow = {
+  id: string;
+  audit_id: string;
+  control_id: string;
+  title: string;
+  population_description: string | null;
+  population_size: number | null;
+  sample_description: string | null;
+  sample_size: number | null;
+  conclusion: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ControlTestingMatrixAttributeRow = {
+  id: string;
+  matrix_id: string;
+  attribute_key: string;
+  label: string;
+  guidance: string | null;
+  display_order: number;
+};
+
+export type ControlTestingMatrixSampleRow = {
+  id: string;
+  matrix_id: string;
+  sample_identifier: string;
+  sample_description: string | null;
+  source_reference: string | null;
+  exception_noted: string | null;
+  display_order: number;
+};
+
+export type ControlTestingMatrixResultRow = {
+  id: string;
+  matrix_id: string;
+  sample_id: string;
+  attribute_id: string;
+  result: string;
 };
 
 export function mapUser(user: UserRow): User {
@@ -162,6 +218,74 @@ export function mapUser(user: UserRow): User {
     email: user.email,
     role: normalizeRole(user.role),
     team: user.team ?? undefined,
+  };
+}
+
+export function mapControlException(row: ControlExceptionRow): ControlException {
+  return {
+    id: row.id,
+    controlId: row.control_id,
+    createdAt: ensureIsoDate(row.created_at),
+    createdBy: row.created_by_name,
+    createdByUserId: row.created_by_user_id ?? undefined,
+    note: row.note,
+  };
+}
+
+export function mapControlTestingMatrixAttribute(row: ControlTestingMatrixAttributeRow): ControlTestingMatrixAttribute {
+  return {
+    id: row.id,
+    matrixId: row.matrix_id,
+    attributeKey: row.attribute_key,
+    label: row.label,
+    guidance: row.guidance ?? "",
+    displayOrder: row.display_order,
+  };
+}
+
+export function mapControlTestingMatrixSample(row: ControlTestingMatrixSampleRow): ControlTestingMatrixSample {
+  return {
+    id: row.id,
+    matrixId: row.matrix_id,
+    sampleIdentifier: row.sample_identifier,
+    sampleDescription: row.sample_description ?? "",
+    sourceReference: row.source_reference ?? "",
+    exceptionNoted: row.exception_noted ?? "",
+    displayOrder: row.display_order,
+  };
+}
+
+export function mapControlTestingMatrixResult(row: ControlTestingMatrixResultRow): ControlTestingMatrixResult {
+  return {
+    id: row.id,
+    matrixId: row.matrix_id,
+    sampleId: row.sample_id,
+    attributeId: row.attribute_id,
+    result: normalizeTestingMatrixAttributeResult(row.result),
+  };
+}
+
+export function mapControlTestingMatrix(args: {
+  attributes: ControlTestingMatrixAttribute[];
+  matrix: ControlTestingMatrixRow;
+  results: ControlTestingMatrixResult[];
+  samples: ControlTestingMatrixSample[];
+}): ControlTestingMatrix {
+  return {
+    id: args.matrix.id,
+    auditId: args.matrix.audit_id,
+    controlId: args.matrix.control_id,
+    title: args.matrix.title,
+    populationDescription: args.matrix.population_description ?? "",
+    populationSize: args.matrix.population_size ?? undefined,
+    sampleDescription: args.matrix.sample_description ?? "",
+    sampleSize: args.matrix.sample_size ?? undefined,
+    conclusion: args.matrix.conclusion ?? "",
+    attributes: args.attributes.slice().sort((left, right) => left.displayOrder - right.displayOrder || left.id.localeCompare(right.id)),
+    samples: args.samples.slice().sort((left, right) => left.displayOrder - right.displayOrder || left.id.localeCompare(right.id)),
+    results: args.results,
+    createdAt: ensureIsoDate(args.matrix.created_at),
+    updatedAt: ensureIsoDate(args.matrix.updated_at),
   };
 }
 
@@ -178,6 +302,7 @@ export function mapControl(
       ? undefined
       : Number(control.assigned_planned_hours);
   const ownerExplicitlyCleared = readBoolean(control.source_payload, ["assigned_owner_cleared"]);
+  const explicitScopeStatus = control.scope_status ?? readText(control.source_payload, ["scope_status", "scopeStatus"]);
   const ownerId = ownerExplicitlyCleared ? "" : control.assigned_owner_user_id ?? control.control_owner_user_id ?? "";
   const hasPlanningOverride =
     ownerExplicitlyCleared ||
@@ -201,7 +326,8 @@ export function mapControl(
     name: control.control_name,
     description: readText(control.source_payload, ["description", "control_description", "summary"]) ?? control.control_name,
     businessUnit: control.business_unit_id ? businessUnitMap.get(control.business_unit_id) ?? "Unknown business unit" : "Unassigned",
-    scopeStatus: normalizeControlScopeStatus(control.scope_status ?? readText(control.source_payload, ["scope_status", "scopeStatus"])),
+    scopeStatus: normalizeControlScopeStatus(explicitScopeStatus),
+    hasExplicitScopeAssignment: typeof explicitScopeStatus === "string" && explicitScopeStatus.trim().length > 0,
     ownerId,
     importedOwnerId: control.control_owner_user_id ?? undefined,
     assignedOwnerId: control.assigned_owner_user_id ?? undefined,
@@ -446,6 +572,16 @@ function normalizeDocumentType(type: string): AuditDocument["type"] {
   }
 
   return "WORKPAPER";
+}
+
+function normalizeTestingMatrixAttributeResult(value: string): TestingMatrixAttributeResult {
+  const normalized = value.trim().toUpperCase();
+
+  if (normalized === "PASS" || normalized === "FAIL" || normalized === "NOT_TESTED") {
+    return normalized;
+  }
+
+  return "NOT_TESTED";
 }
 
 function normalizeDocumentReviewStatus(status: string | null | undefined): AuditDocument["reviewStatus"] {

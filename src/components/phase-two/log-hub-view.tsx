@@ -39,26 +39,23 @@ export function LogHubView({
     <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
       <PageHeader
         title="Question and Request Log"
-        description={
-          mode === "live"
-            ? `Live question and request tracking for ${auditLabel}. Imported activity and saved responses are scoped to this audit.`
-            : "Manage auditor questions and evidence requests from one operating screen, with a quick switch between response tracking and fulfillment follow-up."
-        }
+        description=""
         phaseStatus={{
           label: mode === "live" ? "Live audit data" : "Prototype mode",
           active: mode === "live",
         }}
+        variant="dashboard-compact"
       />
 
-      <div className="inline-flex w-fit rounded-full border border-black/5 bg-white p-1 shadow-[0_12px_30px_rgba(1,30,65,0.08)]">
+      <div className="inline-flex w-fit items-center gap-6">
         <button
           type="button"
           onClick={() => switchTab("questions")}
           className={cn(
-            "rounded-full px-5 py-2.5 text-sm font-semibold transition-colors",
+            "border-b-2 pb-1 text-sm transition-colors",
             activeTab === "questions"
-              ? "bg-[var(--brand-indigo-core)] text-white"
-              : "text-[var(--brand-indigo-core)] hover:bg-[var(--surface-tint)]",
+              ? "border-[var(--brand-indigo-core)] font-semibold text-[var(--brand-indigo-core)]"
+              : "border-transparent text-[var(--muted)] hover:text-[var(--brand-indigo-core)]",
           )}
         >
           Question log
@@ -67,10 +64,10 @@ export function LogHubView({
           type="button"
           onClick={() => switchTab("requests")}
           className={cn(
-            "rounded-full px-5 py-2.5 text-sm font-semibold transition-colors",
+            "border-b-2 pb-1 text-sm transition-colors",
             activeTab === "requests"
-              ? "bg-[var(--brand-indigo-core)] text-white"
-              : "text-[var(--brand-indigo-core)] hover:bg-[var(--surface-tint)]",
+              ? "border-[var(--brand-indigo-core)] font-semibold text-[var(--brand-indigo-core)]"
+              : "border-transparent text-[var(--muted)] hover:text-[var(--brand-indigo-core)]",
           )}
         >
           Request log

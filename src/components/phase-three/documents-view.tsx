@@ -191,8 +191,8 @@ export function DocumentsView() {
 
           <div className="mt-6 min-h-0 flex-1 overflow-auto">
             <table className="min-w-full border-separate border-spacing-y-3">
-              <thead>
-                <tr className="sticky top-0 z-10 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+              <thead className="sticky top-0 z-10 bg-white">
+                <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                   <th className="bg-white px-4 py-2">Document</th>
                   <th className="bg-white px-4 py-2">Owner</th>
                   <th className="bg-white px-4 py-2">Linked to</th>

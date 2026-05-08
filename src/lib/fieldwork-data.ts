@@ -1,9 +1,11 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { loadAuditControlTestingMatrices } from "@/lib/control-testing-matrix-persistence";
 import { controls, documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import {
   type AuditDocumentRow,
   type AuditRecord,
   type BusinessUnitRow,
+  type ControlExceptionRow,
   type ControlRow,
   type DashboardMode,
   type QuestionRow,
@@ -11,6 +13,7 @@ import {
   type UserRow,
   formatAuditScopePeriod,
   mapControl,
+  mapControlException,
   mapDocument,
   mapQuestionsWithDisplayIds,
   mapRequestsWithDisplayIds,
@@ -18,7 +21,30 @@ import {
 } from "@/lib/live-audit";
 import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
-import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
+import type { AuditDocument, AuditPhase, Control, ControlException, ControlTestingMatrix, Question, Request, User } from "@/types/audit";
+
+type RiskControlLinkRow = {
+  control_id: string | null;
+  risk_id: string | null;
+};
+
+type RiskRow = {
+  id: string;
+  source_record_key: string | null;
+  risk_statement: string;
+};
+
+export type FieldworkRiskRow = {
+  id: string;
+  referenceId: string;
+  statement: string;
+  associatedControls: Array<{
+    id: string;
+    referenceId: string;
+    name: string;
+  }>;
+  hasAssociatedControls: boolean;
+};
 
 export type FieldworkViewModel = {
   auditId: string | null;
@@ -28,9 +54,12 @@ export type FieldworkViewModel = {
   currentPhase: AuditPhase;
   mode: DashboardMode;
   controls: Control[];
+  controlExceptions: ControlException[];
+  testingMatrices: ControlTestingMatrix[];
   documents: AuditDocument[];
   questions: Question[];
   requests: Request[];
+  risks: FieldworkRiskRow[];
   users: User[];
   now: string;
 };
@@ -53,9 +82,12 @@ export async function getFieldworkViewModel({
       currentPhase: "Fieldwork",
       mode,
       controls: [],
+      controlExceptions: [],
+      testingMatrices: [],
       documents: [],
       questions: [],
       requests: [],
+      risks: [],
       users: [],
       now: new Date().toISOString(),
     };
@@ -69,11 +101,15 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
   const [
     auditResult,
     controlsResult,
+    controlExceptionsResult,
+    riskControlLinksResult,
+    risksResult,
     documentsResult,
     questionsResult,
     requestsResult,
     usersResult,
     businessUnitsResult,
+    testingMatrices,
   ] = await Promise.all([
     getFieldworkAuditRecord(supabase, auditId),
     supabase
@@ -81,6 +117,21 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
       .select("id, source_record_key, control_name, business_unit_id, control_owner_user_id, assigned_owner_user_id, status, due_date, assigned_due_date, planned_hours, assigned_planned_hours, actual_hours, risk_rating, planning_overridden_at, source_payload")
       .eq("audit_id", auditId)
       .returns<ControlRow[]>(),
+    supabase
+      .from("control_exceptions")
+      .select("id, control_id, created_at, created_by_name, created_by_user_id, note")
+      .eq("audit_id", auditId)
+      .order("created_at", { ascending: true })
+      .returns<ControlExceptionRow[]>(),
+    supabase
+      .from("risk_control_links")
+      .select("control_id, risk_id")
+      .returns<RiskControlLinkRow[]>(),
+    supabase
+      .from("risks")
+      .select("id, source_record_key, risk_statement")
+      .eq("audit_id", auditId)
+      .returns<RiskRow[]>(),
     supabase
       .from("audit_documents")
       .select("id, document_type, title, control_id, question_id, request_id, owner_user_id, status, due_date, template_name, source_payload, created_at, updated_at")
@@ -99,6 +150,7 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
       .returns<RequestRow[]>(),
     supabase.from("users").select("id, full_name, email, role, team").order("full_name", { ascending: true }).returns<UserRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitRow[]>(),
+    loadAuditControlTestingMatrices(supabase, auditId),
   ]);
 
   if (auditResult.error) {
@@ -109,6 +161,15 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
   }
   if (documentsResult.error) {
     throw new Error(documentsResult.error.message);
+  }
+  if (controlExceptionsResult.error) {
+    throw new Error(controlExceptionsResult.error.message);
+  }
+  if (riskControlLinksResult.error) {
+    throw new Error(riskControlLinksResult.error.message);
+  }
+  if (risksResult.error) {
+    throw new Error(risksResult.error.message);
   }
   if (questionsResult.error) {
     throw new Error(questionsResult.error.message);
@@ -126,9 +187,67 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
   const userMap = new Map((usersResult.data ?? []).map((user) => [user.id, mapUser(user)]));
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
   const liveUsers = Array.from(userMap.values());
-  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
+  const riskRows = risksResult.data ?? [];
+  const riskIds = new Set(riskRows.map((risk) => risk.id));
+  const controlRows = controlsResult.data ?? [];
+  const controlIds = new Set(controlRows.map((control) => control.id));
+  const riskById = new Map(
+    riskRows.map((risk) => [
+      risk.id,
+      { id: risk.source_record_key ?? risk.id, statement: risk.risk_statement },
+    ]),
+  );
+  const relatedRisksByControlId = new Map<string, Array<{ id: string; statement: string }>>();
+  const linkedControlIdsByRiskId = new Map<string, string[]>();
+
+  for (const link of riskControlLinksResult.data ?? []) {
+    if (!link.control_id || !link.risk_id || !controlIds.has(link.control_id) || !riskIds.has(link.risk_id)) {
+      continue;
+    }
+
+    const risk = riskById.get(link.risk_id);
+
+    if (!risk) {
+      continue;
+    }
+
+    const existingRisks = relatedRisksByControlId.get(link.control_id) ?? [];
+    if (!existingRisks.some((entry) => entry.id === risk.id)) {
+      existingRisks.push(risk);
+      relatedRisksByControlId.set(link.control_id, existingRisks);
+    }
+
+    const linkedControlIds = linkedControlIdsByRiskId.get(link.risk_id) ?? [];
+    if (!linkedControlIds.includes(link.control_id)) {
+      linkedControlIds.push(link.control_id);
+      linkedControlIdsByRiskId.set(link.risk_id, linkedControlIds);
+    }
+  }
+
+  const liveControls = controlRows.map((control) => mapControl(control, businessUnitMap, relatedRisksByControlId));
+  const controlById = new Map(liveControls.map((control) => [control.id, control]));
   const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
   const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const liveRisks: FieldworkRiskRow[] = riskRows
+    .map((risk) => {
+      const associatedControls = (linkedControlIdsByRiskId.get(risk.id) ?? [])
+        .map((controlId) => controlById.get(controlId))
+        .filter((control): control is Control => Boolean(control))
+        .map((control) => ({
+          id: control.id,
+          referenceId: control.referenceId ?? control.id,
+          name: control.name,
+        }));
+
+      return {
+        id: risk.id,
+        referenceId: risk.source_record_key ?? risk.id,
+        statement: risk.risk_statement,
+        associatedControls,
+        hasAssociatedControls: associatedControls.length > 0,
+      };
+    })
+    .sort((left, right) => left.referenceId.localeCompare(right.referenceId));
 
   const normalizedDocuments = mapFieldworkDocuments(
     normalizeAuditDocuments({
@@ -149,9 +268,12 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
     currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
     mode: "live",
     controls: liveControls,
+    controlExceptions: (controlExceptionsResult.data ?? []).map(mapControlException),
+    testingMatrices,
     documents: normalizedDocuments,
     questions: liveQuestions,
     requests: liveRequests,
+    risks: liveRisks,
     users: liveUsers,
     now: new Date().toISOString(),
   };

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, ClipboardCheck, FileSearch, Link2, Workflow, X } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, ClipboardCheck, Expand, FileSearch, Link2, Workflow, X } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ControlTestingView } from "@/components/phase-two/control-testing-view";
@@ -17,6 +18,7 @@ import {
   filterQuestionsForControls,
   filterRequestsForControls,
 } from "@/lib/control-visibility";
+import { cn } from "@/lib/utils";
 import { sanitizeDraftMarkdown, type NarrativePreviewSection } from "@/lib/planning-narrative/format";
 import type { FieldworkViewModel } from "@/lib/fieldwork-data";
 import { formatDateTime, formatShortDate } from "@/lib/utils";
@@ -28,6 +30,7 @@ const allAuditUser = {
   name: "All Audit Controls",
   role: "DIRECTOR" as const,
 };
+type FieldworkSubtab = "control-testing" | "view-risks" | "document-review" | "tollgate-draft";
 
 type FieldworkArtifactDraftResponse = {
   draft: {
@@ -66,6 +69,9 @@ export function FieldworkView({
   viewModel: FieldworkViewModel;
 }) {
   const { showNotification } = useNotification();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedId, setSelectedId] = useState<string>("");
   const [documentRows, setDocumentRows] = useState(viewModel.documents);
   const [isTollgateCollapsed, setIsTollgateCollapsed] = useState(true);
@@ -110,16 +116,18 @@ export function FieldworkView({
     return reviewStatus !== "APPROVED" && reviewStatus !== "NOT_SUBMITTED";
   }).length;
   const atRiskCount = fieldworkDocuments.filter((document) => isAtRisk(document, linkedSignalsForDocument(document, visibleControls, visibleQuestions, visibleRequests, viewModel.now), viewModel.now)).length;
+  const activeSubtab = getFieldworkSubtab(searchParams.get("fieldworkTab"));
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
       <PageHeader
         title="Fieldwork"
-        description="Fieldwork now keeps workpaper drafting and review inside the app so authors can complete, refine, and route execution support without a file handoff loop."
+        description=""
         phaseStatus={{
           label: viewModel.currentPhase === "Fieldwork" ? "Active" : `Current phase: ${viewModel.currentPhase}`,
           active: viewModel.currentPhase === "Fieldwork",
         }}
+        variant="dashboard-compact"
       />
 
       <PhaseCompletionCard
@@ -130,184 +138,290 @@ export function FieldworkView({
         pagePhase="Fieldwork"
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<FileSearch size={18} />} label="Tracked documents" value={`${fieldworkDocuments.length}`} detail="Workpapers and evidence currently active in fieldwork." tone="neutral" />
         <MetricCard icon={<ClipboardCheck size={18} />} label="Approved workpapers" value={`${approvedCount}`} detail="Workpapers that cleared director review and are ready for reporting use." tone="success" />
         <MetricCard icon={<Workflow size={18} />} label="In review" value={`${inReviewCount}`} detail="Workpapers currently with AIC, manager, or director review." tone="warning" />
         <MetricCard icon={<Link2 size={18} />} label="At risk" value={`${atRiskCount}`} detail="Documents with overdue dates or unresolved linked blockers." tone="risk" />
       </section>
 
-      <ControlTestingView
-        auditId={viewModel.auditId}
-        auditLabel={viewModel.auditLabel}
-        auditPeriodLabel={viewModel.auditPeriodLabel}
-        controls={viewModel.controls}
-        currentPhase={viewModel.currentPhase}
-        documents={documentRows}
-        embedded
-        mode={viewModel.mode}
-        questions={viewModel.questions}
-        requests={viewModel.requests}
-        users={viewModel.users}
-      />
-
-      <div className="grid gap-6 2xl:grid-cols-[0.78fr_1.22fr]">
-        <section className="flex h-[760px] min-h-0 flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Workflow progression</p>
-          <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Review stages across active workpapers</h2>
-          <div className="mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="grid gap-4">
-            {workflowStages.map((stage) => {
-              const stageItems = workpapers.filter((document) => (document.reviewStatus ?? "NOT_SUBMITTED") === stage);
-
-              return (
-                <div key={stage} className="rounded-[22px] bg-[var(--surface-tint)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-[var(--foreground)]">{formatReviewStatus(stage)}</p>
-                      <p className="mt-1 text-sm text-[var(--muted)]">{stageItems.length} workpapers</p>
-                    </div>
-                    <StatusBadge status={`${stageItems.length}`} tone={getReviewTone(stage)} />
-                  </div>
-                  <div className="mt-4 grid gap-2">
-                    {stageItems.length > 0 ? (
-                      stageItems.map((document) => (
-                        <button
-                          key={document.id}
-                          type="button"
-                          onClick={() => setSelectedId(document.id)}
-                          className="rounded-[18px] bg-white px-4 py-3 text-left transition-transform duration-200 hover:-translate-y-0.5"
-                        >
-                          <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id} - {document.title}</p>
-                          <p className="mt-1 text-sm text-[var(--muted)]">{getOwnerName(document.ownerId, viewModel.users)}</p>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="text-sm text-[var(--muted)]">No workpapers currently sit in this stage.</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            </div>
-          </div>
-        </section>
-
-        <section className="relative flex h-[760px] flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Execution queue</p>
-          <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Open a fieldwork document and work it directly in the app</h2>
-          <div className="mt-6 min-h-0 flex-1 overflow-auto">
-            <table className="min-w-full border-separate border-spacing-y-3">
-              <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                  <th className="px-4">Document</th>
-                  <th className="px-4">Owner</th>
-                  <th className="px-4">Due</th>
-                  <th className="px-4">Review stage</th>
-                  <th className="px-4">Linked blockers</th>
-                  <th className="px-4">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fieldworkDocuments.map((document) => {
-                  const blockers = linkedSignalsForDocument(document, viewModel.controls, viewModel.questions, viewModel.requests, viewModel.now);
-                  const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
-
-                  return (
-                    <tr key={document.id} className="bg-[#fcfbf8] shadow-[0_12px_34px_rgba(1,30,65,0.06)]">
-                      <td className="rounded-l-3xl px-4 py-4">
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id}</p>
-                        <p className="mt-1 text-sm text-[var(--foreground)]">{document.title}</p>
-                        <p className="mt-1 text-xs text-[var(--muted)]">{document.type === "WORKPAPER" ? "Structured workpaper" : "Evidence support"}</p>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-[var(--muted)]">{getOwnerName(document.ownerId, viewModel.users)}</td>
-                      <td className="px-4 py-4 text-sm text-[var(--muted)]">{document.dueDate ? formatShortDate(document.dueDate) : "TBD"}</td>
-                      <td className="px-4 py-4">
-                        <StatusBadge status={formatReviewStatus(reviewStatus)} tone={getReviewTone(reviewStatus)} />
-                      </td>
-                      <td className="px-4 py-4">
-                        <StatusBadge status={`${blockers.length} open`} tone={blockers.length > 0 ? "risk" : "success"} />
-                      </td>
-                      <td className="rounded-r-3xl px-4 py-4">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(document.id)}
-                          className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
-                        >
-                          {document.type === "WORKPAPER" ? "Open editor" : "Inspect"}
-                          <ArrowRight size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {selectedDocument?.type === "WORKPAPER" ? (
-            <WorkpaperDetailPanel
-              auditId={viewModel.auditId}
-              authorUserId={getLinkedControlOwnerId(selectedDocument, viewModel.controls)}
-              contained
-              controls={viewModel.controls}
-              document={selectedDocument}
-              mode={viewModel.mode}
-              now={viewModel.now}
-              onClose={() => setSelectedId("")}
-              onDocumentUpdated={(nextDocument) => {
-                setDocumentRows((current) => current.map((document) => (document.id === nextDocument.id ? nextDocument : document)));
-              }}
-              questions={viewModel.questions}
-              requests={viewModel.requests}
-              users={viewModel.users}
-            />
-          ) : null}
-
-          {selectedDocument?.type === "EVIDENCE" ? (
-            <>
-              <button
-                type="button"
-                aria-label="Close evidence detail"
-                onClick={() => setSelectedId("")}
-                className="absolute inset-0 z-30 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
-              />
-              <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col overflow-hidden border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[-24px_0_60px_rgba(1,30,65,0.12)]">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Evidence detail</p>
-                    <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{`${selectedDocument.displayId ?? selectedDocument.id} - ${selectedDocument.title}`}</h2>
-                    <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">Evidence remains inspectable here, but workpaper drafting and review are handled directly in the app.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId("")}
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-                <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
-                  <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
-                </div>
-              </aside>
-            </>
-          ) : null}
-        </section>
+      <div className="inline-flex w-fit items-center gap-6">
+        {fieldworkSubtabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => switchSubtab(tab.id)}
+            className={cn(
+              "border-b-2 pb-1 text-sm transition-colors",
+              activeSubtab === tab.id
+                ? "border-[var(--brand-indigo-core)] font-semibold text-[var(--brand-indigo-core)]"
+                : "border-transparent text-[var(--muted)] hover:text-[var(--brand-indigo-core)]",
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <FieldworkTollgateCard
-        auditId={viewModel.auditId}
-        auditLabel={viewModel.auditLabel}
-        descriptionLive="Generate a fieldwork tollgate draft from the current fieldwork record so leadership can review findings support, evidence sufficiency, scope deviations, and readiness to move into reporting."
-        descriptionPrototype="Generation is only available for saved live audits because the fieldwork tollgate is built from live fieldwork records."
-        emptyPreviewMessage="No fieldwork tollgate has been generated yet. Use the action above to build a draft from the current fieldwork controls, workpapers, evidence, findings, questions, and requests."
-        isCollapsed={isTollgateCollapsed}
-        onToggleCollapsed={() => setIsTollgateCollapsed((current) => !current)}
-      />
+      {activeSubtab === "control-testing" ? (
+        <ControlTestingView
+          auditId={viewModel.auditId}
+          auditLabel={viewModel.auditLabel}
+          auditPeriodLabel={viewModel.auditPeriodLabel}
+          controls={viewModel.controls}
+          controlExceptions={viewModel.controlExceptions}
+          currentPhase={viewModel.currentPhase}
+          documents={documentRows}
+          embedded
+          mode={viewModel.mode}
+          questions={viewModel.questions}
+          requests={viewModel.requests}
+          testingMatrices={viewModel.testingMatrices}
+          users={viewModel.users}
+        />
+      ) : null}
+
+      {activeSubtab === "view-risks" ? (
+        <section className="flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+          <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Imported risk register</p>
+            <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Risks loaded with the audit</h2>
+          </div>
+          {viewModel.risks.length > 0 ? (
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="min-w-full border-collapse">
+                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    <th className="border-b border-black/5 px-4 py-3">Risk ID</th>
+                    <th className="border-b border-black/5 px-4 py-3">Risk statement</th>
+                    <th className="border-b border-black/5 px-4 py-3">Associated controls</th>
+                    <th className="border-b border-black/5 px-4 py-3">Coverage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewModel.risks.map((risk) => (
+                    <tr key={risk.id} className="border-b border-black/5 align-top transition-colors hover:bg-[var(--surface-soft)]">
+                      <td className="px-4 py-4 text-sm font-semibold text-[var(--foreground)]">{risk.referenceId}</td>
+                      <td className="px-4 py-4 text-sm text-[var(--foreground)]">{risk.statement}</td>
+                      <td className="px-4 py-4">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{risk.associatedControls.length}</p>
+                        {risk.associatedControls.length > 0 ? (
+                          <div className="mt-2 grid gap-1">
+                            {risk.associatedControls.map((control) => (
+                              <p key={`${risk.id}-${control.id}`} className="text-xs text-[var(--muted)]">
+                                {control.referenceId} - {control.name}
+                              </p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-xs text-[var(--muted)]">No controls linked.</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        <StatusBadge
+                          status={risk.hasAssociatedControls ? "Controls linked" : "No associated controls"}
+                          tone={risk.hasAssociatedControls ? "success" : "risk"}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-5 py-8 text-sm text-[var(--muted)] sm:px-6">
+              No imported risks are available for this audit.
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeSubtab === "document-review" ? (
+        <div className="grid gap-6 2xl:grid-cols-[0.78fr_1.22fr]">
+          <section className="flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+            <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Workflow progression</p>
+              <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Review stages across active workpapers</h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pr-4 sm:px-6">
+              <div className="grid gap-4">
+              {workflowStages.map((stage) => {
+                const stageItems = workpapers.filter((document) => (document.reviewStatus ?? "NOT_SUBMITTED") === stage);
+
+                return (
+                  <div key={stage} className="border border-black/5 bg-[var(--surface-soft)] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{formatReviewStatus(stage)}</p>
+                        <p className="mt-1 text-sm text-[var(--muted)]">{stageItems.length} workpapers</p>
+                      </div>
+                      <StatusBadge status={`${stageItems.length}`} tone={getReviewTone(stage)} />
+                    </div>
+                    <div className="mt-4 grid gap-2">
+                      {stageItems.length > 0 ? (
+                        stageItems.map((document) => (
+                          <button
+                            key={document.id}
+                            type="button"
+                            onClick={() => setSelectedId(document.id)}
+                            className="border border-black/10 bg-white px-4 py-3 text-left transition-colors hover:bg-[var(--surface-tint)]"
+                          >
+                            <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id} - {document.title}</p>
+                            <p className="mt-1 text-sm text-[var(--muted)]">{getOwnerName(document.ownerId, viewModel.users)}</p>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="text-sm text-[var(--muted)]">No workpapers currently sit in this stage.</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              </div>
+            </div>
+          </section>
+
+          <section className="relative flex h-[760px] flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+            <div className="border-b border-black/5 px-5 py-4 sm:px-6">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Execution queue</p>
+              <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Open a fieldwork document and work it directly in the app</h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="min-w-full border-collapse">
+                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    <th className="border-b border-black/5 px-4 py-3">Document</th>
+                    <th className="border-b border-black/5 px-4 py-3">Owner</th>
+                    <th className="border-b border-black/5 px-4 py-3">Due</th>
+                    <th className="border-b border-black/5 px-4 py-3">Review stage</th>
+                    <th className="border-b border-black/5 px-4 py-3">Linked blockers</th>
+                    <th className="border-b border-black/5 px-4 py-3">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fieldworkDocuments.map((document) => {
+                    const blockers = linkedSignalsForDocument(document, viewModel.controls, viewModel.questions, viewModel.requests, viewModel.now);
+                    const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
+
+                    return (
+                      <tr key={document.id} className="border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]">
+                        <td className="px-4 py-4">
+                          <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id}</p>
+                          <p className="mt-1 text-sm text-[var(--foreground)]">{document.title}</p>
+                          <p className="mt-1 text-xs text-[var(--muted)]">{document.type === "WORKPAPER" ? "Structured workpaper" : "Evidence support"}</p>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-[var(--muted)]">{getOwnerName(document.ownerId, viewModel.users)}</td>
+                        <td className="px-4 py-4 text-sm text-[var(--muted)]">{document.dueDate ? formatShortDate(document.dueDate) : "TBD"}</td>
+                        <td className="px-4 py-4">
+                          <StatusBadge status={formatReviewStatus(reviewStatus)} tone={getReviewTone(reviewStatus)} />
+                        </td>
+                        <td className="px-4 py-4">
+                          <StatusBadge status={`${blockers.length} open`} tone={blockers.length > 0 ? "risk" : "success"} />
+                        </td>
+                        <td className="px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedId(document.id)}
+                            className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+                          >
+                            {document.type === "WORKPAPER" ? "Open editor" : "Inspect"}
+                            <ArrowRight size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {selectedDocument?.type === "WORKPAPER" ? (
+              <WorkpaperDetailPanel
+                auditId={viewModel.auditId}
+                authorUserId={getLinkedControlOwnerId(selectedDocument, viewModel.controls)}
+                contained
+                controls={viewModel.controls}
+                document={selectedDocument}
+                mode={viewModel.mode}
+                now={viewModel.now}
+                onClose={() => setSelectedId("")}
+                onDocumentUpdated={(nextDocument) => {
+                  setDocumentRows((current) => current.map((document) => (document.id === nextDocument.id ? nextDocument : document)));
+                }}
+                questions={viewModel.questions}
+                requests={viewModel.requests}
+                users={viewModel.users}
+              />
+            ) : null}
+
+            {selectedDocument?.type === "EVIDENCE" ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close evidence detail"
+                  onClick={() => setSelectedId("")}
+                  className="absolute inset-0 z-30 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
+                />
+                <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col overflow-hidden border-l border-black/5 bg-[#fbfaf7] p-6 shadow-[-18px_0_42px_rgba(1,30,65,0.1)]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Evidence detail</p>
+                      <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">{`${selectedDocument.displayId ?? selectedDocument.id} - ${selectedDocument.title}`}</h2>
+                      <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">Evidence remains inspectable here, but workpaper drafting and review are handled directly in the app.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId("")}
+                      className="flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
+                    <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
+                  </div>
+                </aside>
+              </>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
+      {activeSubtab === "tollgate-draft" ? (
+        <FieldworkTollgateCard
+          auditId={viewModel.auditId}
+          auditLabel={viewModel.auditLabel}
+          descriptionLive="Generate a fieldwork tollgate draft from the current fieldwork record so leadership can review findings support, evidence sufficiency, scope deviations, and readiness to move into reporting."
+          descriptionPrototype="Generation is only available for saved live audits because the fieldwork tollgate is built from live fieldwork records."
+          emptyPreviewMessage="No fieldwork tollgate has been generated yet. Use the action above to build a draft from the current fieldwork controls, workpapers, evidence, findings, questions, and requests."
+          isCollapsed={isTollgateCollapsed}
+          onToggleCollapsed={() => setIsTollgateCollapsed((current) => !current)}
+        />
+      ) : null}
 
     </div>
   );
+
+  function switchSubtab(nextTab: FieldworkSubtab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("fieldworkTab", nextTab);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+}
+
+const fieldworkSubtabs: Array<{ id: FieldworkSubtab; label: string }> = [
+  { id: "control-testing", label: "Control Testing" },
+  { id: "view-risks", label: "View Risks" },
+  { id: "document-review", label: "Document Review" },
+  { id: "tollgate-draft", label: "Tollgate Draft" },
+];
+
+function getFieldworkSubtab(value: string | null): FieldworkSubtab {
+  if (value === "view-risks" || value === "document-review" || value === "tollgate-draft") {
+    return value;
+  }
+
+  return "control-testing";
 }
 
 function FieldworkTollgateCard({
@@ -347,6 +461,7 @@ function FieldworkTollgateCard({
   const [reviewInput, setReviewInput] = useState("");
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus>("NOT_SUBMITTED");
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
+  const [isWorkspaceExpanded, setIsWorkspaceExpanded] = useState(false);
 
   const isReviewLocked = isReviewStageLocked(reviewStatus);
   const canReset = Boolean(draftTitle || markdown.trim().length > 0 || previewSections.length > 0);
@@ -379,6 +494,7 @@ function FieldworkTollgateCard({
     setReviewInput("");
     setReviewStatus("NOT_SUBMITTED");
     setViewMode("preview");
+    setIsWorkspaceExpanded(false);
   };
 
   useEffect(() => {
@@ -568,11 +684,11 @@ function FieldworkTollgateCard({
   }
 
   return (
-    <article className={`rounded-[28px] border border-black/5 bg-white shadow-[0_18px_50px_rgba(1,30,65,0.08)] ${isCollapsed ? "px-4 py-3" : "p-6"}`}>
+    <article className={`border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)] ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Fieldwork tollgate</p>
-          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-3 text-2xl"}`}>Generate fieldwork tollgate draft</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Fieldwork tollgate</p>
+          <h2 className={`font-semibold text-[var(--foreground)] ${isCollapsed ? "mt-1 text-lg leading-6" : "mt-2 text-xl"}`}>Generate fieldwork tollgate draft</h2>
           <p className={isCollapsed ? "mt-1 text-sm leading-6 text-[var(--foreground)]" : "mt-3 text-sm leading-7 text-[var(--foreground)]"}>
             {auditId ? descriptionLive : descriptionPrototype}
           </p>
@@ -581,7 +697,7 @@ function FieldworkTollgateCard({
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
+            className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white p-2 text-[var(--brand-indigo-core)]"
             aria-label={isCollapsed ? "Expand fieldwork tollgate" : "Collapse fieldwork tollgate"}
             aria-expanded={!isCollapsed}
           >
@@ -593,7 +709,7 @@ function FieldworkTollgateCard({
                 type="button"
                 disabled={!auditId || isPending || isReviewLocked}
                 onClick={generateDraft}
-                className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPending ? "Generating..." : hasPersistedDraft ? "Re-generate fieldwork tollgate" : "Generate tollgate"}
               </button>
@@ -627,7 +743,7 @@ function FieldworkTollgateCard({
                     }
                   });
                 }}
-                className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2.5 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPending ? "Working..." : "Reset draft"}
               </button>
@@ -640,7 +756,7 @@ function FieldworkTollgateCard({
         <>
           <div className="mt-5 grid gap-3">
             {generatedAt || draftTitle || documentStatus || ownerName || ownerRole ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-[18px] bg-[var(--surface-tint)] px-4 py-3 text-sm text-[var(--muted)]">
+              <div className="flex flex-wrap items-center gap-2 border border-black/5 bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--muted)]">
                 {draftTitle ? <span>Saved draft: {draftTitle}</span> : null}
                 {documentStatus ? <span>{documentStatus.replaceAll("_", " ")}</span> : null}
                 {ownerName || ownerRole ? <span>Owner: {ownerName ?? "Assigned AIC"}{ownerRole ? ` (${ownerRole})` : ""}</span> : null}
@@ -648,31 +764,31 @@ function FieldworkTollgateCard({
               </div>
             ) : null}
             {missingTokens.length > 0 ? (
-              <div className="rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+              <div className="border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                 Missing required template tokens: {missingTokens.join(", ")}
               </div>
             ) : null}
             {isReviewLocked ? (
-              <div className="rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+              <div className="border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                 This draft is locked while it is in review.
               </div>
             ) : null}
             {error ? (
-              <div className="rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
+              <div className="border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
                 {error}
               </div>
             ) : null}
           </div>
 
           <div className="mt-5 grid gap-5">
-            <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+            <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="mr-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Draft workspace</p>
                   <button
                     type="button"
                     onClick={() => setViewMode("preview")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "preview" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
                   >
@@ -682,7 +798,7 @@ function FieldworkTollgateCard({
                     type="button"
                     disabled={isReviewLocked}
                     onClick={() => setViewMode("edit")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "edit" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
                   >
@@ -692,9 +808,17 @@ function FieldworkTollgateCard({
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => setIsWorkspaceExpanded(true)}
+                    className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
+                    aria-label="Expand fieldwork tollgate draft workspace"
+                  >
+                    <Expand size={16} />
+                  </button>
+                  <button
+                    type="button"
                     disabled={!canExport}
                     onClick={exportDraft}
-                    className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Export Word
                   </button>
@@ -703,7 +827,7 @@ function FieldworkTollgateCard({
                       type="button"
                       disabled={!canSave}
                       onClick={saveDraftEdits}
-                      className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Saving..." : "Save edits"}
                     </button>
@@ -711,50 +835,19 @@ function FieldworkTollgateCard({
                 </div>
               </div>
 
-              {viewMode === "edit" ? (
-                <textarea
-                  value={markdown}
-                  onChange={(event) => setMarkdown(event.target.value)}
-                  rows={18}
-                  placeholder="Generate a draft, then edit it here."
-                  className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none"
-                />
-              ) : previewSections.length > 0 ? (
-                <div className="mt-4 max-h-[520px] overflow-auto">
-                  {previewSummary ? (
-                    <div className="rounded-[18px] bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">
-                      {previewSummary}
-                    </div>
-                  ) : null}
-                  <div className="mt-4 grid gap-4">
-                    {previewSections.map((section, sectionIndex) => (
-                      <div key={`${section.heading}-${sectionIndex}`} className="rounded-[18px] bg-white px-4 py-4">
-                        <h3 className="text-base font-semibold text-[var(--foreground)]">{section.heading}</h3>
-                        <div className="mt-3 grid gap-3">
-                          {section.body.map((entry, entryIndex) =>
-                            entry.startsWith("- ") ? (
-                              <div key={`${section.heading}-${sectionIndex}-${entryIndex}`} className="flex gap-2 text-sm leading-7 text-[var(--foreground)]">
-                                <span className="pt-[0.35rem] text-[var(--muted)]">&bull;</span>
-                                <span>{entry.slice(2)}</span>
-                              </div>
-                            ) : (
-                              <p key={`${section.heading}-${sectionIndex}-${entryIndex}`} className="text-sm leading-7 text-[var(--foreground)]">
-                                {entry}
-                              </p>
-                            ),
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{emptyPreviewMessage}</p>
-              )}
+              <FieldworkDraftWorkspace
+                emptyPreviewMessage={emptyPreviewMessage}
+                expanded={false}
+                markdown={markdown}
+                onChangeMarkdown={setMarkdown}
+                previewSections={previewSections}
+                previewSummary={previewSummary}
+                viewMode={viewMode}
+              />
             </section>
 
             {draftDocumentId ? (
-              <section className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+              <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Review workflow</p>
@@ -769,7 +862,7 @@ function FieldworkTollgateCard({
                 </div>
 
                 {reviewComment ? (
-                  <div className="mt-4 rounded-[18px] border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+                  <div className="mt-4 border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                     {reviewComment}
                     {reviewCommentAuthor ? ` | ${reviewCommentAuthor}` : ""}
                     {reviewCommentDate ? ` | ${formatDateTime(reviewCommentDate)}` : ""}
@@ -782,7 +875,7 @@ function FieldworkTollgateCard({
                     onChange={(event) => setReviewInput(event.target.value)}
                     rows={3}
                     placeholder={reviewStatus === "NOT_SUBMITTED" ? "Optional routing note for the next reviewer." : "Required reviewer comment for send back."}
-                    className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-3 text-sm leading-6 text-[var(--foreground)] outline-none"
+                    className="mt-4 w-full resize-y border border-black/10 bg-white px-4 py-3 text-sm leading-6 text-[var(--foreground)] outline-none"
                   />
                 ) : null}
 
@@ -792,7 +885,7 @@ function FieldworkTollgateCard({
                       type="button"
                       disabled={isPending || !canSendToReview}
                       onClick={() => handleReviewAction("submit")}
-                      className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Working..." : "Send to manager review"}
                     </button>
@@ -802,7 +895,7 @@ function FieldworkTollgateCard({
                       type="button"
                       disabled={isPending}
                       onClick={() => handleReviewAction("approve")}
-                      className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Working..." : reviewStatus === "MANAGER_REVIEW" ? "Approve to director" : "Approve final"}
                     </button>
@@ -812,7 +905,7 @@ function FieldworkTollgateCard({
                       type="button"
                       disabled={isPending || reviewInput.trim().length === 0}
                       onClick={() => handleReviewAction("send_back")}
-                      className="inline-flex items-center justify-center rounded-full border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex items-center justify-center rounded-md border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-2 text-sm font-semibold text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Working..." : "Send back to AIC"}
                     </button>
@@ -826,10 +919,162 @@ function FieldworkTollgateCard({
               </section>
             ) : null}
           </div>
+
+          {isWorkspaceExpanded ? (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(1,30,65,0.32)] p-6 backdrop-blur-[2px]">
+              <button
+                type="button"
+                aria-label="Close expanded tollgate workspace"
+                onClick={() => setIsWorkspaceExpanded(false)}
+                className="absolute inset-0"
+              />
+              <section className="relative z-10 flex h-[calc(100dvh-3rem)] w-full max-w-[1200px] flex-col border border-black/10 bg-[var(--surface-soft)] shadow-[0_28px_72px_rgba(1,30,65,0.2)]">
+                <div className="flex items-start justify-between gap-4 border-b border-black/5 bg-white px-5 py-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Expanded workspace</p>
+                    <h3 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Fieldwork tollgate draft</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("preview")}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        viewMode === "preview" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
+                      }`}
+                    >
+                      Formatted preview
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isReviewLocked}
+                      onClick={() => setViewMode("edit")}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        viewMode === "edit" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
+                      }`}
+                    >
+                      Editable draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsWorkspaceExpanded(false)}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white text-[var(--brand-indigo-core)]"
+                      aria-label="Close expanded tollgate workspace"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-b border-black/5 bg-white px-5 py-3">
+                  <div className="text-sm text-[var(--muted)]">
+                    {draftTitle ? `Saved draft: ${draftTitle}` : "Unsaved draft workspace"}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={!canExport}
+                      onClick={exportDraft}
+                      className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Export Word
+                    </button>
+                    {viewMode === "edit" ? (
+                      <button
+                        type="button"
+                        disabled={!canSave}
+                        onClick={saveDraftEdits}
+                        className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isPending ? "Saving..." : "Save edits"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-hidden px-5 py-5">
+                  <FieldworkDraftWorkspace
+                    emptyPreviewMessage={emptyPreviewMessage}
+                    expanded
+                    markdown={markdown}
+                    onChangeMarkdown={setMarkdown}
+                    previewSections={previewSections}
+                    previewSummary={previewSummary}
+                    viewMode={viewMode}
+                  />
+                </div>
+              </section>
+            </div>
+          ) : null}
         </>
       ) : null}
     </article>
   );
+}
+
+function FieldworkDraftWorkspace({
+  emptyPreviewMessage,
+  expanded,
+  markdown,
+  onChangeMarkdown,
+  previewSections,
+  previewSummary,
+  viewMode,
+}: {
+  emptyPreviewMessage: string;
+  expanded: boolean;
+  markdown: string;
+  onChangeMarkdown: (value: string) => void;
+  previewSections: NarrativePreviewSection[];
+  previewSummary: string;
+  viewMode: "preview" | "edit";
+}) {
+  if (viewMode === "edit") {
+    return (
+      <textarea
+        value={markdown}
+        onChange={(event) => onChangeMarkdown(event.target.value)}
+        rows={expanded ? 28 : 18}
+        placeholder="Generate a draft, then edit it here."
+        className={cn(
+          "mt-4 w-full border border-black/10 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none",
+          expanded ? "h-full min-h-0 resize-none" : "resize-y",
+        )}
+      />
+    );
+  }
+
+  if (previewSections.length > 0) {
+    return (
+      <div className={cn("mt-4", expanded ? "h-full overflow-auto pr-1" : "max-h-[520px] overflow-auto")}>
+        {previewSummary ? (
+          <div className="border border-black/5 bg-white px-4 py-4 text-sm leading-7 text-[var(--foreground)]">
+            {previewSummary}
+          </div>
+        ) : null}
+        <div className="mt-4 grid gap-4">
+          {previewSections.map((section, sectionIndex) => (
+            <div key={`${section.heading}-${sectionIndex}`} className="border border-black/5 bg-white px-4 py-4">
+              <h3 className="text-base font-semibold text-[var(--foreground)]">{section.heading}</h3>
+              <div className="mt-3 grid gap-3">
+                {section.body.map((entry, entryIndex) =>
+                  entry.startsWith("- ") ? (
+                    <div key={`${section.heading}-${sectionIndex}-${entryIndex}`} className="flex gap-2 text-sm leading-7 text-[var(--foreground)]">
+                      <span className="pt-[0.35rem] text-[var(--muted)]">&bull;</span>
+                      <span>{entry.slice(2)}</span>
+                    </div>
+                  ) : (
+                    <p key={`${section.heading}-${sectionIndex}-${entryIndex}`} className="text-sm leading-7 text-[var(--foreground)]">
+                      {entry}
+                    </p>
+                  ),
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{emptyPreviewMessage}</p>;
 }
 
 function MetricCard({
@@ -846,9 +1091,9 @@ function MetricCard({
   value: string;
 }) {
   return (
-    <article className="rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_18px_50px_rgba(1,30,65,0.08)]">
+    <article className="border border-black/5 bg-white p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
         <span className="text-[var(--brand-indigo-core)]">{icon}</span>
       </div>
       <div className="mt-3 flex items-end gap-3">
