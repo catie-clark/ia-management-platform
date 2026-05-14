@@ -26,17 +26,29 @@ export type ReportReviewCommentStatus = "OPEN" | "RESOLVED";
 
 export type ReviewStatus = "upcoming" | "active" | "complete" | "at_risk";
 export type AuditPhase = "Planning" | "Fieldwork" | "Reporting";
-export type ControlScopeStatus = "IN_SCOPE" | "OUT_OF_SCOPE";
+export type ControlScopeStatus = "UNASSIGNED" | "IN_SCOPE" | "OUT_OF_SCOPE";
 export type TestingMatrixAttributeResult = "PASS" | "FAIL" | "NOT_TESTED";
 
 export interface WorkpaperContent {
-  summary: string;
-  objective: string;
-  scope: string;
-  procedures: string;
-  results: string;
-  conclusion: string;
-  nextSteps: string;
+  controlReference: string;
+  keyControl: string;
+  typeOfControl: string;
+  controlFrequency: string;
+  assertions: string;
+  descriptionOfTestToBePerformed: string;
+  totalPopulationAndSamplingUnits: string;
+  populationCompletenessConsideration: string;
+  sampleSizeAndSelectionProcedures: string;
+  expectedDeviationTypes: string;
+  documentationOfTesting: string;
+  extensionOfInterimTestingToEndOfPeriod: string;
+  matrixExceptionSummary: string;
+  numberOfDeviationsDetected: string;
+  deviationDescriptionAndCause: string;
+  didDeviationsResultFromFraudOrError: string;
+  wereDeviationsIsolatedOrPervasive: string;
+  finalNumberOfDeviations: string;
+  controlEffectivenessConclusion: string;
 }
 
 export interface User {

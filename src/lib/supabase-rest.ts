@@ -1,7 +1,7 @@
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 type SupabaseRequestOptions = {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
   headers?: HeadersInit;
 };
@@ -100,6 +100,15 @@ export async function patchRows(tableWithQuery: string, payload: unknown): Promi
   await supabaseRestRequest<void>(tableWithQuery, {
     method: "PATCH",
     body: payload,
+    headers: {
+      Prefer: "return=minimal",
+    },
+  });
+}
+
+export async function deleteRows(tableWithQuery: string): Promise<void> {
+  await supabaseRestRequest<void>(tableWithQuery, {
+    method: "DELETE",
     headers: {
       Prefer: "return=minimal",
     },

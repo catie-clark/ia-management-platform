@@ -1,7 +1,7 @@
 import type { AuditDocument, AuditPhase, Control, ControlScopeStatus, Question, Request, User } from "@/types/audit";
 
 export type ControlAudienceFilter = "ASSIGNED" | "ALL";
-export type ScopeFilter = "IN_SCOPE" | "ALL";
+export type ScopeFilter = "IN_SCOPE" | "OUT_OF_SCOPE" | "UNASSIGNED";
 
 export function canUserSeeAllControls(user: Pick<User, "role">) {
   return user.role === "AIC" || user.role === "MANAGER" || user.role === "DIRECTOR";
@@ -12,11 +12,11 @@ export function getDefaultControlAudienceFilter(user: Pick<User, "role">): Contr
 }
 
 export function getDefaultScopeFilter(currentPhase: AuditPhase): ScopeFilter {
-  return currentPhase === "Planning" ? "ALL" : "IN_SCOPE";
+  return currentPhase === "Planning" ? "UNASSIGNED" : "IN_SCOPE";
 }
 
 export function isControlInScope(control: Pick<Control, "scopeStatus">) {
-  return control.scopeStatus !== "OUT_OF_SCOPE";
+  return control.scopeStatus === "IN_SCOPE";
 }
 
 export function filterControlsForUser(
@@ -28,7 +28,7 @@ export function filterControlsForUser(
   return controls.filter((control) => {
     const matchesAudience =
       audienceFilter === "ALL" || canUserSeeAllControls(user) || control.ownerId === user.id || control.assignedOwnerId === user.id;
-    const matchesScope = scopeFilter === "ALL" || isControlInScope(control);
+    const matchesScope = control.scopeStatus === scopeFilter;
 
     return matchesAudience && matchesScope;
   });
@@ -84,7 +84,17 @@ export function filterDocumentsForControls(
 }
 
 export function normalizeControlScopeStatus(value: string | null | undefined): ControlScopeStatus {
-  return value?.trim().toUpperCase() === "OUT_OF_SCOPE" ? "OUT_OF_SCOPE" : "IN_SCOPE";
+  const normalized = value?.trim().toUpperCase();
+
+  if (normalized === "IN_SCOPE") {
+    return "IN_SCOPE";
+  }
+
+  if (normalized === "OUT_OF_SCOPE") {
+    return "OUT_OF_SCOPE";
+  }
+
+  return "UNASSIGNED";
 }
 
 export function matchesStakeholderUser(user: Pick<User, "name" | "team">, stakeholderName: string) {

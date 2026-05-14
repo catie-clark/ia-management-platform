@@ -105,7 +105,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
       scopeStatus:
         updatedControl?.source_payload && typeof updatedControl.source_payload.scope_status === "string"
           ? updatedControl.source_payload.scope_status
-          : body.scopeStatus ?? "IN_SCOPE",
+          : body.scopeStatus,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

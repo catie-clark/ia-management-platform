@@ -1,5 +1,9 @@
 import { DEFAULT_COMPANY_NAME } from "@/lib/company";
-import { buildWorkpaperPreview } from "@/lib/workpaper-content";
+import {
+  buildWorkpaperPreview,
+  deriveTypeOfControlFromRcm,
+  serializeWorkpaperContent,
+} from "@/lib/workpaper-content";
 import { patchRows, supabaseRestRequest, upsertManyRows } from "@/lib/supabase-rest";
 
 type SourceEntity =
@@ -7,6 +11,7 @@ type SourceEntity =
   | "users"
   | "third_parties"
   | "controls"
+  | "rcm"
   | "risks"
   | "risk_control_links"
   | "rcsa_records"
@@ -326,20 +331,32 @@ function mapControls(
   businessUnitLookup: Map<string, string>,
   userLookup: Map<string, string>,
 ): ControlImportRecord[] {
+  const rcmPayloadByControlKey = buildRcmPayloadByControlKey(batch);
+
   return batch.import_files
     .filter((file) => file.source_entity === "controls")
     .flatMap((file) =>
       file.raw_import_rows
         .map((row) => {
           const sourceRecordKey = readString(row.raw_payload, ["source_record_key", "control_id", "id", "record_id"]) ?? row.source_record_key;
-          const controlName = readString(row.raw_payload, ["control_name", "name", "title"]);
+          const controlName = readString(row.raw_payload, ["control_name", "control_description", "name", "title"]);
 
           if (!sourceRecordKey || !controlName) {
             return null;
           }
 
-          const businessUnitName = readString(row.raw_payload, ["business_unit", "business_unit_name", "business_unit_id"]);
+          const businessUnitName = readString(row.raw_payload, ["business_unit", "business_unit_name", "business_unit_id", "sub_process"]);
           const ownerEmail = readString(row.raw_payload, ["control_owner_email", "owner_email", "application_owner_email"]);
+          const rcmPayload = findRcmPayloadForControlRow(rcmPayloadByControlKey, row);
+          const sourcePayload =
+            rcmPayload
+              ? {
+                  ...row.raw_payload,
+                  ...rcmPayload,
+                  imported_control_source_payload: row.raw_payload,
+                  imported_rcm_source_payload: rcmPayload,
+                }
+              : row.raw_payload;
 
           return {
             audit_id: batch.audit_id,
@@ -356,11 +373,50 @@ function mapControls(
             control_frequency: readString(row.raw_payload, ["control_frequency", "frequency"]),
             testing_sample_size: toInteger(readString(row.raw_payload, ["testing_sample_size", "sample_size"])),
             source_import_batch_id: batch.id,
-            source_payload: row.raw_payload,
+            source_payload: sourcePayload,
           };
         })
         .filter(nonNullable),
     );
+}
+
+function buildRcmPayloadByControlKey(batch: ImportBatchDetails) {
+  const lookup = new Map<string, Record<string, unknown>>();
+
+  for (const file of batch.import_files.filter((candidate) => candidate.source_entity === "rcm")) {
+    for (const row of file.raw_import_rows) {
+      for (const candidateKey of collectSourceKeyCandidates(row.raw_payload, row.source_record_key, [
+        "control_id",
+        "source_record_key",
+        "id",
+        "record_id",
+      ])) {
+        lookup.set(normalizeKey(candidateKey), row.raw_payload);
+      }
+    }
+  }
+
+  return lookup;
+}
+
+function findRcmPayloadForControlRow(
+  rcmPayloadByControlKey: Map<string, Record<string, unknown>>,
+  row: RawImportRowRecord,
+) {
+  for (const candidateKey of collectSourceKeyCandidates(row.raw_payload, row.source_record_key, [
+    "source_record_key",
+    "control_id",
+    "id",
+    "record_id",
+  ])) {
+    const payload = rcmPayloadByControlKey.get(normalizeKey(candidateKey));
+
+    if (payload) {
+      return payload;
+    }
+  }
+
+  return null;
 }
 
 function mapRisks(
@@ -776,8 +832,9 @@ async function generateControlWorkpapers(batch: ImportBatchDetails, controlRecor
         return null;
       }
 
-      const content = buildGeneratedWorkpaperContent(control);
+      const content = buildGeneratedWorkpaperContent(batch, control);
       const preview = buildWorkpaperPreview(content);
+      const testingMetadata = buildGeneratedTestingWorkpaperMetadata(batch, control);
 
       return {
         audit_id: batch.audit_id,
@@ -795,18 +852,13 @@ async function generateControlWorkpapers(batch: ImportBatchDetails, controlRecor
         source_import_batch_id: batch.id,
         source_payload: {
           generated_from_control_import: true,
+          generated_from_rcm: testingMetadata.generatedFromRcm,
+          rcm_generation_warnings: testingMetadata.warnings,
+          testing_workpaper_template: testingMetadata.template,
           preview_sections: preview.previewSections,
           preview_summary: preview.previewSummary,
           review_status: "NOT_SUBMITTED",
-          workpaper_content: {
-            summary: content.summary,
-            objective: content.objective,
-            scope: content.scope,
-            procedures: content.procedures,
-            results: content.results,
-            conclusion: content.conclusion,
-            next_steps: content.nextSteps,
-          },
+          workpaper_content: serializeWorkpaperContent(content),
         },
       };
     })
@@ -906,20 +958,22 @@ async function generateControlTestingMatrices(batch: ImportBatchDetails, control
     await insertMatrixSamples(sampleRows);
   }
 
-  const insertedAttributes = await supabaseRestRequest<
-    Array<{ id: string; matrix_id: string; attribute_key: string; display_order: number }>
-  >(
-    `control_testing_matrix_attributes?select=id,matrix_id,attribute_key,display_order&matrix_id=in.(${encodeURIComponent(
-      Array.from(new Set(attributeRows.map((row) => `"${row.matrix_id}"`))).join(","),
-    )})`,
-  );
-  const insertedSamples = await supabaseRestRequest<
-    Array<{ id: string; matrix_id: string; sample_identifier: string; display_order: number }>
-  >(
-    `control_testing_matrix_samples?select=id,matrix_id,sample_identifier,display_order&matrix_id=in.(${encodeURIComponent(
-      Array.from(new Set(sampleRows.map((row) => `"${row.matrix_id}"`))).join(","),
-    )})`,
-  );
+  const insertedAttributes =
+    attributeRows.length > 0
+      ? await supabaseRestRequest<Array<{ id: string; matrix_id: string; attribute_key: string; display_order: number }>>(
+          `control_testing_matrix_attributes?select=id,matrix_id,attribute_key,display_order&matrix_id=in.(${encodeURIComponent(
+            Array.from(new Set(attributeRows.map((row) => `"${row.matrix_id}"`))).join(","),
+          )})`,
+        )
+      : [];
+  const insertedSamples =
+    sampleRows.length > 0
+      ? await supabaseRestRequest<Array<{ id: string; matrix_id: string; sample_identifier: string; display_order: number }>>(
+          `control_testing_matrix_samples?select=id,matrix_id,sample_identifier,display_order&matrix_id=in.(${encodeURIComponent(
+            Array.from(new Set(sampleRows.map((row) => `"${row.matrix_id}"`))).join(","),
+          )})`,
+        )
+      : [];
 
   const attributeIdByMatrixAndKey = new Map(
     insertedAttributes.map((attribute) => [`${attribute.matrix_id}::${attribute.attribute_key}`, attribute.id]),
@@ -1001,6 +1055,45 @@ function buildGeneratedMatrixRecord(auditId: string, controlId: string, control:
 }
 
 function buildGeneratedMatrixTemplate(control: ControlImportRecord) {
+  const rcmContext = readRcmContext(control);
+
+  if (rcmContext) {
+    const attributes = buildRcmMatrixAttributes(rcmContext.testPlanSteps);
+    const explicitSamples = buildExplicitRcmSamples(control.source_payload);
+    const inferredSampleSize = inferSampleSizeFromText(rcmContext.testPlan);
+    const sampleSize = explicitSamples.length > 0 ? explicitSamples.length : control.testing_sample_size ?? inferredSampleSize ?? 3;
+
+    return {
+      populationDescription: buildRcmPopulationDescription(rcmContext),
+      populationSize: toInteger(readString(control.source_payload, ["population_size", "population count", "population_total"])),
+      sampleDescription: buildRcmSampleDescription(rcmContext),
+      sampleSize,
+      conclusion: `Document the testing conclusion for ${control.control_name} after the workpaper, exceptions, and final control effectiveness assessment are complete.`,
+      attributes:
+        attributes.length > 0
+          ? attributes
+          : [
+              {
+                attributeKey: "execute_rcm_test_plan",
+                label: "Execute the documented RCM test plan",
+                guidance:
+                  rcmContext.testPlan || `Execute the defined testing steps for ${control.control_name}.`,
+                displayOrder: 1,
+              },
+            ],
+      samples:
+        explicitSamples.length > 0
+          ? explicitSamples
+          : Array.from({ length: sampleSize }, (_, index) => ({
+              sampleIdentifier: `S-${String(index + 1).padStart(2, "0")}`,
+              sampleDescription: `RCM-derived sample ${String(index + 1).padStart(2, "0")} for ${control.control_name}.`,
+              sourceReference: "",
+              exceptionNoted: "",
+              displayOrder: index + 1,
+            })),
+    };
+  }
+
   const sampleSize = Math.max(control.testing_sample_size ?? 3, 3);
 
   return {
@@ -1039,15 +1132,74 @@ function buildGeneratedMatrixTemplate(control: ControlImportRecord) {
   };
 }
 
-function buildGeneratedWorkpaperContent(control: ControlImportRecord) {
+function buildGeneratedWorkpaperContent(batch: ImportBatchDetails, control: ControlImportRecord) {
+  const rcmContext = readRcmContext(control);
+
+  if (rcmContext) {
+    const inferredSampleSize = inferSampleSizeFromText(rcmContext.testPlan);
+
+    return {
+      controlReference: formatControlReferenceForWorkpaper(
+        rcmContext.controlId,
+        readString(control.source_payload, ["control_description"]) ?? control.control_name,
+        control.source_record_key,
+      ),
+      keyControl: rcmContext.keyVsNonKey ?? "",
+      typeOfControl:
+        readString(control.source_payload, ["type_of_control", "control_type", "control_type_description"]) ??
+        deriveTypeOfControlFromRcm({
+          keyVsNonKey: rcmContext.keyVsNonKey,
+          preventiveDetective: rcmContext.preventiveDetective,
+          automatedManual: rcmContext.automatedManual,
+          controlRating: rcmContext.controlRating,
+        }),
+      controlFrequency: rcmContext.frequency ?? control.control_frequency ?? "",
+      assertions: rcmContext.assertions ?? "",
+      descriptionOfTestToBePerformed:
+        rcmContext.testPlan ||
+        `Document the test procedures to be performed for ${control.control_name}.`,
+      totalPopulationAndSamplingUnits:
+        rcmContext.subProcess
+          ? `Define the total population and sampling units for the ${rcmContext.subProcess} process population.`
+          : "",
+      populationCompletenessConsideration: rcmContext.keyReportNotes ?? "",
+      sampleSizeAndSelectionProcedures:
+        inferredSampleSize
+          ? `Initial sample size inferred from the RCM test plan: ${inferredSampleSize}. Confirm and refine the selection methodology during testing.`
+          : "",
+      expectedDeviationTypes: rcmContext.riskDescription ?? "",
+      documentationOfTesting: rcmContext.controlObjectiveDescription ?? "",
+      extensionOfInterimTestingToEndOfPeriod: "",
+      matrixExceptionSummary: "No exceptions have been recorded in the testing matrix.",
+      numberOfDeviationsDetected: "0",
+      deviationDescriptionAndCause: "",
+      didDeviationsResultFromFraudOrError: "",
+      wereDeviationsIsolatedOrPervasive: "",
+      finalNumberOfDeviations: "0",
+      controlEffectivenessConclusion: "",
+    };
+  }
+
   return {
-    summary: `Testing workpaper for ${control.control_name}.`,
-    objective: `Document testing performed over ${control.control_name} and conclude on whether the control operated effectively during the audit period.`,
-    scope: `Population includes items subject to ${control.control_name}. Update this section with the precise population, sampling approach, period tested, and any scoping notes relevant to this control.`,
-    procedures: `1. Confirm the population and sample selection tied to the testing matrix.\n\n2. Inspect supporting evidence for each sample item.\n\n3. Evaluate exceptions, determine root cause where needed, and summarize the overall control conclusion.`,
-    results: "Record sample-level results, exceptions, and supporting observations here as testing progresses.",
-    conclusion: `State whether ${control.control_name} operated effectively based on the completed testing.`,
-    nextSteps: "Track follow-up, remediation, and review comments needed before the workpaper can be approved.",
+    controlReference: control.source_record_key,
+    keyControl: control.control_name,
+    typeOfControl: "",
+    controlFrequency: control.control_frequency ?? "",
+    assertions: "",
+    descriptionOfTestToBePerformed: `Document the testing procedures to be performed for ${control.control_name}.`,
+    totalPopulationAndSamplingUnits: `Define the population and sampling units relevant to ${control.control_name}.`,
+    populationCompletenessConsideration: "",
+    sampleSizeAndSelectionProcedures: "",
+    expectedDeviationTypes: "",
+    documentationOfTesting: "",
+    extensionOfInterimTestingToEndOfPeriod: "",
+    matrixExceptionSummary: "No exceptions have been recorded in the testing matrix.",
+    numberOfDeviationsDetected: "0",
+    deviationDescriptionAndCause: "",
+    didDeviationsResultFromFraudOrError: "",
+    wereDeviationsIsolatedOrPervasive: "",
+    finalNumberOfDeviations: "0",
+    controlEffectivenessConclusion: "",
   };
 }
 
@@ -1104,6 +1256,28 @@ function buildImportedSourceKeyLookup(
   return lookup;
 }
 
+function collectSourceKeyCandidates(
+  payload: Record<string, unknown>,
+  fallbackSourceRecordKey: string | null,
+  aliases: string[],
+) {
+  const candidateKeys = new Set<string>();
+
+  if (fallbackSourceRecordKey) {
+    candidateKeys.add(fallbackSourceRecordKey);
+  }
+
+  for (const alias of aliases) {
+    const aliasValue = readString(payload, [alias]);
+
+    if (aliasValue) {
+      candidateKeys.add(aliasValue);
+    }
+  }
+
+  return [...candidateKeys];
+}
+
 function resolveImportedRecordId(
   importedKey: string,
   persistedLookup: Map<string, string>,
@@ -1135,7 +1309,7 @@ function collectBusinessUnitNames(rows: RawImportRowRecord[]) {
   const names = new Set<string>();
 
   for (const row of rows) {
-    const name = readString(row.raw_payload, ["business_unit", "business_unit_name"]);
+    const name = readString(row.raw_payload, ["business_unit", "business_unit_name", "sub_process"]);
 
     if (name) {
       names.add(name.trim());
@@ -1143,6 +1317,260 @@ function collectBusinessUnitNames(rows: RawImportRowRecord[]) {
   }
 
   return [...names].map((name) => ({ name }));
+}
+
+function readRcmContext(control: ControlImportRecord) {
+  const hasRcmSpecificFields = [
+    readString(control.source_payload, ["sub_process"]),
+    readString(control.source_payload, ["risk_description"]),
+    readString(control.source_payload, ["test_plan"]),
+    readString(control.source_payload, ["assertion(s)", "assertions"]),
+    readString(control.source_payload, ["control_objective_description"]),
+  ].some(Boolean);
+  const controlId = readString(control.source_payload, ["control_id"]);
+  const controlDescription = readString(control.source_payload, ["control_description"]);
+  const testPlan = readString(control.source_payload, ["test_plan"]);
+
+  if (!hasRcmSpecificFields || (!controlId && !controlDescription && !testPlan)) {
+    return null;
+  }
+
+  return {
+    controlId,
+    subProcess: readString(control.source_payload, ["sub_process"]),
+    riskDescription: readString(control.source_payload, ["risk_description"]),
+    frequency: readString(control.source_payload, ["frequency", "control_frequency"]),
+    assertions: readString(control.source_payload, ["assertion(s)", "assertions"]),
+    testPlan,
+    testPlanSteps: parseRcmTestPlanSteps(testPlan),
+    controlObjectiveDescription: readString(control.source_payload, ["control_objective_description"]),
+    controlOwner: readString(control.source_payload, ["control_owner"]),
+    controlOwnerTitle: readString(control.source_payload, ["control_owner_title"]),
+    keyVsNonKey: readString(control.source_payload, ["key_vs_non_key"]),
+    preventiveDetective: readString(control.source_payload, ["preventative/detective", "preventive_detective"]),
+    automatedManual: readString(control.source_payload, ["automated/manual", "automated_manual"]),
+    riskId: readString(control.source_payload, ["risk_id"]),
+    riskRating: readString(control.source_payload, ["risk_rating"]),
+    controlRating: readString(control.source_payload, ["control_rating"]),
+    keyReport: readString(control.source_payload, ["key_report"]),
+    keyReportNotes: readString(control.source_payload, ["key_report_notes"]),
+  };
+}
+
+function parseRcmTestPlanSteps(testPlan: string | null) {
+  if (!testPlan) {
+    return [];
+  }
+
+  const normalizedPlan = testPlan.replace(/\r\n/g, "\n").trim();
+  const stepMatches = [
+    ...normalizedPlan.matchAll(/(?:^|\s)(\d+|[a-z])\.\s+([\s\S]*?)(?=(?:\s(?:\d+|[a-z])\.\s+)|$)/gi),
+  ];
+
+  if (stepMatches.length === 0) {
+    return [];
+  }
+
+  return stepMatches.map((match, index) => ({
+    stepCode: match[1]?.toUpperCase() ?? String(index + 1),
+    text: (match[2] ?? "").replace(/\s*\n\s*/g, " ").trim(),
+    displayOrder: index + 1,
+  }));
+}
+
+function inferSampleSizeFromText(testPlan: string | null) {
+  if (!testPlan) {
+    return null;
+  }
+
+  const match = /sample of\s+(\d+)|select\s+(\d+)\s+(?:accounts|items|samples|conflicts|transactions|records)/i.exec(
+    testPlan,
+  );
+  const value = match?.[1] ?? match?.[2];
+  const parsed = value ? Number.parseInt(value, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function buildRcmMatrixAttributes(steps: Array<{ stepCode: string; text: string; displayOrder: number }>) {
+  return steps.map((step, index) => ({
+    attributeKey: buildAttributeKey(step.text, index + 1),
+    label: `${step.stepCode}. ${step.text}`,
+    guidance: step.text,
+    displayOrder: step.displayOrder,
+  }));
+}
+
+function buildExplicitRcmSamples(payload: Record<string, unknown>) {
+  const rawSamplePayload = readString(payload, ["testing_samples", "sample_information"]);
+
+  if (!rawSamplePayload) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawSamplePayload) as Array<Record<string, unknown>>;
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((sample, index) => {
+        const sampleIdentifier = readSampleString(sample, ["sampleIdentifier", "sample_identifier"]);
+        const sampleDescription = readSampleString(sample, ["sampleDescription", "sample_description"]);
+        const sourceReference = readSampleString(sample, ["sourceReference", "source_reference"]);
+
+        if (!sampleIdentifier || !sampleDescription) {
+          return null;
+        }
+
+        return {
+          sampleIdentifier,
+          sampleDescription,
+          sourceReference: sourceReference ?? "",
+          exceptionNoted: "",
+          displayOrder: index + 1,
+        };
+      })
+      .filter(nonNullable);
+  } catch {
+    return [];
+  }
+}
+
+function buildRcmPopulationDescription(context: NonNullable<ReturnType<typeof readRcmContext>>) {
+  const parts = [
+    context.subProcess ? `Population should cover the ${context.subProcess} process population relevant to this control.` : null,
+    context.riskDescription ? `Risk context: ${context.riskDescription}.` : null,
+    "Document the exact source population, sampling unit, and completeness considerations in the workpaper before testing starts.",
+  ].filter(nonNullable);
+
+  return parts.join(" ");
+}
+
+function buildRcmSampleDescription(context: NonNullable<ReturnType<typeof readRcmContext>>) {
+  if (context.testPlan) {
+    return `Testing plan sourced from the RCM: ${summarizeText(context.testPlan)} Complete sample selection after documenting the population and sampling approach.`;
+  }
+
+  return "Complete sample selection after documenting the population, completeness considerations, and sampling approach from the RCM.";
+}
+
+function buildGeneratedTestingWorkpaperMetadata(batch: ImportBatchDetails, control: ControlImportRecord) {
+  const rcmContext = readRcmContext(control);
+
+  if (!rcmContext) {
+    return {
+      generatedFromRcm: false,
+      warnings: [],
+      template: null,
+    };
+  }
+
+  const archiveMetadata = batch.archive_metadata;
+  const scopePeriodEnd = readArchiveString(archiveMetadata, "scopePeriodEnd") ?? readArchiveString(archiveMetadata, "auditPeriodEnd");
+  const warnings = [];
+
+  if (!rcmContext.testPlan) {
+    warnings.push("The RCM row does not include a Test Plan.");
+  } else if (rcmContext.testPlanSteps.length === 0) {
+    warnings.push("No explicit Test Plan substeps were found in the RCM row.");
+  }
+
+  return {
+    generatedFromRcm: true,
+    warnings,
+    template: {
+      clientName: DEFAULT_COMPANY_NAME,
+      auditName: readArchiveString(archiveMetadata, "auditName"),
+      auditDate: scopePeriodEnd,
+      controlReference: rcmContext.controlId ?? control.source_record_key,
+      keyControl: control.control_name,
+      controlOwner: rcmContext.controlOwner,
+      controlOwnerTitle: rcmContext.controlOwnerTitle,
+      controlType: {
+        keyVsNonKey: rcmContext.keyVsNonKey,
+        preventiveDetective: rcmContext.preventiveDetective,
+        automatedManual: rcmContext.automatedManual,
+        controlRating: rcmContext.controlRating,
+      },
+      controlFrequency: rcmContext.frequency,
+      assertions: rcmContext.assertions,
+      descriptionOfTestToBePerformed: rcmContext.testPlan,
+      populationDefinition: "",
+      completenessConsideration: "",
+      sampleSizeSelectionProcedures: "",
+      expectedDeviationTypes: "",
+      testingAttributesAndProcedures: rcmContext.testPlanSteps.map((step) => ({
+        code: step.stepCode,
+        text: step.text,
+      })),
+      testingTable: {
+        sampleInformationHeading: "Sample Information",
+        attributesHeading: "Attributes Tested",
+        tickmarkLegend: {
+          a: "Attribute satisfied",
+          E: "Exception",
+          N: "Note",
+          "N/A": "Not applicable",
+        },
+      },
+      riskContext: {
+        riskId: rcmContext.riskId,
+        riskDescription: rcmContext.riskDescription,
+        riskRating: rcmContext.riskRating,
+        keyReport: rcmContext.keyReport,
+        keyReportNotes: rcmContext.keyReportNotes,
+      },
+    },
+  };
+}
+
+function readArchiveString(payload: Record<string, unknown>, key: string) {
+  const value = payload[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readSampleString(sample: Record<string, unknown>, aliases: string[]) {
+  for (const alias of aliases) {
+    const value = sample[alias];
+
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function buildAttributeKey(text: string, index: number) {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+
+  return normalized.length > 0 ? normalized : `attribute_${index}`;
+}
+
+function summarizeText(value: string) {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  return collapsed.length > 180 ? `${collapsed.slice(0, 177)}...` : collapsed;
+}
+
+function formatControlReferenceForWorkpaper(
+  controlId: string | null,
+  controlDescription: string | null,
+  fallbackReference: string,
+) {
+  const trimmedId = controlId?.trim();
+  const trimmedDescription = controlDescription?.trim();
+
+  if (trimmedId && trimmedDescription) {
+    return `${trimmedId} - ${trimmedDescription}`;
+  }
+
+  return trimmedId || trimmedDescription || fallbackReference;
 }
 
 function collectUsers(rows: RawImportRowRecord[], auditCompanyName: string | null) {

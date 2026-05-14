@@ -12,6 +12,7 @@ import { ReminderButton } from "@/components/ui/reminder-button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { TestingMatrixDetailPanel } from "@/components/testing-matrices/testing-matrix-detail-panel";
 import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
+import { defaultAuditWorkspaceSettings, formatReviewWorkflowStageLabel, type AuditWorkspaceSettings } from "@/lib/audit-settings";
 import {
   getControlOwner,
   getControlRiskLevel,
@@ -27,7 +28,7 @@ import {
 } from "@/lib/audit-logic";
 import {
   canUserSeeAllControls,
-  isControlInScope,
+  getDefaultScopeFilter,
   type ControlAudienceFilter,
   type ScopeFilter,
 } from "@/lib/control-visibility";
@@ -79,7 +80,7 @@ type PlanningFormState = {
   dueDate: string;
   ownerId: string;
   plannedHours: string;
-  scopeStatus: ControlScopeStatus;
+  scopeStatus: "" | ControlScopeStatus;
 };
 
 type ControlPlanningApiResponse = {
@@ -129,10 +130,11 @@ export function ControlTestingView({
   const [ownerFilter, setOwnerFilter] = useState<string>("ALL");
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
   const [audienceFilter, setAudienceFilter] = useState<ControlAudienceFilter>("ALL");
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("IN_SCOPE");
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(getDefaultScopeFilter(currentPhase));
   const [sortBy, setSortBy] = useState<ControlSort>("DUE_ASC");
   const [showFilters, setShowFilters] = useState(false);
-  const [planningForm, setPlanningForm] = useState<PlanningFormState>({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "IN_SCOPE" });
+  const [planningForm, setPlanningForm] = useState<PlanningFormState>({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "" });
+  const [workspaceSettings, setWorkspaceSettings] = useState<AuditWorkspaceSettings>(defaultAuditWorkspaceSettings);
   const [controlExceptionsByControlId, setControlExceptionsByControlId] = useState<Record<string, ControlException[]>>(
     () => groupControlExceptions(controlExceptions),
   );
@@ -161,12 +163,63 @@ export function ControlTestingView({
     setOwnerFilter("ALL");
   }, [activeUser.id]);
 
+  useEffect(() => {
+    if (!workspaceSettings.showControlBudgetHours && sortBy === "VARIANCE_DESC") {
+      setSortBy("DUE_ASC");
+    }
+  }, [sortBy, workspaceSettings.showControlBudgetHours]);
+
+  useEffect(() => {
+    if (!auditId) {
+      setWorkspaceSettings(defaultAuditWorkspaceSettings);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadWorkspaceSettings() {
+      try {
+        const response = await fetch(`/api/audits/${auditId}/settings`, { cache: "no-store" });
+        const payload = (await response.json()) as { settings?: AuditWorkspaceSettings };
+
+        if (!response.ok) {
+          throw new Error("Unable to load workspace settings.");
+        }
+
+        if (!cancelled) {
+          setWorkspaceSettings(payload.settings ?? defaultAuditWorkspaceSettings);
+        }
+      } catch {
+        if (!cancelled) {
+          setWorkspaceSettings(defaultAuditWorkspaceSettings);
+        }
+      }
+    }
+
+    void loadWorkspaceSettings();
+
+    const handleSettingsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ auditId?: string; settings?: AuditWorkspaceSettings }>).detail;
+
+      if (detail?.auditId === auditId && detail.settings) {
+        setWorkspaceSettings(detail.settings);
+      }
+    };
+
+    window.addEventListener("audit-settings-updated", handleSettingsUpdated);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("audit-settings-updated", handleSettingsUpdated);
+    };
+  }, [auditId]);
+
   const visibleControls = useMemo(
     () =>
       controlRecords.filter((control) => {
         const matchesAudience =
           audienceFilter === "ALL" || canUserSeeAllControls(activeUser) || isControlAssignedToUser(control, activeUser, users);
-        const matchesScope = scopeFilter === "ALL" || isControlInScope(control);
+        const matchesScope = control.scopeStatus === scopeFilter;
 
         return matchesAudience && matchesScope;
       }),
@@ -256,7 +309,7 @@ export function ControlTestingView({
 
   useEffect(() => {
     if (!selectedControl) {
-      setPlanningForm({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "IN_SCOPE" });
+      setPlanningForm({ dueDate: "", ownerId: "", plannedHours: "", scopeStatus: "" });
       setSelectedWorkpaperId("");
       setSelectedTestingMatrixControlId("");
       setSaveError("");
@@ -268,7 +321,7 @@ export function ControlTestingView({
       dueDate: toDateInputValue(selectedControl.dueDate),
       ownerId: selectedControl.ownerId,
       plannedHours: selectedControl.plannedHours.toString(),
-      scopeStatus: selectedControl.scopeStatus,
+      scopeStatus: selectedControl.scopeStatus === "UNASSIGNED" ? "" : selectedControl.scopeStatus,
     });
     setSelectedWorkpaperId("");
     setSelectedTestingMatrixControlId("");
@@ -296,23 +349,29 @@ export function ControlTestingView({
         <>
           <PageHeader
             title="Control Testing"
-            description="Monitor control completion, linked support, due dates, and budget variance across the active audit scope."
+            description={
+              workspaceSettings.showControlBudgetHours
+                ? "Monitor control completion, linked support, due dates, and budget variance across the active audit scope."
+                : "Monitor control completion, linked support, due dates, and blockers across the active audit scope."
+            }
             phaseStatus={{ label: currentPhase === "Fieldwork" ? "Active execution phase" : `Current phase: ${currentPhase}`, active: currentPhase === "Fieldwork" }}
           />
 
-          <section className="grid gap-3 md:grid-cols-3">
+          <section className={`grid gap-3 ${workspaceSettings.showControlBudgetHours ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
             <SummaryCard
               label="Controls in view"
               value={`${visibleControls.length}`}
               detail={`${visibleControls.filter((control) => shouldShowReminder(control, currentNow)).length} due inside 48h`}
               tone="warning"
             />
-            <SummaryCard
-              label="Over budget"
-              value={`${visibleControls.filter((control) => getControlVariance(control) > 0).length}`}
-              detail="Hours variance flagged inline"
-              tone="risk"
-            />
+            {workspaceSettings.showControlBudgetHours ? (
+              <SummaryCard
+                label="Over budget"
+                value={`${visibleControls.filter((control) => getControlVariance(control) > 0).length}`}
+                detail="Hours variance flagged inline"
+                tone="risk"
+              />
+            ) : null}
             <SummaryCard
               label="Past due"
               value={`${visibleControls.filter((control) => isControlOverdue(control, currentNow)).length}`}
@@ -335,7 +394,9 @@ export function ControlTestingView({
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Control testing</p>
             <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Manage control execution</h2>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              Monitor control completion, linked support, due dates, budget variance, and blockers without leaving the Fieldwork tab.
+              {workspaceSettings.showControlBudgetHours
+                ? "Monitor control completion, linked support, due dates, budget variance, and blockers without leaving the Fieldwork tab."
+                : "Monitor control completion, linked support, due dates, and blockers without leaving the Fieldwork tab."}
             </p>
           </div>
         ) : null}
@@ -374,10 +435,9 @@ export function ControlTestingView({
                 ) : (
                   <FilterPill label="All audit controls" active />
                 )}
-                <FilterPill label="In-scope only" active={scopeFilter === "IN_SCOPE"} onClick={() => setScopeFilter("IN_SCOPE")} />
-                <FilterPill label="Show out of scope" active={scopeFilter === "ALL"} onClick={() => setScopeFilter("ALL")} />
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
+                <Select value={scopeFilter} onChange={setScopeFilter} options={["IN_SCOPE", "OUT_OF_SCOPE", "UNASSIGNED"]} label={formatScopeFilterLabel} />
                 <Select value={statusFilter} onChange={setStatusFilter} options={["ALL", ...controlStages]} />
                 <Select value={riskFilter} onChange={setRiskFilter} options={["ALL", "HIGH", "MEDIUM", "LOW"]} />
                 <Select
@@ -387,7 +447,13 @@ export function ControlTestingView({
                   label={(value) => (value === "ALL" ? "All owners" : getOwnerLabel(visibleControls.find((control) => control.ownerId === value) ?? null, users))}
                 />
                 <Select value={dueFilter} onChange={setDueFilter} options={dueFilterOptions} label={formatDueFilterLabel} />
-                <Select value={sortBy} onChange={setSortBy} options={controlSortOptions} label={formatControlSortLabel} icon={<ArrowDownUp size={16} />} />
+                <Select
+                  value={sortBy}
+                  onChange={setSortBy}
+                  options={workspaceSettings.showControlBudgetHours ? controlSortOptions : controlSortOptions.filter((option) => option !== "VARIANCE_DESC")}
+                  label={formatControlSortLabel}
+                  icon={<ArrowDownUp size={16} />}
+                />
               </div>
             </div>
           ) : null}
@@ -406,11 +472,18 @@ export function ControlTestingView({
                   </span>
                 </th>
                 <th className="bg-white px-3 py-2">Due</th>
-                <th className="bg-white px-3 py-2">Hours</th>
+                {workspaceSettings.showControlBudgetHours ? <th className="bg-white px-3 py-2">Hours</th> : null}
+                <th className="bg-white px-3 py-2">Scope</th>
                 <th className="bg-white px-3 py-2">
                   <span className="inline-flex items-center gap-2">
                     Risk
-                    <HoverInfoCard text="Risk is scored from overdue timing, blocked status, budget variance, linked open or overdue questions and requests, document review completion, and higher-sensitivity business areas." />
+                    <HoverInfoCard
+                      text={
+                        workspaceSettings.showControlBudgetHours
+                          ? "Risk is scored from overdue timing, blocked status, budget variance, linked open or overdue questions and requests, document review completion, and higher-sensitivity business areas."
+                          : "Risk is scored from overdue timing, blocked status, linked open or overdue questions and requests, document review completion, and higher-sensitivity business areas."
+                      }
+                    />
                   </span>
                 </th>
                 <th className="bg-white px-3 py-2">Actions</th>
@@ -453,11 +526,16 @@ export function ControlTestingView({
                       />
                     </td>
                     <td className={cn("px-3 py-3 text-[13px] text-[var(--muted)]", overdue && "control-cell-overdue")}>{formatShortDate(control.dueDate)}</td>
-                    <td className={cn("px-3 py-3 text-[13px] text-[var(--muted)]", overdue && "control-cell-overdue")}>
-                      {formatHours(control.actualHours)} / {formatHours(control.plannedHours)}
-                      <span className={variance > 0 ? "ml-2 text-[var(--brand-coral)]" : "ml-2 text-[var(--brand-teal-core)]"}>
-                        {variance > 0 ? `+${formatHours(variance)}` : `${formatHours(Math.abs(variance))} under`}
-                      </span>
+                    {workspaceSettings.showControlBudgetHours ? (
+                      <td className={cn("px-3 py-3 text-[13px] text-[var(--muted)]", overdue && "control-cell-overdue")}>
+                        {formatHours(control.actualHours)} / {formatHours(control.plannedHours)}
+                        <span className={variance > 0 ? "ml-2 text-[var(--brand-coral)]" : "ml-2 text-[var(--brand-teal-core)]"}>
+                          {variance > 0 ? `+${formatHours(variance)}` : `${formatHours(Math.abs(variance))} under`}
+                        </span>
+                      </td>
+                    ) : null}
+                    <td className={cn("px-3 py-3", overdue && "control-cell-overdue")}>
+                      <StatusBadge status={formatScopeStatus(control.scopeStatus)} tone={getScopeTone(control.scopeStatus)} />
                     </td>
                     <td className={cn("px-3 py-3", overdue && "control-cell-overdue")}>
                       <StatusBadge status={derivedRiskLevel} tone={riskTone} />
@@ -483,7 +561,7 @@ export function ControlTestingView({
               })}
               {filteredControls.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-6 text-center text-[13px] text-[var(--muted)]">
+                  <td colSpan={workspaceSettings.showControlBudgetHours ? 8 : 7} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-6 text-center text-[13px] text-[var(--muted)]">
                     No controls match the current filters.
                   </td>
                 </tr>
@@ -543,6 +621,7 @@ export function ControlTestingView({
                   showNotification={showNotification}
                   startSaving={startSaving}
                   users={users}
+                  workspaceSettings={workspaceSettings}
                   workspaceQuery={workspaceQuery}
                   router={router}
                 />
@@ -567,6 +646,7 @@ export function ControlTestingView({
             questions={questions}
             requests={requests}
             users={users}
+            workspaceSettings={workspaceSettings}
           />
         ) : null}
 
@@ -630,6 +710,7 @@ export function ControlTestingView({
               showNotification={showNotification}
               startSaving={startSaving}
               users={users}
+              workspaceSettings={workspaceSettings}
               workspaceQuery={workspaceQuery}
               router={router}
             />
@@ -653,6 +734,7 @@ export function ControlTestingView({
           questions={questions}
           requests={requests}
           users={users}
+          workspaceSettings={workspaceSettings}
         />
         )
       ) : null}
@@ -711,6 +793,7 @@ function ControlDetailContent({
   showNotification,
   startSaving,
   users,
+  workspaceSettings,
   workspaceQuery,
   router,
 }: {
@@ -741,6 +824,7 @@ function ControlDetailContent({
   showNotification: (args: { title: string; message: string; tone: "success" | "error" }) => void;
   startSaving: TransitionStartFunction;
   users: User[];
+  workspaceSettings: AuditWorkspaceSettings;
   workspaceQuery: URLSearchParams;
   router: { push: (href: string) => void; refresh: () => void };
 }) {
@@ -761,7 +845,9 @@ function ControlDetailContent({
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Planning decisions</p>
               <h3 className="mt-1.5 text-base font-semibold text-[var(--foreground)]">Control setup stored on this audit</h3>
               <p className="mt-1.5 text-[13px] text-[var(--muted)]">
-                Managers, the AIC, and the director can assign the control owner, target due date, budgeted hours, and scope for this audit during planning.
+                {workspaceSettings.showControlBudgetHours
+                  ? "Managers, the AIC, and the director can assign the control owner, target due date, budgeted hours, and scope for this audit during planning."
+                  : "Managers, the AIC, and the director can assign the control owner, target due date, and scope for this audit during planning."}
               </p>
             </div>
           </div>
@@ -793,25 +879,28 @@ function ControlDetailContent({
               />
             </label>
 
-            <label className="grid gap-2 md:col-span-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Budgeted hours</span>
-              <input
-                type="number"
-                min="0"
-                step="0.25"
-                value={planningForm.plannedHours}
-                onChange={(event) => setPlanningForm((current) => ({ ...current, plannedHours: event.target.value }))}
-                className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
-              />
-            </label>
+            {workspaceSettings.showControlBudgetHours ? (
+              <label className="grid gap-2 md:col-span-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Budgeted hours</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={planningForm.plannedHours}
+                  onChange={(event) => setPlanningForm((current) => ({ ...current, plannedHours: event.target.value }))}
+                  className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
+                />
+              </label>
+            ) : null}
 
             <label className="grid gap-2 md:col-span-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Scope decision</span>
               <select
                 value={planningForm.scopeStatus}
-                onChange={(event) => setPlanningForm((current) => ({ ...current, scopeStatus: event.target.value as ControlScopeStatus }))}
+                onChange={(event) => setPlanningForm((current) => ({ ...current, scopeStatus: event.target.value as "" | ControlScopeStatus }))}
                 className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
               >
+                <option value="">Leave unassigned</option>
                 <option value="IN_SCOPE">In scope</option>
                 <option value="OUT_OF_SCOPE">Out of scope</option>
               </select>
@@ -842,7 +931,7 @@ function ControlDetailContent({
                   try {
                     setSaveError("");
                     setSaveSuccess("");
-                    const payload = buildPlanningPayload(selectedControl, planningForm, auditId);
+                    const payload = buildPlanningPayload(selectedControl, planningForm, auditId, workspaceSettings.showControlBudgetHours);
                     const response = await fetch(`/api/controls/${selectedControl.id}`, {
                       method: "PATCH",
                       headers: {
@@ -862,7 +951,7 @@ function ControlDetailContent({
                       dueDate: toDateInputValue(updatedControl.dueDate),
                       ownerId: updatedControl.ownerId,
                       plannedHours: updatedControl.plannedHours.toString(),
-                      scopeStatus: updatedControl.scopeStatus,
+                      scopeStatus: updatedControl.scopeStatus === "UNASSIGNED" ? "" : updatedControl.scopeStatus,
                     });
                     router.refresh();
                     setSaveSuccess("Planning decisions saved to Supabase.");
@@ -896,12 +985,23 @@ function ControlDetailContent({
           label="Date completed"
           value={selectedControl.completedDate ? formatDateTime(selectedControl.completedDate) : "Not completed"}
         />
-        <InfoCard label="Hours" value={`${formatHours(selectedControl.actualHours)} actual / ${formatHours(selectedControl.plannedHours)} planned`} />
+        {workspaceSettings.showControlBudgetHours ? (
+          <InfoCard label="Hours" value={`${formatHours(selectedControl.actualHours)} actual / ${formatHours(selectedControl.plannedHours)} planned`} />
+        ) : null}
         <InfoCard
           label="Last planning edit"
           value={selectedControl.planningOverriddenAt ? formatDateTime(selectedControl.planningOverriddenAt) : "No manual override saved"}
         />
-        <InfoCard label="Scope" value={selectedControl.scopeStatus === "OUT_OF_SCOPE" ? "Out of scope" : "In scope"} />
+        <InfoCard
+          label="Scope"
+          value={
+            selectedControl.scopeStatus === "OUT_OF_SCOPE"
+              ? "Out of scope"
+              : selectedControl.scopeStatus === "IN_SCOPE"
+                ? "In scope"
+                : "Unassigned"
+          }
+        />
       </section>
 
       <LinkedSection title="Related risks" empty="No related risks linked yet.">
@@ -1061,6 +1161,7 @@ function ControlDetailContent({
             actionLabel="Launch workpaper"
             document={document}
             onAction={() => setSelectedWorkpaperId(document.id)}
+            workspaceSettings={workspaceSettings}
           />
         ))}
         <TestingMatrixLinkedRow
@@ -1072,7 +1173,7 @@ function ControlDetailContent({
 
       <LinkedSection title="Linked documents" empty="No non-workpaper documents linked yet.">
         {linkedNonWorkpaperDocuments.map((document) => (
-          <DocumentLinkedRow key={document.id} document={document} />
+          <DocumentLinkedRow key={document.id} document={document} workspaceSettings={workspaceSettings} />
         ))}
       </LinkedSection>
     </div>
@@ -1184,6 +1285,39 @@ function formatControlSortLabel(value: ControlSort) {
   }
 }
 
+function formatScopeFilterLabel(value: ScopeFilter) {
+  switch (value) {
+    case "IN_SCOPE":
+      return "In scope";
+    case "OUT_OF_SCOPE":
+      return "Out of scope";
+    case "UNASSIGNED":
+      return "Unassigned";
+  }
+}
+
+function formatScopeStatus(value: ControlScopeStatus) {
+  switch (value) {
+    case "IN_SCOPE":
+      return "In scope";
+    case "OUT_OF_SCOPE":
+      return "Out of scope";
+    case "UNASSIGNED":
+      return "Unassigned";
+  }
+}
+
+function getScopeTone(value: ControlScopeStatus): "neutral" | "warning" | "risk" {
+  switch (value) {
+    case "IN_SCOPE":
+      return "neutral";
+    case "OUT_OF_SCOPE":
+      return "risk";
+    case "UNASSIGNED":
+      return "warning";
+  }
+}
+
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[16px] border border-black/5 bg-white p-3.5">
@@ -1241,10 +1375,12 @@ function DocumentLinkedRow({
   actionLabel,
   document,
   onAction,
+  workspaceSettings,
 }: {
   actionLabel?: string;
   document: AuditDocument;
   onAction?: () => void;
+  workspaceSettings: AuditWorkspaceSettings;
 }) {
   const reviewStatus = document.reviewStatus ?? "NOT_SUBMITTED";
   const currentIndex = documentReviewStages.indexOf(reviewStatus);
@@ -1262,7 +1398,7 @@ function DocumentLinkedRow({
               tone={document.status === "COMPLETE" ? "success" : document.status === "NOT_STARTED" ? "warning" : "neutral"}
             />
             <StatusBadge
-              status={reviewStatus}
+              status={formatReviewWorkflowStageLabel(reviewStatus, workspaceSettings)}
               tone={reviewStatus === "APPROVED" ? "success" : reviewStatus === "NOT_SUBMITTED" ? "warning" : "neutral"}
             />
           </div>
@@ -1285,7 +1421,14 @@ function DocumentLinkedRow({
       <div className="mt-3 grid gap-2 md:grid-cols-5">
         {documentReviewStages.map((stage, index) => {
           const tone = index < currentIndex ? "success" : index === currentIndex ? "warning" : "neutral";
-          return <StatusBadge key={stage} status={stage} tone={tone} className="justify-center py-2" />;
+          return (
+            <StatusBadge
+              key={stage}
+              status={formatReviewWorkflowStageLabel(stage, workspaceSettings)}
+              tone={tone}
+              className="justify-center py-2"
+            />
+          );
         })}
       </div>
     </div>
@@ -1331,9 +1474,6 @@ function TestingMatrixLinkedRow({
         </div>
       </div>
 
-      <p className="mt-3 text-[13px] text-[var(--muted)]">
-        {matrix?.sampleDescription || "Set the population, sample rationale, per-attribute results, and row-level exception notes inside the dashboard."}
-      </p>
     </div>
   );
 }
@@ -1402,10 +1542,11 @@ function toDateInputValue(value?: string) {
   return value ? value.slice(0, 10) : "";
 }
 
-function buildPlanningPayload(control: Control, planningForm: PlanningFormState, auditId: string) {
+function buildPlanningPayload(control: Control, planningForm: PlanningFormState, auditId: string, showControlBudgetHours: boolean) {
   const normalizedOwnerId = planningForm.ownerId || null;
   const normalizedDueDate = planningForm.dueDate || null;
-  const normalizedPlannedHours = planningForm.plannedHours.trim().length === 0 ? null : Number(planningForm.plannedHours);
+  const normalizedPlannedHours =
+    !showControlBudgetHours || planningForm.plannedHours.trim().length === 0 ? null : Number(planningForm.plannedHours);
 
   return {
     auditId,
@@ -1414,7 +1555,7 @@ function buildPlanningPayload(control: Control, planningForm: PlanningFormState,
     assignedDueDate: normalizedDueDate === toDateInputValue(control.importedDueDate) ? null : normalizedDueDate,
     assignedPlannedHours:
       normalizedPlannedHours === null || normalizedPlannedHours === (control.importedPlannedHours ?? 0) ? null : normalizedPlannedHours,
-    scopeStatus: planningForm.scopeStatus,
+    scopeStatus: planningForm.scopeStatus || undefined,
   };
 }
 
@@ -1433,7 +1574,7 @@ function applyControlPlanningResponse(control: Control, response: ControlPlannin
     assignedPlannedHours: response.assignedPlannedHours ?? undefined,
     hasPlanningOverride: response.hasPlanningOverride,
     planningOverriddenAt: response.planningOverriddenAt ?? undefined,
-    scopeStatus: response.scopeStatus ?? control.scopeStatus,
+    scopeStatus: response.scopeStatus ?? control.scopeStatus ?? "UNASSIGNED",
   };
 }
 

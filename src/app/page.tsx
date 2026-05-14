@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
   type Dispatch,
@@ -22,6 +23,7 @@ import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 type UploadRequirement = {
   id:
     | "controls"
+    | "rcm"
     | "questions"
     | "requests"
     | "documents"
@@ -42,6 +44,7 @@ type UploadRequirement = {
   category: "core" | "workflow" | "advanced";
   sourceEntity:
     | "controls"
+    | "rcm"
     | "questions"
     | "requests"
     | "documents"
@@ -122,8 +125,8 @@ const uploadRequirements: UploadRequirement[] = [
   {
     id: "controls",
     label: "Controls dataset",
-    description: "Primary control population for the audit. This is the core file the platform uses to stand up testing.",
-    helpText: "Expected examples: controls export, scope list, test population, Archer control inventory.",
+    description: "Primary control population for the audit. This file defines which controls are in scope for the workspace.",
+    helpText: "Expected examples: controls export, scope list, test population, or Archer control inventory.",
     accept: ".csv",
     required: true,
     category: "core",
@@ -143,7 +146,27 @@ const uploadRequirements: UploadRequirement[] = [
       "testing",
       "control testing",
       "archer",
+    ],
+  },
+  {
+    id: "rcm",
+    label: "RCM workbook",
+    description: "Optional risk control matrix workbook used to pre-populate testing matrices and testing workpapers for imported controls.",
+    helpText: "Expected examples: RCM workbook, risk control matrix, control test plan workbook. The workbook must include an `RCM` worksheet.",
+    accept: ".xlsx",
+    required: false,
+    category: "core",
+    sourceEntity: "rcm",
+    keywords: [
       "rcm",
+      "risk control matrix",
+      "risk-control-matrix",
+      "control matrix",
+      "testing matrix",
+      "test plan",
+      "test steps",
+      "rcm workbook",
+      "workbook",
     ],
   },
   {
@@ -374,6 +397,7 @@ const uploadRequirements: UploadRequirement[] = [
 
 const emptyUploadedFiles: UploadedFiles = {
   controls: null,
+  rcm: null,
   questions: null,
   requests: null,
   documents: null,
@@ -388,28 +412,6 @@ const emptyUploadedFiles: UploadedFiles = {
   priorAuditFindings: null,
 };
 
-const requirementGroups: Array<{
-  id: UploadRequirement["category"];
-  title: string;
-  description: string;
-}> = [
-  {
-    id: "core",
-    title: "Core Intake",
-    description: "Minimum data required to stand up the audit workspace and testing population.",
-  },
-  {
-    id: "workflow",
-    title: "Workflow Data",
-    description: "Operational logs that directly populate the question, request, and document workflows.",
-  },
-  {
-    id: "advanced",
-    title: "Advanced Reference Data",
-    description: "Optional planning, risk, issue, and context datasets that enrich the audit but are not required to start.",
-  },
-];
-
 function getRequiredUploadRequirementIds(files: UploadedFiles) {
   const requiredIds: UploadRequirement["id"][] = ["controls"];
 
@@ -421,6 +423,7 @@ function getRequiredUploadRequirementIds(files: UploadedFiles) {
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedExistingAuditId, setSelectedExistingAuditId] = useState("");
   const [auditForm, setAuditForm] = useState<AuditForm>({
@@ -605,7 +608,10 @@ export default function HomePage() {
   }
 
   function handleFolderFilesChange(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFiles = Array.from(event.target.files ?? []).filter((file) => file.name.toLowerCase().endsWith(".csv"));
+    const selectedFiles = Array.from(event.target.files ?? []).filter((file) => {
+      const normalizedName = file.name.toLowerCase();
+      return normalizedName.endsWith(".csv") || normalizedName.endsWith(".xlsx");
+    });
     const mappedFiles = createFolderMappedFiles(selectedFiles);
     setFolderMappedFiles(mappedFiles);
     setUploadedFiles(buildUploadedFilesFromMappedFiles(mappedFiles));
@@ -679,20 +685,33 @@ export default function HomePage() {
         method: "POST",
       });
       const transformPayload = (await transformResponse.json()) as
-        | { summary?: SavedImportSummary["transformSummary"]; error?: string }
+        | { auditId?: string; summary?: SavedImportSummary["transformSummary"]; error?: string }
         | undefined;
 
       if (!transformResponse.ok) {
         throw new Error(transformPayload?.error ?? "The transformation step failed.");
       }
 
+      const auditId = transformPayload?.auditId;
+
+      if (!auditId) {
+        throw new Error("The import completed without returning an audit id.");
+      }
+
+      const auditLabel = auditForm.auditName.trim();
+      const scopePeriodLabel = `${formatDate(auditForm.scopePeriodStart)} to ${formatDate(auditForm.scopePeriodEnd)}`;
+
       setSavedImportSummary({
         ...uploadSummary,
+        auditId,
         status: "loaded",
         transformSummary: transformPayload?.summary,
       });
       setHasConfiguredAudit(true);
       setIsModalOpen(false);
+      router.push(
+        `/dashboard?mode=live&auditId=${encodeURIComponent(auditId)}&auditLabel=${encodeURIComponent(auditLabel)}&companyName=${encodeURIComponent(DEFAULT_COMPANY_NAME)}&scopePeriodLabel=${encodeURIComponent(scopePeriodLabel)}`,
+      );
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "The CSV upload failed.");
     } finally {
@@ -1259,114 +1278,69 @@ function NewAuditModal({
                 </div>
 
                 {uploadMode === "guided" ? (
-                  <div className="mt-5 grid gap-5">
-                    {requirementGroups.map((group) => {
-                      const groupRequirements = uploadRequirements.filter((requirement) => requirement.category === group.id);
+                  <div className="mt-5 grid gap-4">
+                    <div className="rounded-[18px] border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--muted)]">
+                      The controls dataset is required. All other file uploads are optional.
+                    </div>
 
-                      return (
-                        <section key={group.id} className="grid gap-4 rounded-[24px] border border-black/5 bg-[#fcfbf8] p-5">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{group.title}</p>
-                            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">{group.description}</p>
-                          </div>
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      {uploadRequirements.map((requirement) => {
+                        const file = files[requirement.id];
+                        const isRequired = requiredRequirementIds.includes(requirement.id);
 
-                          {groupRequirements.map((requirement) => {
-                            const file = files[requirement.id];
-                            const isRequired = requiredRequirementIds.includes(requirement.id);
-
-                            return (
-                              <label key={requirement.id} className="grid gap-3 rounded-[20px] border border-black/5 bg-white p-5">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="max-w-3xl">
-                                    <div className="flex items-center gap-2">
-                                      <p className="text-sm font-semibold text-[var(--foreground)]">{requirement.label}</p>
-                                      <RequirementBadge required={isRequired} />
-                                    </div>
-                                    <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{requirement.description}</p>
-                                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">{requirement.helpText}</p>
-                                  </div>
-                                  <StatusPill complete={Boolean(file)} />
+                        return (
+                          <label key={requirement.id} className="grid gap-3 rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-[var(--foreground)]">{requirement.label}</p>
+                                  <RequirementBadge required={isRequired} />
                                 </div>
-
-                                <input
-                                  type="file"
-                                  accept={requirement.accept}
-                                  required={isRequired}
-                                  onChange={(event) => onFileChange(requirement.id, event)}
-                                  className="w-full rounded-2xl border border-black/5 bg-[#fbfaf7] px-4 py-3 text-sm outline-none file:mr-4 file:rounded-full file:border-0 file:bg-[var(--surface-tint)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[var(--brand-indigo-core)]"
-                                />
-
-                                <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
                                   {file ? `Selected: ${file.name}` : `Accepted format: ${requirement.accept}`}
                                 </p>
-                              </label>
-                            );
-                          })}
-                        </section>
-                      );
-                    })}
+                              </div>
+                              <StatusPill complete={Boolean(file)} />
+                            </div>
+
+                            <input
+                              type="file"
+                              accept={requirement.accept}
+                              required={isRequired}
+                              onChange={(event) => onFileChange(requirement.id, event)}
+                              className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none file:mr-3 file:rounded-full file:border-0 file:bg-[var(--surface-tint)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--brand-indigo-core)]"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <div className="mt-5 grid gap-5 lg:grid-cols-[0.92fr_1.08fr]">
-                    <div className="grid gap-4">
-                      <div className="rounded-[22px] border border-black/5 bg-[#fcfbf8] p-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Folder upload</p>
-                            <h4 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Import a CSV folder and review the matches</h4>
-                          </div>
-                          <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-tint)] text-[var(--brand-indigo-core)]">
-                            <Upload size={18} />
-                          </span>
+                    <div className="rounded-[22px] border border-black/5 bg-[#fcfbf8] p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Folder upload</p>
+                          <h4 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Import a folder and review the matches</h4>
                         </div>
-                        <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                          Choose a folder and the modal will infer the best target section for each CSV file. You can adjust the mapping before the audit is created.
-                        </p>
-                        <input
-                          type="file"
-                          multiple
-                          onChange={onFolderFilesChange}
-                          {...folderInputProps}
-                          className="mt-4 w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none file:mr-4 file:rounded-full file:border-0 file:bg-[var(--surface-tint)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[var(--brand-indigo-core)]"
-                        />
-                        <p className="mt-3 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                          Only `.csv` files are considered for import.
-                        </p>
+                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-tint)] text-[var(--brand-indigo-core)]">
+                          <Upload size={18} />
+                        </span>
                       </div>
-
-                      <div className="grid gap-4">
-                        {requirementGroups.map((group) => (
-                          <section key={group.id} className="grid gap-3 rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{group.title}</p>
-                              <p className="mt-1.5 text-sm leading-6 text-[var(--muted)]">{group.description}</p>
-                            </div>
-                            {uploadRequirements
-                              .filter((requirement) => requirement.category === group.id)
-                              .map((requirement) => {
-                                const file = files[requirement.id];
-
-                                return (
-                                  <div key={requirement.id} className="rounded-[18px] border border-black/5 bg-white p-4">
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <div className="flex items-center gap-2">
-                                          <p className="text-sm font-semibold text-[var(--foreground)]">{requirement.label}</p>
-                                          <RequirementBadge required={requiredRequirementIds.includes(requirement.id)} />
-                                        </div>
-                                        <p className="mt-1.5 text-sm leading-6 text-[var(--muted)]">{requirement.description}</p>
-                                      </div>
-                                      <StatusPill complete={Boolean(file)} />
-                                    </div>
-                                    <p className="mt-3 text-sm text-[var(--muted)]">
-                                      {file ? `Mapped file: ${file.name}` : "No file mapped to this section yet."}
-                                    </p>
-                                  </div>
-                                );
-                              })}
-                          </section>
-                        ))}
-                      </div>
+                      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+                        Choose a folder and the modal will infer the best target section for each supported file. You can adjust the mapping before the audit is created.
+                      </p>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".csv,.xlsx"
+                        onChange={onFolderFilesChange}
+                        {...folderInputProps}
+                        className="mt-4 w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none file:mr-4 file:rounded-full file:border-0 file:bg-[var(--surface-tint)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[var(--brand-indigo-core)]"
+                      />
+                      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                        Supported imports from folder mode: `.csv` datasets and `.xlsx` RCM workbooks.
+                      </p>
                     </div>
 
                     <div className="rounded-[22px] border border-black/5 bg-[#fcfbf8] p-5">
@@ -1382,7 +1356,7 @@ function NewAuditModal({
 
                       {folderMappedFiles.length === 0 ? (
                         <p className="mt-4 text-sm leading-6 text-[var(--muted)]">
-                          No folder selected yet. Once you choose a folder, each CSV appears here with its suggested target and an override selector.
+                          No folder selected yet. Once you choose a folder, each supported file appears here with its suggested target and an override selector.
                         </p>
                       ) : (
                       <div className="mt-4 grid gap-3">

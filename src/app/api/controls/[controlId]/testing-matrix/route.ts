@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { loadControlTestingMatrix, saveControlTestingMatrix } from "@/lib/control-testing-matrix-persistence";
+import { syncWorkpaperFromTestingMatrix } from "@/lib/fieldwork-workpaper-persistence";
 
 const testingMatrixResultSchema = z.enum(["PASS", "FAIL", "NOT_TESTED"]);
 
@@ -89,6 +90,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
         samples: body.matrix.samples,
         results: body.matrix.results,
       },
+    });
+    await syncWorkpaperFromTestingMatrix({
+      auditId: body.auditId,
+      controlId,
+      matrix,
     });
 
     return NextResponse.json({ matrix });

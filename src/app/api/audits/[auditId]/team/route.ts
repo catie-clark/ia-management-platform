@@ -5,10 +5,24 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const auditRoleSchema = z.enum(["AIC", "STAFF", "MANAGER", "DIRECTOR", "CAE"]);
 
-const addMemberSchema = z.object({
+const createUserSchema = z.object({
+  email: z.string().trim().email(),
+  fullName: z.string().trim().min(1),
+  role: auditRoleSchema,
+  team: z.string().trim().optional().or(z.literal("")),
+});
+
+const addExistingMemberSchema = z.object({
   userId: z.string().uuid(),
   auditRole: auditRoleSchema.nullable().optional(),
 });
+
+const addNewMemberSchema = z.object({
+  auditRole: auditRoleSchema.nullable().optional(),
+  createUser: createUserSchema,
+});
+
+const addMemberSchema = z.union([addExistingMemberSchema, addNewMemberSchema]);
 
 const updateMemberSchema = z.object({
   auditRole: auditRoleSchema.nullable(),
@@ -72,12 +86,17 @@ export async function POST(request: Request, context: { params: Promise<{ auditI
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid team member payload." }, { status: 400 });
     }
 
-    await assertUserMatchesAuditCompany(supabase, parsed.data.userId, audit.company_name);
+    const userId =
+      "createUser" in parsed.data
+        ? await createOrLoadUserForAuditCompany(supabase, parsed.data.createUser, audit.company_name)
+        : parsed.data.userId;
+
+    await assertUserMatchesAuditCompany(supabase, userId, audit.company_name);
 
     const { error } = await supabase.from("audit_users").upsert(
       {
         audit_id: auditId,
-        user_id: parsed.data.userId,
+        user_id: userId,
         audit_role: parsed.data.auditRole ?? null,
         is_active: true,
       },
@@ -342,6 +361,80 @@ async function assertUserMatchesAuditCompany(
 
   if ((data.company_name ?? "").trim() !== auditCompanyName.trim()) {
     throw new Error("Selected user belongs to a different company and cannot be assigned to this audit.");
+  }
+}
+
+async function createOrLoadUserForAuditCompany(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  user: z.infer<typeof createUserSchema>,
+  auditCompanyName: string | null,
+) {
+  const normalizedEmail = user.email.trim().toLowerCase();
+  const existingUser = await supabase
+    .from("users")
+    .select("id, company_name")
+    .eq("email", normalizedEmail)
+    .maybeSingle<{ company_name: string | null; id: string }>();
+
+  if (existingUser.error && !existingUser.error.message.includes("company_name")) {
+    throw new Error(existingUser.error.message);
+  }
+
+  if (existingUser.data) {
+    if (auditCompanyName && (existingUser.data.company_name ?? "").trim() !== auditCompanyName.trim()) {
+      throw new Error("A user with this email already exists for a different company.");
+    }
+
+    return existingUser.data.id;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .insert({
+        company_name: auditCompanyName,
+        email: normalizedEmail,
+        full_name: user.fullName.trim(),
+        role: user.role,
+        team: user.team?.trim() || null,
+      })
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data) {
+      throw new Error("Unable to create the user.");
+    }
+
+    return data.id;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("company_name")) {
+      throw error;
+    }
+
+    const { data, error: fallbackError } = await supabase
+      .from("users")
+      .insert({
+        email: normalizedEmail,
+        full_name: user.fullName.trim(),
+        role: user.role,
+        team: user.team?.trim() || null,
+      })
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (fallbackError) {
+      throw new Error(fallbackError.message);
+    }
+
+    if (!data) {
+      throw new Error("Unable to create the user.");
+    }
+
+    return data.id;
   }
 }
 

@@ -6,13 +6,25 @@ import { applyWorkpaperReviewAction } from "@/lib/fieldwork-workpaper-persistenc
 import { getEmptyWorkpaperContent } from "@/lib/workpaper-content";
 
 const workpaperContentSchema = z.object({
-  conclusion: z.string(),
-  nextSteps: z.string(),
-  objective: z.string(),
-  procedures: z.string(),
-  results: z.string(),
-  scope: z.string(),
-  summary: z.string(),
+  controlReference: z.string(),
+  keyControl: z.string(),
+  typeOfControl: z.string(),
+  controlFrequency: z.string(),
+  assertions: z.string(),
+  descriptionOfTestToBePerformed: z.string(),
+  totalPopulationAndSamplingUnits: z.string(),
+  populationCompletenessConsideration: z.string(),
+  sampleSizeAndSelectionProcedures: z.string(),
+  expectedDeviationTypes: z.string(),
+  documentationOfTesting: z.string(),
+  extensionOfInterimTestingToEndOfPeriod: z.string(),
+  matrixExceptionSummary: z.string(),
+  numberOfDeviationsDetected: z.string(),
+  deviationDescriptionAndCause: z.string(),
+  didDeviationsResultFromFraudOrError: z.string(),
+  wereDeviationsIsolatedOrPervasive: z.string(),
+  finalNumberOfDeviations: z.string(),
+  controlEffectivenessConclusion: z.string(),
 });
 
 const reviewActionSchema = z

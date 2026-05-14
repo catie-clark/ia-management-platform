@@ -1,4 +1,5 @@
 import { getQuestionDisplayStatus, getRequestDisplayStatus } from "@/lib/audit-logic";
+import { formatReviewWorkflowStageLabel } from "@/lib/audit-settings";
 import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
 
 export type LinkedDocumentSignal = {
@@ -89,7 +90,7 @@ export function isDocumentAtRisk(
 }
 
 export function formatReviewStatus(status: DocumentReviewStatus) {
-  return status.replaceAll("_", " ");
+  return formatReviewWorkflowStageLabel(status);
 }
 
 export function getReviewTone(status: DocumentReviewStatus): "neutral" | "warning" | "risk" | "success" {

@@ -302,7 +302,7 @@ export function mapControl(
       ? undefined
       : Number(control.assigned_planned_hours);
   const ownerExplicitlyCleared = readBoolean(control.source_payload, ["assigned_owner_cleared"]);
-  const explicitScopeStatus = control.scope_status ?? readText(control.source_payload, ["scope_status", "scopeStatus"]);
+  const explicitScopeStatus = readText(control.source_payload, ["scope_status", "scopeStatus"]);
   const ownerId = ownerExplicitlyCleared ? "" : control.assigned_owner_user_id ?? control.control_owner_user_id ?? "";
   const hasPlanningOverride =
     ownerExplicitlyCleared ||
@@ -620,7 +620,17 @@ function normalizeRiskRating(rating: string): Control["riskLevel"] {
 }
 
 function normalizeControlScopeStatus(value: string | null | undefined): ControlScopeStatus {
-  return value?.trim().toUpperCase() === "OUT_OF_SCOPE" ? "OUT_OF_SCOPE" : "IN_SCOPE";
+  const normalized = value?.trim().toUpperCase();
+
+  if (normalized === "IN_SCOPE") {
+    return "IN_SCOPE";
+  }
+
+  if (normalized === "OUT_OF_SCOPE") {
+    return "OUT_OF_SCOPE";
+  }
+
+  return "UNASSIGNED";
 }
 
 function normalizeFindingStatus(status: string): AuditFinding["status"] {

@@ -2,9 +2,11 @@ import { z } from "zod";
 
 import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 import { parseCsvDocument } from "@/lib/csv";
+import { parseXlsxWorkbook } from "@/lib/xlsx";
 
 export const uploadFieldNames = [
   "controls",
+  "rcm",
   "questions",
   "requests",
   "applications",
@@ -25,6 +27,7 @@ export type SourceEntity =
   | "users"
   | "third_parties"
   | "controls"
+  | "rcm"
   | "risks"
   | "risk_control_links"
   | "rcsa_records"
@@ -40,6 +43,7 @@ const sourceEntitySchema = z.enum([
   "users",
   "third_parties",
   "controls",
+  "rcm",
   "risks",
   "risk_control_links",
   "rcsa_records",
@@ -164,18 +168,47 @@ export function getUploadFiles(formData: FormData): UploadFileDescriptor[] {
   return files;
 }
 
-export async function parseCsvUpload(file: File) {
-  if (!file.name.toLowerCase().endsWith(".csv")) {
-    throw new Error("Only .csv uploads are supported by this route right now.");
+export async function parseUploadFile(file: File, sourceEntity: SourceEntity) {
+  const normalizedFileName = file.name.toLowerCase();
+  let parsed: { headers: string[]; rows: string[][]; sheetName?: string };
+
+  if (normalizedFileName.endsWith(".csv")) {
+    parsed = parseCsvDocument(await file.text());
+  } else if (sourceEntity === "rcm" && normalizedFileName.endsWith(".xlsx")) {
+    const worksheets = await parseXlsxWorkbook(file);
+    const matchedWorksheet = worksheets.find((worksheet) => {
+      try {
+        validateRcmHeaders(worksheet.headers);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    if (!matchedWorksheet) {
+      throw new Error(
+        'The RCM workbook must include at least one worksheet with the required RCM columns. The demo format may use "Sheet1" instead of "RCM".',
+      );
+    }
+
+    parsed = matchedWorksheet;
+  } else {
+    throw new Error(
+      sourceEntity === "rcm"
+        ? "RCM uploads must be .xlsx files."
+        : sourceEntity === "controls"
+          ? "Controls uploads must be .csv files."
+        : "Only .csv uploads are supported for this dataset.",
+    );
   }
 
-  const parsed = parseCsvDocument(await file.text());
   const rawRows = parsed.rows.map((row, rowIndex) => buildRawImportRowPayload(row, parsed.headers, rowIndex + 2));
 
   return {
     headers: parsed.headers,
     rawRows,
     rowCount: rawRows.length,
+    sheetName: parsed.sheetName,
   };
 }
 
@@ -204,11 +237,12 @@ export function hydrateImportRows(importFileId: string, rows: RawImportRowInsert
   }));
 }
 
-export type ParsedUploadResult = Awaited<ReturnType<typeof parseCsvUpload>>;
+export type ParsedUploadResult = Awaited<ReturnType<typeof parseUploadFile>>;
 export type ImportParseError = ParseError;
 
 const defaultSourceEntityMap: Record<UploadFieldName, SourceEntity> = {
   controls: "controls",
+  rcm: "rcm",
   questions: "questions",
   requests: "requests",
   applications: "applications",
@@ -256,4 +290,26 @@ function deriveSourceRecordKey(rawPayload: Record<string, string | null>) {
   });
 
   return match?.[1] ?? null;
+}
+
+function validateRcmHeaders(headers: string[]) {
+  const normalizedHeaders = new Set(headers.map((header) => normalizeHeader(header)));
+  const requiredHeaders = [
+    "Control ID",
+    "Sub-Process",
+    "Risk Description",
+    "Control Description",
+    "Frequency",
+    "Assertion(s)",
+    "Test Plan",
+  ];
+  const missingHeaders = requiredHeaders.filter((header) => !normalizedHeaders.has(normalizeHeader(header)));
+
+  if (missingHeaders.length > 0) {
+    throw new Error(`The RCM workbook is missing required columns: ${missingHeaders.join(", ")}.`);
+  }
+}
+
+function normalizeHeader(value: string) {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { FilePenLine, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, ChevronUp, Expand, FilePenLine, Minimize2, Plus, Trash2, X } from "lucide-react";
 
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
@@ -40,10 +41,13 @@ export function TestingMatrixDetailPanel({
   mode,
   onClose,
   onMatrixUpdated,
-  panelClassName = "top-4 right-4 h-[calc(100dvh-2rem)] max-w-[78rem] overflow-y-auto rounded-[24px] border border-black/5 bg-[#f8f6f1] sm:p-6",
+  panelClassName = "top-4 right-4 h-[calc(100dvh-2rem)] max-w-[76rem] overflow-y-auto rounded-[16px] border border-black/10 bg-[#f6f1e8] sm:p-4",
 }: TestingMatrixDetailPanelProps) {
+  const router = useRouter();
   const { showNotification } = useNotification();
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [attributesCollapsed, setAttributesCollapsed] = useState(true);
   const [draft, setDraft] = useState<ControlTestingMatrix>(() => matrix ?? buildEmptyTestingMatrix(control, auditId));
   const canPersist = mode === "live" && Boolean(auditId);
 
@@ -57,191 +61,218 @@ export function TestingMatrixDetailPanel({
       return lookup;
     }, {});
   }, [draft.results]);
+  const normalizedDraft = useMemo(() => normalizeMatrixDraft(draft, { includeTimestamp: false }), [draft]);
+  const normalizedBaseline = useMemo(
+    () => normalizeMatrixDraft(matrix ?? buildEmptyTestingMatrix(control, auditId), { includeTimestamp: false }),
+    [auditId, control, matrix],
+  );
+  const hasUnsavedChanges = useMemo(
+    () => JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedBaseline),
+    [normalizedBaseline, normalizedDraft],
+  );
+  const isCollapsedView = !isExpanded;
 
   const content = (
-    <div className="grid gap-5">
-      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="grid gap-3">
+      <section className="border border-[rgba(1,30,65,0.14)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(1,30,65,0.05)]">
+        <div
+          className={cn(
+            "flex flex-wrap items-start justify-between gap-3 border-b border-black/10 pb-3",
+            isCollapsedView && "sticky top-0 z-20 -mx-4 -mt-3 bg-white px-4 pt-3 shadow-[0_1px_0_rgba(1,30,65,0.08)]",
+          )}
+        >
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Testing matrix header</p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Capture the population, sample, and overall conclusion for attribute testing on this control.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Testing Matrix</p>
+            <h3 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{draft.title}</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Worksheet-style attribute testing with compact control metadata and sample-level results.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isPending}
-            className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <FilePenLine size={15} />
-            {isPending ? "Saving..." : "Save matrix"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isExpanded ? (
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+              >
+                <Expand size={15} />
+                Expand
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isPending}
+              className="inline-flex items-center gap-2 rounded-sm bg-[var(--brand-indigo-core)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FilePenLine size={15} />
+              {isPending ? "Saving..." : "Save matrix"}
+            </button>
+          </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <EditorField label="Title" value={draft.title} onChange={(value) => setDraft((current) => ({ ...current, title: value }))} />
+        <dl className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
+          <MetaCell label="Control" value={`${control.referenceId ?? control.id} - ${control.name}`} />
+          <MetaCell label="Last Update" value={draft.updatedAt ? formatDateTime(draft.updatedAt) : "Not saved yet"} />
+        </dl>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <EditorField
+            className="md:col-span-2"
+            label="Title"
+            value={draft.title}
+            onChange={(value) => setDraft((current) => ({ ...current, title: value }))}
+          />
           <EditorNumberField
             label="Population size"
             value={draft.populationSize}
             onChange={(value) => setDraft((current) => ({ ...current, populationSize: value }))}
-          />
-          <EditorAreaField
-            className="md:col-span-2"
-            label="Population description"
-            value={draft.populationDescription}
-            onChange={(value) => setDraft((current) => ({ ...current, populationDescription: value }))}
           />
           <EditorNumberField
             label="Sample size"
             value={draft.sampleSize}
             onChange={(value) => setDraft((current) => ({ ...current, sampleSize: value }))}
           />
-          <div className="grid gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Last update</span>
-            <div className="rounded-[16px] border border-black/5 bg-[#fcfbf8] px-3.5 py-2.5 text-[13px] text-[var(--foreground)]">
-              {draft.updatedAt ? formatDateTime(draft.updatedAt) : "Not saved yet"}
-            </div>
-          </div>
           <EditorAreaField
-            className="md:col-span-2"
-            label="Sample description / rationale"
+            className="md:col-span-4"
+            label="Population description"
+            value={draft.populationDescription}
+            onChange={(value) => setDraft((current) => ({ ...current, populationDescription: value }))}
+          />
+          <EditorAreaField
+            className="md:col-span-4"
+            label="Sampling approach / rationale"
             value={draft.sampleDescription}
             onChange={(value) => setDraft((current) => ({ ...current, sampleDescription: value }))}
           />
-          <EditorAreaField
-            className="md:col-span-2"
-            label="Conclusion"
-            value={draft.conclusion}
-            onChange={(value) => setDraft((current) => ({ ...current, conclusion: value }))}
-          />
         </div>
       </section>
 
-      <section className="rounded-[24px] border border-black/5 bg-white p-5">
+      <section className="border border-[rgba(1,30,65,0.14)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(1,30,65,0.05)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Attributes</p>
-            <p className="mt-2 text-sm text-[var(--muted)]">Define the yes/no checks applied to each sample item.</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Attributes</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">Define the checks applied to each sample row.</p>
           </div>
-          <button
-            type="button"
-            onClick={handleAddAttribute}
-            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--brand-indigo-core)]"
-          >
-            <Plus size={14} />
-            Add attribute
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAttributesCollapsed((current) => !current)}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]"
+            >
+              {attributesCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              {attributesCollapsed ? "Show attributes" : "Hide attributes"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddAttribute}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+            >
+              <Plus size={14} />
+              Add attribute
+            </button>
+          </div>
         </div>
 
-        <div className="mt-4 grid gap-3">
-          {draft.attributes.map((attribute) => (
-            <div key={attribute.id} className="grid gap-3 rounded-[18px] bg-[var(--surface-tint)] p-3.5 md:grid-cols-[1.2fr_1fr_auto]">
-              <EditorField
-                label="Attribute label"
-                value={attribute.label}
-                onChange={(value) => {
-                  setDraft((current) => ({
-                    ...current,
-                    attributes: current.attributes.map((item) => (item.id === attribute.id ? { ...item, label: value } : item)),
-                  }));
-                }}
-              />
-              <EditorField
-                label="Guidance"
-                value={attribute.guidance}
-                onChange={(value) => {
-                  setDraft((current) => ({
-                    ...current,
-                    attributes: current.attributes.map((item) => (item.id === attribute.id ? { ...item, guidance: value } : item)),
-                  }));
-                }}
-              />
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={() => handleRemoveAttribute(attribute.id)}
-                  className="inline-flex h-10 items-center gap-2 rounded-full border border-black/5 bg-white px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]"
-                >
-                  <Trash2 size={14} />
-                  Remove
-                </button>
+        {!attributesCollapsed ? (
+          <div className="mt-4 grid gap-3">
+            {draft.attributes.map((attribute) => (
+              <div key={attribute.id} className="grid gap-3 border border-black/5 bg-[var(--surface-tint)] p-3 md:grid-cols-[1.2fr_1fr_auto]">
+                <EditorField
+                  label="Attribute label"
+                  value={attribute.label}
+                  onChange={(value) => {
+                    setDraft((current) => ({
+                      ...current,
+                      attributes: current.attributes.map((item) => (item.id === attribute.id ? { ...item, label: value } : item)),
+                    }));
+                  }}
+                />
+                <EditorField
+                  label="Guidance"
+                  value={attribute.guidance}
+                  onChange={(value) => {
+                    setDraft((current) => ({
+                      ...current,
+                      attributes: current.attributes.map((item) => (item.id === attribute.id ? { ...item, guidance: value } : item)),
+                    }));
+                  }}
+                />
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAttribute(attribute.id)}
+                    className="inline-flex h-9 items-center gap-2 rounded-sm border border-black/10 bg-white px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]"
+                  >
+                    <Trash2 size={14} />
+                    Remove
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
-      <section className="rounded-[24px] border border-black/5 bg-white p-5">
+      <section className="border border-[rgba(1,30,65,0.14)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(1,30,65,0.05)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Sample testing</p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Evaluate each attribute for every sample item. Use `Exception noted` to summarize any failed attribute on the row.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Sample testing</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Evaluate each attribute for every sample item and capture only row-level exceptions.
             </p>
           </div>
           <button
             type="button"
             onClick={handleAddSample}
-            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--brand-indigo-core)]"
+            className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
           >
             <Plus size={14} />
             Add sample row
           </button>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-y-2">
-            <thead className="sticky top-0 z-10 bg-[#f8f6f1]">
-              <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                <th className="px-3 py-2">Sample</th>
-                <th className="px-3 py-2">Description</th>
-                <th className="px-3 py-2">Source Ref</th>
-                {draft.attributes.map((attribute) => (
-                  <th key={attribute.id} className="px-3 py-2 min-w-[12rem]">
-                    {attribute.label || "Untitled attribute"}
-                  </th>
-                ))}
-                <th className="px-3 py-2 min-w-[16rem]">Exception noted</th>
-                <th className="px-3 py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {draft.samples.map((sample) => (
-                <tr key={sample.id} className="bg-[#fcfbf8] shadow-[0_10px_24px_rgba(1,30,65,0.06)]">
-                  <td className="rounded-l-[18px] px-3 py-3 align-top">
-                    <input
+        {isCollapsedView ? (
+          <div className="mt-4 grid gap-3">
+            {draft.samples.map((sample) => (
+              <article key={sample.id} className="border border-black/10 bg-[#fffdfa] p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[12rem_minmax(0,1fr)]">
+                    <EditorField
+                      label="Sample"
                       value={sample.sampleIdentifier}
-                      onChange={(event) => updateSample(sample.id, { sampleIdentifier: event.target.value })}
-                      className="w-full rounded-[14px] border border-black/5 bg-white px-3 py-2 text-[13px] outline-none"
+                      onChange={(value) => updateSample(sample.id, { sampleIdentifier: value })}
                     />
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <textarea
+                    <EditorAreaField
+                      label="Description"
                       value={sample.sampleDescription}
-                      onChange={(event) => updateSample(sample.id, { sampleDescription: event.target.value })}
-                      rows={3}
-                      className="w-full resize-none rounded-[14px] border border-black/5 bg-white px-3 py-2 text-[13px] outline-none"
+                      onChange={(value) => updateSample(sample.id, { sampleDescription: value })}
                     />
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <textarea
-                      value={sample.sourceReference}
-                      onChange={(event) => updateSample(sample.id, { sourceReference: event.target.value })}
-                      rows={3}
-                      className="w-full resize-none rounded-[14px] border border-black/5 bg-white px-3 py-2 text-[13px] outline-none"
-                    />
-                  </td>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSample(sample.id)}
+                    className="inline-flex h-9 items-center gap-2 rounded-sm border border-black/10 bg-white px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]"
+                  >
+                    <Trash2 size={14} />
+                    Remove
+                  </button>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
                   {draft.attributes.map((attribute) => {
                     const result = resultLookup[`${sample.id}:${attribute.id}`] ?? "NOT_TESTED";
 
                     return (
-                      <td key={`${sample.id}:${attribute.id}`} className="px-3 py-3 align-top">
+                      <label key={`${sample.id}:${attribute.id}`} className="grid gap-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                          {attribute.label || "Untitled attribute"}
+                        </span>
                         <select
                           value={result}
                           onChange={(event) => updateResult(sample.id, attribute.id, event.target.value as TestingMatrixAttributeResult)}
                           className={cn(
-                            "w-full rounded-[14px] border px-3 py-2 text-[13px] outline-none",
+                            "w-full border px-2 py-2 text-[13px] outline-none",
                             result === "PASS"
                               ? "border-[rgba(5,171,140,0.18)] bg-[rgba(5,171,140,0.08)] text-[var(--brand-teal-core)]"
                               : result === "FAIL"
@@ -253,78 +284,190 @@ export function TestingMatrixDetailPanel({
                           <option value="PASS">Pass</option>
                           <option value="FAIL">Fail</option>
                         </select>
-                      </td>
+                      </label>
                     );
                   })}
-                  <td className="px-3 py-3 align-top">
-                    <textarea
-                      value={sample.exceptionNoted}
-                      onChange={(event) => updateSample(sample.id, { exceptionNoted: event.target.value })}
-                      rows={3}
-                      className="w-full resize-none rounded-[14px] border border-black/5 bg-white px-3 py-2 text-[13px] outline-none"
-                    />
-                  </td>
-                  <td className="rounded-r-[18px] px-3 py-3 align-top">
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSample(sample.id)}
-                      className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-3 py-1.5 text-[11px] font-semibold text-[var(--muted)]"
-                    >
-                      <Trash2 size={14} />
-                      Remove
-                    </button>
-                  </td>
+                </div>
+
+                <div className="mt-3">
+                  <EditorAreaField
+                    label="Exception noted"
+                    value={sample.exceptionNoted}
+                    onChange={(value) => updateSample(sample.id, { exceptionNoted: value })}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full border-collapse border border-black/10">
+              <thead className="sticky top-0 z-10 bg-[#efe8db]">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                  <th className="border border-black/10 px-2 py-2">Sample</th>
+                  <th className="border border-black/10 px-2 py-2 min-w-[15rem]">Description</th>
+                  {draft.attributes.map((attribute) => (
+                    <th key={attribute.id} className="border border-black/10 px-2 py-2 min-w-[10rem]">
+                      {attribute.label || "Untitled attribute"}
+                    </th>
+                  ))}
+                  <th className="border border-black/10 px-2 py-2 min-w-[14rem]">Exception noted</th>
+                  <th className="border border-black/10 px-2 py-2">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {draft.samples.map((sample) => (
+                  <tr key={sample.id} className="bg-[#fffdfa]">
+                    <td className="border border-black/10 px-2 py-2 align-top">
+                      <input
+                        value={sample.sampleIdentifier}
+                        onChange={(event) => updateSample(sample.id, { sampleIdentifier: event.target.value })}
+                        className="w-full border border-black/10 bg-white px-2 py-1.5 text-[13px] outline-none"
+                      />
+                    </td>
+                    <td className="border border-black/10 px-2 py-2 align-top">
+                      <textarea
+                        value={sample.sampleDescription}
+                        onChange={(event) => updateSample(sample.id, { sampleDescription: event.target.value })}
+                        rows={2}
+                        className="w-full resize-none border border-black/10 bg-white px-2 py-1.5 text-[13px] leading-5 outline-none"
+                      />
+                    </td>
+                    {draft.attributes.map((attribute) => {
+                      const result = resultLookup[`${sample.id}:${attribute.id}`] ?? "NOT_TESTED";
+
+                      return (
+                        <td key={`${sample.id}:${attribute.id}`} className="border border-black/10 px-2 py-2 align-top">
+                          <select
+                            value={result}
+                            onChange={(event) => updateResult(sample.id, attribute.id, event.target.value as TestingMatrixAttributeResult)}
+                            className={cn(
+                              "w-full border px-2 py-1.5 text-[13px] outline-none",
+                              result === "PASS"
+                                ? "border-[rgba(5,171,140,0.18)] bg-[rgba(5,171,140,0.08)] text-[var(--brand-teal-core)]"
+                                : result === "FAIL"
+                                  ? "border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] text-[var(--brand-coral)]"
+                                  : "border-black/5 bg-white text-[var(--foreground)]",
+                            )}
+                          >
+                            <option value="NOT_TESTED">Not tested</option>
+                            <option value="PASS">Pass</option>
+                            <option value="FAIL">Fail</option>
+                          </select>
+                        </td>
+                      );
+                    })}
+                    <td className="border border-black/10 px-2 py-2 align-top">
+                      <textarea
+                        value={sample.exceptionNoted}
+                        onChange={(event) => updateSample(sample.id, { exceptionNoted: event.target.value })}
+                        rows={2}
+                        className="w-full resize-none border border-black/10 bg-white px-2 py-1.5 text-[13px] leading-5 outline-none"
+                      />
+                    </td>
+                    <td className="border border-black/10 px-2 py-2 align-top">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSample(sample.id)}
+                        className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]"
+                      >
+                        <Trash2 size={14} />
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );
 
-  if (contained) {
-    return (
-      <>
-        <button
-          type="button"
-          aria-label="Close testing matrix detail"
-          onClick={onClose}
-          className="absolute inset-0 z-30 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
-        />
-        <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-[78rem] flex-col overflow-hidden border-l border-black/5 bg-[#f8f6f1] p-6 shadow-[-24px_0_60px_rgba(1,30,65,0.12)] sm:p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Testing matrix</p>
-              <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{draft.title}</h2>
-              <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
-                Attribute testing stays in the dashboard so sample-level pass/fail results and exception notes can be updated in one place.
-              </p>
-            </div>
+  const expandedOverlay = isExpanded ? (
+    <>
+      <button
+        type="button"
+        aria-label="Close expanded testing matrix"
+        onClick={() => setIsExpanded(false)}
+        className="fixed inset-0 z-[70] bg-[rgba(1,30,65,0.28)] backdrop-blur-[2px]"
+      />
+      <aside className="fixed inset-4 z-[80] flex flex-col overflow-hidden rounded-[14px] border border-black/10 bg-[#f6f1e8] p-4 shadow-[0_24px_80px_rgba(1,30,65,0.22)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Expanded testing matrix</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{draft.title}</h2>
+            <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+              Expanded worksheet view for reviewing more of the matrix at once.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+              onClick={() => setIsExpanded(false)}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+            >
+              <Minimize2 size={15} />
+              Collapse
+            </button>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="flex h-9 w-9 items-center justify-center rounded-sm border border-black/10 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
             >
               <X size={18} />
             </button>
           </div>
-          <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">{content}</div>
-        </aside>
-      </>
-    );
-  }
+        </div>
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">{content}</div>
+      </aside>
+    </>
+  ) : null;
 
   return (
-    <DetailPanel
-      title={draft.title}
-      subtitle="Attribute testing stays in the dashboard so sample-level results and exception notes can be updated in one place."
-      open={Boolean(draft)}
-      onClose={onClose}
-      panelClassName={panelClassName}
-    >
-      {content}
-    </DetailPanel>
+    <>
+      {contained ? (
+        <>
+          <button
+            type="button"
+            aria-label="Close testing matrix detail"
+            onClick={handleClose}
+            className="absolute inset-0 z-30 bg-[rgba(1,30,65,0.18)] backdrop-blur-[1px]"
+          />
+          <aside className="absolute inset-y-0 right-0 z-40 flex w-full max-w-[76rem] flex-col overflow-hidden border-l border-black/10 bg-[#f6f1e8] p-4 shadow-[-24px_0_60px_rgba(1,30,65,0.12)] sm:p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Testing matrix</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{draft.title}</h2>
+                <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+                  Condensed matrix worksheet for sample-level testing, attribute results, and exception notes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="flex h-9 w-9 items-center justify-center rounded-sm border border-black/10 bg-white text-[var(--brand-indigo-core)] transition-colors hover:bg-[var(--surface-tint)]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">{content}</div>
+          </aside>
+        </>
+      ) : (
+        <DetailPanel
+          title={draft.title}
+          subtitle="Condensed matrix worksheet for sample-level results and exception notes."
+          open={Boolean(draft)}
+          onClose={handleClose}
+          panelClassName={panelClassName}
+        >
+          {content}
+        </DetailPanel>
+      )}
+      {expandedOverlay}
+    </>
   );
 
   function updateSample(sampleId: string, next: Partial<ControlTestingMatrixSample>) {
@@ -443,132 +586,165 @@ export function TestingMatrixDetailPanel({
   }
 
   function handleSave() {
-    const normalizedDraft = {
-      ...draft,
-      updatedAt: new Date().toISOString(),
-      attributes: draft.attributes.map((attribute, index) => ({
-        ...attribute,
-        displayOrder: index + 1,
-      })),
-      samples: draft.samples.map((sample, index) => ({
-        ...sample,
-        displayOrder: index + 1,
-      })),
-    };
+    void persistDraft({ notify: true });
+  }
 
-    if (!canPersist || !auditId) {
-      onMatrixUpdated(normalizedDraft);
-      showNotification({
-        title: "Matrix saved",
-        message: "The prototype testing matrix was updated in local state.",
-        tone: "success",
-      });
+  async function handleClose() {
+    if (isPending) {
       return;
     }
 
-    startTransition(async () => {
-      try {
-        const response = await fetch(`/api/controls/${control.id}/testing-matrix`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            auditId,
-            matrix: {
-              title: normalizedDraft.title,
-              populationDescription: normalizedDraft.populationDescription,
-              populationSize: normalizedDraft.populationSize ?? null,
-              sampleDescription: normalizedDraft.sampleDescription,
-              sampleSize: normalizedDraft.sampleSize ?? null,
-              conclusion: normalizedDraft.conclusion,
-              attributes: normalizedDraft.attributes.map((attribute) => ({
-                id: isPersistedId(attribute.id) ? attribute.id : undefined,
-                attributeKey: attribute.attributeKey,
-                label: attribute.label,
-                guidance: attribute.guidance,
-                displayOrder: attribute.displayOrder,
-              })),
-              samples: normalizedDraft.samples.map((sample) => ({
-                id: isPersistedId(sample.id) ? sample.id : undefined,
-                sampleIdentifier: sample.sampleIdentifier,
-                sampleDescription: sample.sampleDescription,
-                sourceReference: sample.sourceReference,
-                exceptionNoted: sample.exceptionNoted,
-                displayOrder: sample.displayOrder,
-              })),
-              results: normalizedDraft.results.map((result) => ({
-                id: isPersistedId(result.id) ? result.id : undefined,
-                sampleId: result.sampleId,
-                attributeId: result.attributeId,
-                result: result.result,
-              })),
-            },
-          }),
+    const saved = await persistDraft({ notify: false, skipIfUnchanged: true });
+
+    if (saved || !hasUnsavedChanges) {
+      onClose();
+    }
+  }
+
+  async function persistDraft({
+    notify,
+    skipIfUnchanged = false,
+  }: {
+    notify: boolean;
+    skipIfUnchanged?: boolean;
+  }) {
+    const nextDraft = normalizeMatrixDraft(draft);
+
+    if (skipIfUnchanged && !hasUnsavedChanges) {
+      return true;
+    }
+
+    if (!canPersist || !auditId) {
+      onMatrixUpdated(nextDraft);
+      setDraft(nextDraft);
+
+      if (notify) {
+        showNotification({
+          title: "Matrix saved",
+          message: "The prototype testing matrix was updated in local state.",
+          tone: "success",
         });
-        const result = (await response.json()) as SaveResponse;
+      }
 
-        if (!response.ok || !result.matrix) {
-          throw new Error(result.error ?? "Unable to save the testing matrix.");
-        }
+      return true;
+    }
 
-        setDraft(result.matrix);
-        onMatrixUpdated(result.matrix);
+    setIsPending(true);
+
+    try {
+      const response = await fetch(`/api/controls/${control.id}/testing-matrix`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          auditId,
+          matrix: {
+            title: nextDraft.title,
+            populationDescription: nextDraft.populationDescription,
+            populationSize: nextDraft.populationSize ?? null,
+            sampleDescription: nextDraft.sampleDescription,
+            sampleSize: nextDraft.sampleSize ?? null,
+            conclusion: "",
+            attributes: nextDraft.attributes.map((attribute) => ({
+              id: isPersistedId(attribute.id) ? attribute.id : undefined,
+              attributeKey: attribute.attributeKey,
+              label: attribute.label,
+              guidance: attribute.guidance,
+              displayOrder: attribute.displayOrder,
+            })),
+            samples: nextDraft.samples.map((sample) => ({
+              id: isPersistedId(sample.id) ? sample.id : undefined,
+              sampleIdentifier: sample.sampleIdentifier,
+              sampleDescription: sample.sampleDescription,
+              sourceReference: sample.sourceReference,
+              exceptionNoted: sample.exceptionNoted,
+              displayOrder: sample.displayOrder,
+            })),
+            results: nextDraft.results.map((result) => ({
+              id: isPersistedId(result.id) ? result.id : undefined,
+              sampleId: result.sampleId,
+              attributeId: result.attributeId,
+              result: result.result,
+            })),
+          },
+        }),
+      });
+      const result = (await response.json()) as SaveResponse;
+
+      if (!response.ok || !result.matrix) {
+        throw new Error(result.error ?? "Unable to save the testing matrix.");
+      }
+
+      setDraft(result.matrix);
+      onMatrixUpdated(result.matrix);
+
+      if (notify) {
         showNotification({
           title: "Matrix saved",
           message: "The testing matrix was saved in the app.",
           tone: "success",
         });
-      } catch (error) {
-        showNotification({
-          title: "Save failed",
-          message: error instanceof Error ? error.message : "There was an error saving the testing matrix.",
-          tone: "error",
-        });
       }
-    });
+
+      router.refresh();
+      return true;
+    } catch (error) {
+      showNotification({
+        title: "Save failed",
+        message: error instanceof Error ? error.message : "There was an error saving the testing matrix.",
+        tone: "error",
+      });
+      return false;
+    } finally {
+      setIsPending(false);
+    }
   }
 }
 
 function EditorField({
+  className,
   label,
   onChange,
   value,
 }: {
+  className?: string;
   label: string;
   onChange: (value: string) => void;
   value: string;
 }) {
   return (
-    <label className="grid gap-1">
+    <label className={cn("grid gap-1", className)}>
       <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-[16px] border border-black/5 bg-[#fcfbf8] px-3.5 py-2.5 text-[13px] outline-none"
+        className="border border-black/10 bg-[#fffdfa] px-3 py-2 text-[13px] outline-none"
       />
     </label>
   );
 }
 
 function EditorNumberField({
+  className,
   label,
   onChange,
   value,
 }: {
+  className?: string;
   label: string;
   onChange: (value: number | undefined) => void;
   value?: number;
 }) {
   return (
-    <label className="grid gap-1">
+    <label className={cn("grid gap-1", className)}>
       <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</span>
       <input
         type="number"
         min="0"
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
-        className="rounded-[16px] border border-black/5 bg-[#fcfbf8] px-3.5 py-2.5 text-[13px] outline-none"
+        className="border border-black/10 bg-[#fffdfa] px-3 py-2 text-[13px] outline-none"
       />
     </label>
   );
@@ -591,10 +767,19 @@ function EditorAreaField({
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        rows={4}
-        className="resize-none rounded-[16px] border border-black/5 bg-[#fcfbf8] px-3.5 py-2.5 text-[13px] outline-none"
+        rows={3}
+        className="resize-none border border-black/10 bg-[#fffdfa] px-3 py-2 text-[13px] leading-5 outline-none"
       />
     </label>
+  );
+}
+
+function MetaCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 border border-[rgba(1,30,65,0.08)] bg-[#fcfbf8] px-3 py-2">
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</dt>
+      <dd className="text-sm font-medium text-[var(--foreground)]">{value}</dd>
+    </div>
   );
 }
 
@@ -637,7 +822,7 @@ function buildEmptyTestingMatrix(control: Control, auditId: string | null): Cont
     title: `${control.name} Testing Matrix`,
     populationDescription: `Population includes all items subject to ${control.name} during the audit period.`,
     populationSize: undefined,
-    sampleDescription: "Selected a representative sample for attribute testing.",
+    sampleDescription: "",
     sampleSize: samples.length,
     conclusion: "",
     attributes,
@@ -662,4 +847,33 @@ function buildClientId(prefix: string) {
 
 function isPersistedId(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function normalizeMatrixDraft(
+  draft: ControlTestingMatrix,
+  options: {
+    includeTimestamp?: boolean;
+  } = {},
+): ControlTestingMatrix {
+  return {
+    ...draft,
+    conclusion: "",
+    updatedAt: options.includeTimestamp ? new Date().toISOString() : draft.updatedAt,
+    title: draft.title.trim(),
+    populationDescription: draft.populationDescription.trim(),
+    sampleDescription: draft.sampleDescription.trim(),
+    attributes: draft.attributes.map((attribute, index) => ({
+      ...attribute,
+      label: attribute.label.trim(),
+      guidance: attribute.guidance.trim(),
+      displayOrder: index + 1,
+    })),
+    samples: draft.samples.map((sample, index) => ({
+      ...sample,
+      sampleIdentifier: sample.sampleIdentifier.trim() || `S-${String(index + 1).padStart(2, "0")}`,
+      sampleDescription: sample.sampleDescription.trim(),
+      exceptionNoted: sample.exceptionNoted.trim(),
+      displayOrder: index + 1,
+    })),
+  };
 }

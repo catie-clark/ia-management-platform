@@ -1,7 +1,12 @@
-import { buildWorkpaperPreview } from "@/lib/workpaper-content";
+import {
+  buildMatrixExceptionSync,
+  buildWorkpaperPreview,
+  readWorkpaperContent,
+  serializeWorkpaperContent,
+} from "@/lib/workpaper-content";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { AuditDocumentRow } from "@/lib/live-audit";
-import type { DocumentReviewStatus, Role, WorkpaperContent } from "@/types/audit";
+import type { ControlTestingMatrix, DocumentReviewStatus, Role, WorkpaperContent } from "@/types/audit";
 
 type WorkpaperDocumentRow = Pick<
   AuditDocumentRow,
@@ -51,15 +56,7 @@ export async function saveWorkpaperDraft({
     edited_at: now,
     preview_sections: preview.previewSections,
     preview_summary: preview.previewSummary,
-    workpaper_content: {
-      summary: content.summary,
-      objective: content.objective,
-      scope: content.scope,
-      procedures: content.procedures,
-      results: content.results,
-      conclusion: content.conclusion,
-      next_steps: content.nextSteps,
-    },
+    workpaper_content: serializeWorkpaperContent(content),
   };
   const { data, error } = await supabase
     .from("audit_documents")
@@ -78,6 +75,94 @@ export async function saveWorkpaperDraft({
 
   return {
     data,
+    payload: nextPayload,
+  };
+}
+
+export async function syncWorkpaperFromTestingMatrix({
+  auditId,
+  controlId,
+  matrix,
+}: {
+  auditId: string;
+  controlId: string;
+  matrix: ControlTestingMatrix;
+}) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("audit_documents")
+    .select("id, document_type, title, control_id, owner_user_id, status, template_name, source_payload, updated_at")
+    .eq("audit_id", auditId)
+    .eq("control_id", controlId)
+    .eq("document_type", "WORKPAPER")
+    .maybeSingle<WorkpaperDocumentDbRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const existingContent = readWorkpaperContent(data.source_payload ?? {}) ?? {
+    controlReference: "",
+    keyControl: "",
+    typeOfControl: "",
+    controlFrequency: "",
+    assertions: "",
+    descriptionOfTestToBePerformed: "",
+    totalPopulationAndSamplingUnits: "",
+    populationCompletenessConsideration: "",
+    sampleSizeAndSelectionProcedures: "",
+    expectedDeviationTypes: "",
+    documentationOfTesting: "",
+    extensionOfInterimTestingToEndOfPeriod: "",
+    matrixExceptionSummary: "",
+    numberOfDeviationsDetected: "0",
+    deviationDescriptionAndCause: "",
+    didDeviationsResultFromFraudOrError: "",
+    wereDeviationsIsolatedOrPervasive: "",
+    finalNumberOfDeviations: "0",
+    controlEffectivenessConclusion: "",
+  };
+  const sync = buildMatrixExceptionSync(matrix);
+  const nextContent: WorkpaperContent = {
+    ...existingContent,
+    matrixExceptionSummary: sync.matrixExceptionSummary,
+    numberOfDeviationsDetected: sync.matrixExceptionCount,
+    finalNumberOfDeviations: sync.matrixExceptionCount,
+  };
+  const preview = buildWorkpaperPreview(nextContent);
+  const nextPayload = {
+    ...(data.source_payload ?? {}),
+    preview_sections: preview.previewSections,
+    preview_summary: preview.previewSummary,
+    matrix_sync: {
+      linked_matrix_id: matrix.id,
+      synced_at: new Date().toISOString(),
+      exception_count: sync.matrixExceptionCount,
+      exception_summary: sync.matrixExceptionSummary,
+    },
+    workpaper_content: serializeWorkpaperContent(nextContent),
+  };
+
+  const { data: updatedData, error: updateError } = await supabase
+    .from("audit_documents")
+    .update({
+      source_payload: nextPayload,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.id)
+    .select("id, document_type, title, control_id, owner_user_id, status, template_name, source_payload, updated_at")
+    .maybeSingle<WorkpaperDocumentDbRow>();
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  return {
+    data: updatedData,
     payload: nextPayload,
   };
 }

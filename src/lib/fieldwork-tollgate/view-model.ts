@@ -186,7 +186,7 @@ function buildTokenValues(args: {
         ? scopeDeviationControls
             .map(
               (control) =>
-                `- ${control.referenceId ?? control.id} ${control.name}: scope posture is ${control.scopeStatus.replaceAll("_", " ").toLowerCase()}${control.planningOverriddenAt ? `, with a planning override recorded on ${formatDateTime(control.planningOverriddenAt)}` : ""}.`,
+                `- ${control.referenceId ?? control.id} ${control.name}: scope posture is ${formatScopePosture(control.scopeStatus)}${control.planningOverriddenAt ? `, with a planning override recorded on ${formatDateTime(control.planningOverriddenAt)}` : ""}.`,
             )
             .join("\n")
         : "No explicit deviations from the approved scope are currently recorded in the audit data.",
@@ -214,4 +214,16 @@ function buildTokenValues(args: {
         ? `The engagement lead recommends moving to reporting only after leadership reviews the open fieldwork items summarized above and confirms they do not undermine the supportability of the draft findings.`
         : `The engagement lead recommends that the audit proceed to reporting because fieldwork is substantially complete and the recorded evidence base is sufficient to support draft conclusions.`,
   };
+}
+
+function formatScopePosture(scopeStatus: "UNASSIGNED" | "IN_SCOPE" | "OUT_OF_SCOPE") {
+  if (scopeStatus === "IN_SCOPE") {
+    return "in scope";
+  }
+
+  if (scopeStatus === "OUT_OF_SCOPE") {
+    return "out of scope";
+  }
+
+  return "unassigned";
 }
