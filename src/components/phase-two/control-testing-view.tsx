@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type Dispatch, type SetStateAction, type TransitionStartFunction } from "react";
-import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition, type Dispatch, type FormEvent, type SetStateAction, type TransitionStartFunction } from "react";
+import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Plus, Search, Upload } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { useNotification } from "@/components/ui/notification-provider";
@@ -33,7 +34,7 @@ import {
   type ScopeFilter,
 } from "@/lib/control-visibility";
 import { getControlTestingNow } from "@/lib/control-testing-data";
-import type { DashboardMode } from "@/lib/live-audit";
+import { mapDocument, type AuditDocumentRow, type DashboardMode } from "@/lib/live-audit";
 import { cn, formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
 import type {
   AuditDocument,
@@ -327,7 +328,11 @@ export function ControlTestingView({
     setSelectedTestingMatrixControlId("");
     setSaveError("");
     setSaveSuccess("");
-  }, [selectedControl]);
+    // Only reset when the user actually selects a different control. The
+    // selectedControl object reference changes on every save/refresh (router.refresh,
+    // setControlRecords), which used to close any open workpaper/matrix panel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedControl?.id]);
 
   const linkedWorkpapers = useMemo(
     () => (selectedControl ? getLinkedDocuments(selectedControl.id, documentRows).filter((document) => document.type === "WORKPAPER") : []),
@@ -338,10 +343,10 @@ export function ControlTestingView({
     () => (selectedControl ? getLinkedDocuments(selectedControl.id, documentRows).filter((document) => document.type !== "WORKPAPER") : []),
     [documentRows, selectedControl],
   );
-  const selectedTestingMatrix =
+  const selectedTestingMatrices =
     selectedTestingMatrixControlId.length > 0
-      ? testingMatrixRows.find((entry) => entry.controlId === selectedTestingMatrixControlId) ?? null
-      : null;
+      ? getMatricesForControl(testingMatrixRows, selectedTestingMatrixControlId)
+      : [];
 
   return (
     <div className={embedded ? "flex min-h-0 shrink-0 flex-col gap-4" : "flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]"}>
@@ -602,7 +607,7 @@ export function ControlTestingView({
                   exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
                   isSaving={isSaving}
                   linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
-                  linkedTestingMatrix={selectedControl ? testingMatrixRows.find((entry) => entry.controlId === selectedControl.id) ?? null : null}
+                  linkedTestingMatrices={selectedControl ? getMatricesForControl(testingMatrixRows, selectedControl.id) : []}
                   linkedWorkpapers={linkedWorkpapers}
                   mode={mode}
                   planningForm={planningForm}
@@ -614,6 +619,7 @@ export function ControlTestingView({
                   setControlRecords={setControlRecords}
                   setControlExceptions={setControlExceptionsByControlId}
                   setPlanningForm={setPlanningForm}
+                  setDocumentRows={setDocumentRows}
                   setSaveError={setSaveError}
                   setSaveSuccess={setSaveSuccess}
                   setSelectedTestingMatrixControlId={setSelectedTestingMatrixControlId}
@@ -635,6 +641,7 @@ export function ControlTestingView({
             auditId={auditId}
             authorUserId={selectedControl?.ownerId}
             contained
+            controlAttachments={linkedNonWorkpaperDocuments}
             controls={controlRecords}
             document={selectedWorkpaper}
             mode={mode}
@@ -655,19 +662,12 @@ export function ControlTestingView({
             auditId={auditId}
             contained
             control={selectedControl}
-            matrix={selectedTestingMatrix}
+            controlAttachments={linkedNonWorkpaperDocuments}
+            matrices={selectedTestingMatrices}
             mode={mode}
             onClose={() => setSelectedTestingMatrixControlId("")}
-            onMatrixUpdated={(nextMatrix) => {
-              setTestingMatrixRows((current) => {
-                const existingIndex = current.findIndex((entry) => entry.controlId === nextMatrix.controlId);
-
-                if (existingIndex === -1) {
-                  return [...current, nextMatrix];
-                }
-
-                return current.map((entry) => (entry.controlId === nextMatrix.controlId ? nextMatrix : entry));
-              });
+            onMatricesUpdated={(nextMatrices) => {
+              setTestingMatrixRows((current) => replaceMatricesForControl(current, selectedControl.id, nextMatrices));
             }}
           />
         ) : null}
@@ -691,7 +691,7 @@ export function ControlTestingView({
               isSaving={isSaving}
               exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
               linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
-              linkedTestingMatrix={selectedControl ? testingMatrixRows.find((entry) => entry.controlId === selectedControl.id) ?? null : null}
+              linkedTestingMatrices={selectedControl ? getMatricesForControl(testingMatrixRows, selectedControl.id) : []}
               linkedWorkpapers={linkedWorkpapers}
               mode={mode}
               planningForm={planningForm}
@@ -703,6 +703,7 @@ export function ControlTestingView({
               setControlRecords={setControlRecords}
               setControlExceptions={setControlExceptionsByControlId}
               setPlanningForm={setPlanningForm}
+              setDocumentRows={setDocumentRows}
               setSaveError={setSaveError}
               setSaveSuccess={setSaveSuccess}
               setSelectedTestingMatrixControlId={setSelectedTestingMatrixControlId}
@@ -724,6 +725,7 @@ export function ControlTestingView({
           auditId={auditId}
           authorUserId={selectedControl?.ownerId}
           controls={controlRecords}
+          controlAttachments={linkedNonWorkpaperDocuments}
           document={selectedWorkpaper}
           mode={mode}
           now={currentNow}
@@ -744,19 +746,12 @@ export function ControlTestingView({
           <TestingMatrixDetailPanel
             auditId={auditId}
             control={selectedControl}
-            matrix={selectedTestingMatrix}
+            controlAttachments={linkedNonWorkpaperDocuments}
+            matrices={selectedTestingMatrices}
             mode={mode}
             onClose={() => setSelectedTestingMatrixControlId("")}
-            onMatrixUpdated={(nextMatrix) => {
-              setTestingMatrixRows((current) => {
-                const existingIndex = current.findIndex((entry) => entry.controlId === nextMatrix.controlId);
-
-                if (existingIndex === -1) {
-                  return [...current, nextMatrix];
-                }
-
-                return current.map((entry) => (entry.controlId === nextMatrix.controlId ? nextMatrix : entry));
-              });
+            onMatricesUpdated={(nextMatrices) => {
+              setTestingMatrixRows((current) => replaceMatricesForControl(current, selectedControl.id, nextMatrices));
             }}
           />
         )
@@ -774,7 +769,7 @@ function ControlDetailContent({
   exceptions,
   isSaving,
   linkedNonWorkpaperDocuments,
-  linkedTestingMatrix,
+  linkedTestingMatrices,
   linkedWorkpapers,
   mode,
   planningForm,
@@ -786,6 +781,7 @@ function ControlDetailContent({
   setControlRecords,
   setControlExceptions,
   setPlanningForm,
+  setDocumentRows,
   setSaveError,
   setSaveSuccess,
   setSelectedTestingMatrixControlId,
@@ -805,7 +801,7 @@ function ControlDetailContent({
   exceptions: ControlException[];
   isSaving: boolean;
   linkedNonWorkpaperDocuments: AuditDocument[];
-  linkedTestingMatrix: ControlTestingMatrix | null;
+  linkedTestingMatrices: ControlTestingMatrix[];
   linkedWorkpapers: AuditDocument[];
   mode: DashboardMode;
   planningForm: PlanningFormState;
@@ -817,6 +813,7 @@ function ControlDetailContent({
   setControlRecords: Dispatch<SetStateAction<Control[]>>;
   setControlExceptions: Dispatch<SetStateAction<Record<string, ControlException[]>>>;
   setPlanningForm: Dispatch<SetStateAction<PlanningFormState>>;
+  setDocumentRows: Dispatch<SetStateAction<AuditDocument[]>>;
   setSaveError: Dispatch<SetStateAction<string>>;
   setSaveSuccess: Dispatch<SetStateAction<string>>;
   setSelectedTestingMatrixControlId: Dispatch<SetStateAction<string>>;
@@ -830,11 +827,81 @@ function ControlDetailContent({
 }) {
   const [isAddingException, setIsAddingException] = useState(false);
   const [exceptionDraft, setExceptionDraft] = useState("");
+  const [isAddingAttachment, setIsAddingAttachment] = useState(false);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentName, setAttachmentName] = useState("");
+  const [attachmentDescription, setAttachmentDescription] = useState("");
 
   useEffect(() => {
     setIsAddingException(false);
     setExceptionDraft("");
+    resetAttachmentForm();
   }, [selectedControl.id]);
+
+  function resetAttachmentForm() {
+    setIsAddingAttachment(false);
+    setAttachmentFile(null);
+    setAttachmentName("");
+    setAttachmentDescription("");
+  }
+
+  function handleAttachmentFileChange(file: File | null) {
+    setAttachmentFile(file);
+
+    if (file && attachmentName.trim().length === 0) {
+      setAttachmentName(file.name);
+    }
+  }
+
+  function handleAttachmentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!attachmentFile) {
+      return;
+    }
+
+    const file = attachmentFile;
+    const displayName = attachmentName.trim() || file.name;
+    const description = attachmentDescription.trim();
+
+    startSaving(async () => {
+      try {
+        const nextDocument =
+          mode === "live" && auditId
+            ? await uploadControlAttachment({
+                auditId,
+                controlId: selectedControl.id,
+                description,
+                displayName,
+                file,
+                ownerUserId: currentUserId,
+              })
+            : createPrototypeControlAttachmentDocument({
+                description,
+                displayName,
+                file,
+                linkedControlId: selectedControl.id,
+                now: currentNow,
+                ordinal: linkedNonWorkpaperDocuments.length,
+                ownerId: currentUserId,
+              });
+
+        setDocumentRows((current) => [...current, nextDocument]);
+        resetAttachmentForm();
+        showNotification({
+          title: "Attachment uploaded",
+          message: `${displayName} was linked to this control.`,
+          tone: "success",
+        });
+      } catch (error) {
+        showNotification({
+          title: "Upload failed",
+          message: error instanceof Error ? error.message : "Unable to upload the selected attachment.",
+          tone: "error",
+        });
+      }
+    });
+  }
 
   return (
     <div className="grid gap-4">
@@ -1166,16 +1233,74 @@ function ControlDetailContent({
         ))}
         <TestingMatrixLinkedRow
           control={selectedControl}
-          matrix={linkedTestingMatrix}
+          matrices={linkedTestingMatrices}
           onAction={() => setSelectedTestingMatrixControlId(selectedControl.id)}
         />
       </LinkedSection>
 
-      <LinkedSection title="Linked documents" empty="No non-workpaper documents linked yet.">
-        {linkedNonWorkpaperDocuments.map((document) => (
-          <DocumentLinkedRow key={document.id} document={document} workspaceSettings={workspaceSettings} />
-        ))}
-      </LinkedSection>
+      <AttachmentReferencePanel
+        actionSlot={
+          <button
+            type="button"
+            onClick={() => setIsAddingAttachment((current) => !current)}
+            className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+          >
+            <Upload size={14} />
+            Upload attachment
+          </button>
+        }
+        attachments={linkedNonWorkpaperDocuments}
+        auditId={auditId}
+        description="Files and screenshots linked to this control for testing support."
+        emptyMessage="No control attachments have been uploaded yet."
+      >
+        {isAddingAttachment ? (
+          <form onSubmit={handleAttachmentSubmit} className="grid gap-3 border border-black/5 bg-[var(--surface-tint)] p-3 md:grid-cols-2">
+            <label className="grid gap-1 md:col-span-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Attachment file</span>
+              <input
+                type="file"
+                onChange={(event) => handleAttachmentFileChange(event.target.files?.[0] ?? null)}
+                className="border border-black/10 bg-white px-3 py-2 text-[13px] outline-none"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Display name</span>
+              <input
+                value={attachmentName}
+                onChange={(event) => setAttachmentName(event.target.value)}
+                placeholder={attachmentFile?.name ?? "Defaults to uploaded file name"}
+                className="border border-black/10 bg-white px-3 py-2 text-[13px] outline-none"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Description</span>
+              <input
+                value={attachmentDescription}
+                onChange={(event) => setAttachmentDescription(event.target.value)}
+                placeholder="Optional context for this attachment"
+                className="border border-black/10 bg-white px-3 py-2 text-[13px] outline-none"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2 md:col-span-2">
+              <button
+                type="submit"
+                disabled={isSaving || !attachmentFile}
+                className="inline-flex items-center gap-2 rounded-sm bg-[var(--brand-indigo-core)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Upload
+              </button>
+              <button
+                type="button"
+                onClick={resetAttachmentForm}
+                className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </AttachmentReferencePanel>
     </div>
   );
 }
@@ -1437,27 +1562,34 @@ function DocumentLinkedRow({
 
 function TestingMatrixLinkedRow({
   control,
-  matrix,
+  matrices,
   onAction,
 }: {
   control: Control;
-  matrix: ControlTestingMatrix | null;
+  matrices: ControlTestingMatrix[];
   onAction: () => void;
 }) {
-  const exceptionRowCount = matrix
-    ? matrix.samples.filter((sample) => sample.exceptionNoted.trim().length > 0 || matrix.results.some((result) => result.sampleId === sample.id && result.result === "FAIL")).length
-    : 0;
+  const exceptionRowCount = matrices.reduce(
+    (total, matrix) =>
+      total +
+      matrix.samples.filter((sample) => sample.exceptionNoted.trim().length > 0 || matrix.results.some((result) => result.sampleId === sample.id && result.result === "FAIL")).length,
+    0,
+  );
+  const sampleCount = matrices.reduce((total, matrix) => total + matrix.samples.length, 0);
+  const attributeCount = matrices.reduce((total, matrix) => total + matrix.attributes.length, 0);
+  const primaryMatrix = matrices[0] ?? null;
 
   return (
     <div className="rounded-[14px] bg-[var(--surface-tint)] px-3.5 py-3.5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-[13px] font-semibold text-[var(--foreground)]">
-            {matrix?.title ?? `${control.name} Testing Matrix`}
+            {primaryMatrix?.title ?? `${control.name} Testing Matrix`}
           </p>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            <StatusBadge status={`${matrix?.samples.length ?? 0} samples`} tone="neutral" />
-            <StatusBadge status={`${matrix?.attributes.length ?? 0} attributes`} tone="warning" />
+            <StatusBadge status={`${matrices.length} ${matrices.length === 1 ? "matrix" : "matrices"}`} tone="neutral" />
+            <StatusBadge status={`${sampleCount} samples`} tone="neutral" />
+            <StatusBadge status={`${attributeCount} attributes`} tone="warning" />
             <StatusBadge status={`${exceptionRowCount} exception rows`} tone={exceptionRowCount > 0 ? "risk" : "success"} />
           </div>
         </div>
@@ -1506,6 +1638,125 @@ function buildWorkspacePath(pathname: string, workspaceQuery: URLSearchParams, e
   }
 
   return `${pathname}?${params.toString()}`;
+}
+
+async function uploadControlAttachment({
+  auditId,
+  controlId,
+  description,
+  displayName,
+  file,
+  ownerUserId,
+}: {
+  auditId: string;
+  controlId: string;
+  description: string;
+  displayName: string;
+  file: File;
+  ownerUserId: string;
+}) {
+  const payload = new FormData();
+  payload.set("file", file);
+  payload.set("controlId", controlId);
+  payload.set("fileName", displayName);
+
+  if (isUuid(ownerUserId)) {
+    payload.set("ownerUserId", ownerUserId);
+  }
+
+  if (description) {
+    payload.set("description", description);
+  }
+
+  const response = await fetch(`/api/audits/${auditId}/response-attachments`, {
+    method: "POST",
+    body: payload,
+  });
+  const result = (await response.json()) as (AuditDocumentRow & { error?: string }) | { error?: string };
+
+  if (!response.ok) {
+    throw new Error("error" in result ? result.error ?? "Unable to upload attachment." : "Unable to upload attachment.");
+  }
+
+  return mapDocument(result as AuditDocumentRow);
+}
+
+function createPrototypeControlAttachmentDocument({
+  description,
+  displayName,
+  file,
+  linkedControlId,
+  now,
+  ordinal,
+  ownerId,
+}: {
+  description: string;
+  displayName: string;
+  file: File;
+  linkedControlId: string;
+  now: string;
+  ordinal: number;
+  ownerId: string;
+}): AuditDocument {
+  return {
+    id: `control-attachment-${ordinal + 1}`,
+    type: "EVIDENCE",
+    title: displayName,
+    linkedControlId,
+    ownerId,
+    status: "COMPLETE",
+    previewSummary: description || `Uploaded attachment linked to this control on ${formatDateTime(now)}.`,
+    previewSections: [
+      {
+        heading: "Attachment metadata",
+        body: [
+          `Display name: ${displayName}`,
+          `Original file name: ${file.name}`,
+          ...(description ? [`Description: ${description}`] : []),
+          `File size: ${formatFileSize(file.size)}`,
+          `File type: ${file.type || "Unknown"}`,
+        ],
+      },
+    ],
+    attachment: {
+      description: description || undefined,
+      fileName: displayName,
+      fileSizeBytes: file.size,
+      mimeType: file.type || undefined,
+      originalFileName: file.name,
+      uploadedAt: now,
+      uploadedInApp: true,
+    },
+    updatedAt: now,
+  };
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function getMatricesForControl(matrices: ControlTestingMatrix[], controlId: string) {
+  return matrices
+    .filter((matrix) => matrix.controlId === controlId)
+    .sort((left, right) => left.displayOrder - right.displayOrder || left.createdAt.localeCompare(right.createdAt));
+}
+
+function replaceMatricesForControl(current: ControlTestingMatrix[], controlId: string, nextMatrices: ControlTestingMatrix[]) {
+  return [...current.filter((matrix) => matrix.controlId !== controlId), ...nextMatrices].sort(
+    (left, right) => left.controlId.localeCompare(right.controlId) || left.displayOrder - right.displayOrder || left.createdAt.localeCompare(right.createdAt),
+  );
 }
 
 function getOwnerLabel(control: Control | null, users: User[]) {

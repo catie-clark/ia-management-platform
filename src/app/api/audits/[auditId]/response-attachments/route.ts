@@ -5,13 +5,20 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const RESPONSE_ATTACHMENTS_BUCKET = "response-attachments";
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const optionalUuid = z.preprocess(
+  (value) => (typeof value === "string" && uuidPattern.test(value.trim()) ? value.trim() : undefined),
+  z.string().uuid().optional(),
+);
+
 const createResponseAttachmentSchema = z
   .object({
     controlId: z.string().uuid().optional(),
+    description: z.string().trim().optional(),
     fileName: z.string().trim().min(1),
     fileSizeBytes: z.number().int().nonnegative().optional(),
     mimeType: z.string().trim().min(1).optional(),
-    ownerUserId: z.string().uuid().optional(),
+    ownerUserId: optionalUuid,
     questionId: z.string().uuid().optional(),
     requestId: z.string().uuid().optional(),
   })
@@ -19,8 +26,8 @@ const createResponseAttachmentSchema = z
     message: "An attachment can reference either a question or a request, but not both.",
     path: ["questionId"],
   })
-  .refine((value) => Boolean(value.questionId || value.requestId), {
-    message: "An attachment must be linked to a question or a request.",
+  .refine((value) => Boolean(value.controlId || value.questionId || value.requestId), {
+    message: "An attachment must be linked to a control, question, or request.",
     path: ["questionId"],
   });
 
@@ -52,6 +59,7 @@ export async function POST(request: Request, context: { params: Promise<{ auditI
 
     const body = createResponseAttachmentSchema.parse({
       controlId: getOptionalString(formData, "controlId"),
+      description: getOptionalString(formData, "description"),
       fileName: getOptionalString(formData, "fileName") ?? file.name,
       fileSizeBytes: file.size,
       mimeType: file.type || undefined,
@@ -60,8 +68,8 @@ export async function POST(request: Request, context: { params: Promise<{ auditI
       requestId: getOptionalString(formData, "requestId"),
     });
     const supabase = createSupabaseAdminClient();
-    const linkedEntityType = body.questionId ? "question" : "request";
-    const linkedEntityId = body.questionId ?? body.requestId ?? "unlinked";
+    const linkedEntityType = body.questionId ? "question" : body.requestId ? "request" : "control";
+    const linkedEntityId = body.questionId ?? body.requestId ?? body.controlId ?? "unlinked";
     const storagePath = buildStoragePath({
       auditId,
       fileName: body.fileName,
@@ -93,8 +101,11 @@ export async function POST(request: Request, context: { params: Promise<{ auditI
         owner_user_id: body.ownerUserId ?? null,
         status: "complete",
         source_payload: {
-          attached_in_response_panel: true,
+          attached_in_control_panel: linkedEntityType === "control",
+          attached_in_response_panel: linkedEntityType === "question" || linkedEntityType === "request",
+          attachment_description: body.description ?? null,
           file_name: body.fileName,
+          original_file_name: file.name,
           file_size_bytes: body.fileSizeBytes ?? null,
           mime_type: body.mimeType ?? null,
           storage_bucket: RESPONSE_ATTACHMENTS_BUCKET,
@@ -103,12 +114,14 @@ export async function POST(request: Request, context: { params: Promise<{ auditI
           linked_entity_id: linkedEntityId,
           uploaded_at: new Date().toISOString(),
           uploaded_in_app: true,
-          preview_summary: `Uploaded attachment linked to this ${linkedEntityType}.`,
+          preview_summary: body.description ?? `Uploaded attachment linked to this ${linkedEntityType}.`,
           preview_sections: [
             {
               heading: "Attachment metadata",
               body: [
-                `File name: ${body.fileName}`,
+                `Display name: ${body.fileName}`,
+                `Original file name: ${file.name}`,
+                ...(body.description ? [`Description: ${body.description}`] : []),
                 `File size: ${formatFileSize(body.fileSizeBytes ?? 0)}`,
                 `File type: ${body.mimeType ?? "Unknown"}`,
                 `Storage bucket: ${RESPONSE_ATTACHMENTS_BUCKET}`,
@@ -153,7 +166,7 @@ function buildStoragePath({
   auditId: string;
   fileName: string;
   linkedEntityId: string;
-  linkedEntityType: "question" | "request";
+  linkedEntityType: "control" | "question" | "request";
 }) {
   const safeFileName = sanitizeFileName(fileName);
   return `${auditId}/${linkedEntityType}/${linkedEntityId}/${Date.now()}-${crypto.randomUUID()}-${safeFileName}`;

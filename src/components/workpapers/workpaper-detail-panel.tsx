@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Expand, FilePenLine, Minimize2, Send, X } from "lucide-react";
+import { Download, Expand, FilePenLine, Minimize2, Send, X } from "lucide-react";
 
+import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
@@ -78,6 +79,7 @@ type WorkpaperDetailPanelProps = {
   auditId: string | null;
   authorUserId?: string;
   contained?: boolean;
+  controlAttachments?: AuditDocument[];
   controls: Control[];
   document: AuditDocument | null;
   mode: DashboardMode;
@@ -118,6 +120,7 @@ export function WorkpaperDetailPanel({
   auditId,
   authorUserId,
   contained = false,
+  controlAttachments = [],
   controls,
   document,
   mode,
@@ -255,6 +258,16 @@ export function WorkpaperDetailPanel({
               ) : null}
               <button
                 type="button"
+                onClick={handleExportBundle}
+                disabled={!canPersist || !document.linkedControlId || isPending}
+                title="Export this testing workpaper and all linked testing matrices as a formatted Excel bundle."
+                className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download size={15} />
+                Export bundle
+              </button>
+              <button
+                type="button"
                 onClick={handleSaveDraft}
                 disabled={!canSaveDraft || isPending}
                 className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -353,6 +366,13 @@ export function WorkpaperDetailPanel({
       </div>
 
       <div className="grid gap-3 xl:sticky xl:top-0 xl:self-start">
+        <AttachmentReferencePanel
+          attachments={controlAttachments}
+          auditId={auditId}
+          description="Open linked control support without leaving the workpaper."
+          emptyMessage="No control attachments are linked yet."
+        />
+
         <section className="border border-[rgba(1,30,65,0.14)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(1,30,65,0.05)]">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Review workflow</p>
           <div className="mt-3 grid gap-2">
@@ -509,6 +529,14 @@ export function WorkpaperDetailPanel({
       {expandedOverlay}
     </>
   );
+
+  function handleExportBundle() {
+    if (!document?.linkedControlId || !auditId) {
+      return;
+    }
+
+    window.location.href = `/api/controls/${document.linkedControlId}/testing-matrix/export?auditId=${encodeURIComponent(auditId)}`;
+  }
 
   function handleSaveDraft() {
     if (!document || !canSaveDraft) {

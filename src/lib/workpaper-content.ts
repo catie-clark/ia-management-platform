@@ -186,6 +186,22 @@ export function serializeWorkpaperContent(content: WorkpaperContent) {
 }
 
 export function buildMatrixExceptionSync(matrix: ControlTestingMatrix) {
+  return buildMatricesExceptionSync([matrix]);
+}
+
+export function buildMatricesExceptionSync(matrices: ControlTestingMatrix[]) {
+  const summaryLines = matrices.flatMap((matrix) => buildMatrixExceptionLines(matrix));
+
+  return {
+    matrixExceptionCount: String(summaryLines.length),
+    matrixExceptionSummary:
+      summaryLines.length > 0
+        ? summaryLines.join("\n")
+        : "No exceptions have been recorded in the testing matrix.",
+  };
+}
+
+function buildMatrixExceptionLines(matrix: ControlTestingMatrix) {
   const failedCellBySampleId = new Map<string, string[]>();
 
   for (const result of matrix.results) {
@@ -219,13 +235,7 @@ export function buildMatrixExceptionSync(matrix: ControlTestingMatrix) {
     return [parts.join(" - ")];
   });
 
-  return {
-    matrixExceptionCount: String(summaryLines.length),
-    matrixExceptionSummary:
-      summaryLines.length > 0
-        ? summaryLines.join("\n")
-        : "No exceptions have been recorded in the testing matrix.",
-  };
+  return summaryLines.map((line) => `${matrix.title || "Testing Matrix"} - ${line}`);
 }
 
 export function deriveTypeOfControlFromRcm(args: {

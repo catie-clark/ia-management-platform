@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { loadControlTestingMatrix, saveControlTestingMatrix } from "@/lib/control-testing-matrix-persistence";
-import { syncWorkpaperFromTestingMatrix } from "@/lib/fieldwork-workpaper-persistence";
+import {
+  deleteControlTestingMatrix,
+  loadControlTestingMatricesForControl,
+  loadControlTestingMatrix,
+  saveControlTestingMatrix,
+} from "@/lib/control-testing-matrix-persistence";
+import { syncWorkpaperFromTestingMatrices } from "@/lib/fieldwork-workpaper-persistence";
 
 const testingMatrixResultSchema = z.enum(["PASS", "FAIL", "NOT_TESTED"]);
 
 const testingMatrixAttributeSchema = z.object({
+  clientId: z.string().optional(),
   id: z.string().uuid().optional(),
   attributeKey: z.string().optional(),
   label: z.string(),
@@ -15,6 +21,7 @@ const testingMatrixAttributeSchema = z.object({
 });
 
 const testingMatrixSampleSchema = z.object({
+  clientId: z.string().optional(),
   id: z.string().uuid().optional(),
   sampleIdentifier: z.string(),
   sampleDescription: z.string(),
@@ -33,6 +40,8 @@ const testingMatrixRowResultSchema = z.object({
 const testingMatrixSaveSchema = z.object({
   auditId: z.string().uuid(),
   matrix: z.object({
+    id: z.string().uuid().optional(),
+    displayOrder: z.number().int().positive().optional(),
     title: z.string(),
     populationDescription: z.string(),
     populationSize: z.number().int().nonnegative().nullable().optional(),
@@ -61,7 +70,9 @@ export async function GET(request: Request, context: { params: Promise<{ control
       return NextResponse.json({ error: "The testing matrix was not found." }, { status: 404 });
     }
 
-    return NextResponse.json({ matrix });
+    const matrices = await loadControlTestingMatricesForControl(auditId, controlId);
+
+    return NextResponse.json({ matrix, matrices });
   } catch (error) {
     return NextResponse.json(
       {
@@ -81,6 +92,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
       controlId,
       matrix: {
         title: body.matrix.title,
+        id: body.matrix.id,
+        displayOrder: body.matrix.displayOrder,
         populationDescription: body.matrix.populationDescription,
         populationSize: body.matrix.populationSize ?? undefined,
         sampleDescription: body.matrix.sampleDescription,
@@ -91,13 +104,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
         results: body.matrix.results,
       },
     });
-    await syncWorkpaperFromTestingMatrix({
+    const matrices = await loadControlTestingMatricesForControl(body.auditId, controlId);
+    await syncWorkpaperFromTestingMatrices({
       auditId: body.auditId,
       controlId,
-      matrix,
+      matrices,
     });
 
-    return NextResponse.json({ matrix });
+    return NextResponse.json({ matrix, matrices });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.issues[0]?.message ?? "Invalid testing matrix payload." }, { status: 400 });
@@ -106,6 +120,35 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unable to save the testing matrix.",
+      },
+      { status: 400 },
+    );
+  }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ controlId: string }> }) {
+  try {
+    const { controlId } = await context.params;
+    const { searchParams } = new URL(request.url);
+    const auditId = searchParams.get("auditId");
+    const matrixId = searchParams.get("matrixId");
+
+    if (!auditId || !matrixId) {
+      return NextResponse.json({ error: "auditId and matrixId are required." }, { status: 400 });
+    }
+
+    const matrices = await deleteControlTestingMatrix({ auditId, controlId, matrixId });
+    await syncWorkpaperFromTestingMatrices({
+      auditId,
+      controlId,
+      matrices,
+    });
+
+    return NextResponse.json({ matrices });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to delete the testing matrix.",
       },
       { status: 400 },
     );

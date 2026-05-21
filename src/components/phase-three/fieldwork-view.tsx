@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, ClipboardCheck, Expand, FileSearch, Link2, Workflow, X } from "lucide-react";
 
+import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ControlTestingView } from "@/components/phase-two/control-testing-view";
 import { useActiveUser } from "@/components/layout/active-user-context";
@@ -109,6 +110,15 @@ export function FieldworkView({
   );
   const workpapers = useMemo(() => fieldworkDocuments.filter((document) => document.type === "WORKPAPER"), [fieldworkDocuments]);
   const selectedDocument = fieldworkDocuments.find((document) => document.id === selectedId) ?? null;
+  const selectedDocumentControlAttachments = useMemo(
+    () =>
+      selectedDocument?.linkedControlId
+        ? documentRows.filter(
+            (document) => document.linkedControlId === selectedDocument.linkedControlId && document.type !== "WORKPAPER",
+          )
+        : [],
+    [documentRows, selectedDocument],
+  );
   const linkedBlockers = selectedDocument ? getLinkedBlockers(selectedDocument, visibleControls, visibleQuestions, visibleRequests, viewModel.now) : [];
   const approvedCount = workpapers.filter((document) => document.reviewStatus === "APPROVED").length;
   const inReviewCount = workpapers.filter((document) => {
@@ -340,6 +350,7 @@ export function FieldworkView({
                 auditId={viewModel.auditId}
                 authorUserId={getLinkedControlOwnerId(selectedDocument, viewModel.controls)}
                 contained
+                controlAttachments={selectedDocumentControlAttachments}
                 controls={viewModel.controls}
                 document={selectedDocument}
                 mode={viewModel.mode}
@@ -378,7 +389,12 @@ export function FieldworkView({
                     </button>
                   </div>
                   <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
-                    <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} />
+                    <EvidenceInspectPanel
+                      auditId={viewModel.auditId}
+                      document={selectedDocument}
+                      linkedBlockers={linkedBlockers}
+                      users={viewModel.users}
+                    />
                   </div>
                 </aside>
               </>
@@ -1115,10 +1131,12 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 }
 
 function EvidenceInspectPanel({
+  auditId,
   document,
   linkedBlockers,
   users,
 }: {
+  auditId: string | null;
   document: AuditDocument;
   linkedBlockers: Array<{ id: string; title: string; detail: string; status: string; tone: "warning" | "risk" | "success" }>;
   users: User[];
@@ -1131,6 +1149,16 @@ function EvidenceInspectPanel({
         <InfoCard label="Due date" value={document.dueDate ? formatDateTime(document.dueDate) : "Not set"} />
         <InfoCard label="Review stage" value={formatReviewStatus(document.reviewStatus ?? "NOT_SUBMITTED")} />
       </section>
+
+      {document.attachment ? (
+        <AttachmentReferencePanel
+          attachments={[document]}
+          auditId={auditId}
+          description="Open or download the uploaded evidence file."
+          emptyMessage="This evidence item does not have an uploaded file."
+          title="Uploaded file"
+        />
+      ) : null}
 
       <section className="rounded-[24px] border border-black/5 bg-white p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Preview</p>

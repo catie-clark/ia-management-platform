@@ -1,5 +1,5 @@
 import {
-  buildMatrixExceptionSync,
+  buildMatricesExceptionSync,
   buildWorkpaperPreview,
   readWorkpaperContent,
   serializeWorkpaperContent,
@@ -16,6 +16,38 @@ type WorkpaperDocumentRow = Pick<
 type WorkpaperDocumentDbRow = WorkpaperDocumentRow & {
   owner_user_id: string | null;
 };
+
+export async function loadWorkpaperForControl(auditId: string, controlId: string) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("audit_documents")
+    .select("id, document_type, title, control_id, owner_user_id, status, template_name, source_payload, updated_at")
+    .eq("audit_id", auditId)
+    .eq("control_id", controlId)
+    .eq("document_type", "WORKPAPER")
+    .maybeSingle<WorkpaperDocumentDbRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const content = readWorkpaperContent(data.source_payload ?? {});
+
+  return {
+    content,
+    document: {
+      id: data.id,
+      title: data.title,
+      updatedAt: data.updated_at,
+      reviewStatus: normalizeReviewStatus((data.source_payload ?? {}).review_status),
+      ownerUserId: data.owner_user_id,
+    },
+  };
+}
 
 export async function loadWorkpaperDocument(auditId: string, documentId: string) {
   const supabase = createSupabaseAdminClient();
@@ -88,6 +120,18 @@ export async function syncWorkpaperFromTestingMatrix({
   controlId: string;
   matrix: ControlTestingMatrix;
 }) {
+  return syncWorkpaperFromTestingMatrices({ auditId, controlId, matrices: [matrix] });
+}
+
+export async function syncWorkpaperFromTestingMatrices({
+  auditId,
+  controlId,
+  matrices,
+}: {
+  auditId: string;
+  controlId: string;
+  matrices: ControlTestingMatrix[];
+}) {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("audit_documents")
@@ -126,7 +170,7 @@ export async function syncWorkpaperFromTestingMatrix({
     finalNumberOfDeviations: "0",
     controlEffectivenessConclusion: "",
   };
-  const sync = buildMatrixExceptionSync(matrix);
+  const sync = buildMatricesExceptionSync(matrices);
   const nextContent: WorkpaperContent = {
     ...existingContent,
     matrixExceptionSummary: sync.matrixExceptionSummary,
@@ -139,7 +183,8 @@ export async function syncWorkpaperFromTestingMatrix({
     preview_sections: preview.previewSections,
     preview_summary: preview.previewSummary,
     matrix_sync: {
-      linked_matrix_id: matrix.id,
+      linked_matrix_id: matrices[0]?.id ?? null,
+      linked_matrix_ids: matrices.map((matrix) => matrix.id),
       synced_at: new Date().toISOString(),
       exception_count: sync.matrixExceptionCount,
       exception_summary: sync.matrixExceptionSummary,

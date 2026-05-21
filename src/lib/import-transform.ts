@@ -4,7 +4,8 @@ import {
   deriveTypeOfControlFromRcm,
   serializeWorkpaperContent,
 } from "@/lib/workpaper-content";
-import { patchRows, supabaseRestRequest, upsertManyRows } from "@/lib/supabase-rest";
+import { defaultTestingMatrixAttributeDefinitions } from "@/lib/testing-matrix-defaults";
+import { insertManyRows, patchRows, supabaseRestRequest, upsertManyRows } from "@/lib/supabase-rest";
 
 type SourceEntity =
   | "applications"
@@ -894,8 +895,8 @@ async function generateControlTestingMatrices(batch: ImportBatchDetails, control
     return;
   }
 
-  await upsertManyRows(
-    "control_testing_matrices?on_conflict=audit_id,control_id",
+  await insertManyRows(
+    "control_testing_matrices",
     controlsMissingMatrices.map(({ control, controlId }) => buildGeneratedMatrixRecord(batch.audit_id as string, controlId, control)),
   );
 
@@ -1045,6 +1046,7 @@ function buildGeneratedMatrixRecord(auditId: string, controlId: string, control:
   return {
     audit_id: auditId,
     control_id: controlId,
+    display_order: 1,
     title: `${control.control_name} Testing Matrix`,
     population_description: template.populationDescription,
     population_size: template.populationSize,
@@ -1058,7 +1060,6 @@ function buildGeneratedMatrixTemplate(control: ControlImportRecord) {
   const rcmContext = readRcmContext(control);
 
   if (rcmContext) {
-    const attributes = buildRcmMatrixAttributes(rcmContext.testPlanSteps);
     const explicitSamples = buildExplicitRcmSamples(control.source_payload);
     const inferredSampleSize = inferSampleSizeFromText(rcmContext.testPlan);
     const sampleSize = explicitSamples.length > 0 ? explicitSamples.length : control.testing_sample_size ?? inferredSampleSize ?? 3;
@@ -1069,18 +1070,7 @@ function buildGeneratedMatrixTemplate(control: ControlImportRecord) {
       sampleDescription: buildRcmSampleDescription(rcmContext),
       sampleSize,
       conclusion: `Document the testing conclusion for ${control.control_name} after the workpaper, exceptions, and final control effectiveness assessment are complete.`,
-      attributes:
-        attributes.length > 0
-          ? attributes
-          : [
-              {
-                attributeKey: "execute_rcm_test_plan",
-                label: "Execute the documented RCM test plan",
-                guidance:
-                  rcmContext.testPlan || `Execute the defined testing steps for ${control.control_name}.`,
-                displayOrder: 1,
-              },
-            ],
+      attributes: buildDefaultGeneratedMatrixAttributes(),
       samples:
         explicitSamples.length > 0
           ? explicitSamples
@@ -1102,26 +1092,7 @@ function buildGeneratedMatrixTemplate(control: ControlImportRecord) {
     sampleDescription: `Selected a representative sample to test whether ${control.control_name} operated as designed. Refine the sample rationale and coverage notes during fieldwork.`,
     sampleSize,
     conclusion: `Document the testing conclusion for ${control.control_name} after all sample work is complete.`,
-    attributes: [
-      {
-        attributeKey: "control_executed",
-        label: "Was the control executed?",
-        guidance: "Confirm the control operated for the sampled item or period.",
-        displayOrder: 1,
-      },
-      {
-        attributeKey: "timely_execution",
-        label: "Was the control performed timely?",
-        guidance: "Validate timing relative to the required cadence or deadline.",
-        displayOrder: 2,
-      },
-      {
-        attributeKey: "evidence_retained",
-        label: "Was supporting evidence retained?",
-        guidance: "Confirm evidence supports the control execution and reviewer conclusion.",
-        displayOrder: 3,
-      },
-    ],
+    attributes: buildDefaultGeneratedMatrixAttributes(),
     samples: Array.from({ length: sampleSize }, (_, index) => ({
       sampleIdentifier: `S-${String(index + 1).padStart(2, "0")}`,
       sampleDescription: `Sample item ${String(index + 1).padStart(2, "0")} selected from the ${control.control_name} population.`,
@@ -1391,15 +1362,6 @@ function inferSampleSizeFromText(testPlan: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function buildRcmMatrixAttributes(steps: Array<{ stepCode: string; text: string; displayOrder: number }>) {
-  return steps.map((step, index) => ({
-    attributeKey: buildAttributeKey(step.text, index + 1),
-    label: `${step.stepCode}. ${step.text}`,
-    guidance: step.text,
-    displayOrder: step.displayOrder,
-  }));
-}
-
 function buildExplicitRcmSamples(payload: Record<string, unknown>) {
   const rawSamplePayload = readString(payload, ["testing_samples", "sample_information"]);
 
@@ -1438,6 +1400,15 @@ function buildExplicitRcmSamples(payload: Record<string, unknown>) {
   }
 }
 
+function buildDefaultGeneratedMatrixAttributes() {
+  return defaultTestingMatrixAttributeDefinitions.map((attribute, index) => ({
+    attributeKey: attribute.attributeKey,
+    label: attribute.label,
+    guidance: attribute.guidance,
+    displayOrder: index + 1,
+  }));
+}
+
 function buildRcmPopulationDescription(context: NonNullable<ReturnType<typeof readRcmContext>>) {
   const parts = [
     context.subProcess ? `Population should cover the ${context.subProcess} process population relevant to this control.` : null,
@@ -1450,7 +1421,7 @@ function buildRcmPopulationDescription(context: NonNullable<ReturnType<typeof re
 
 function buildRcmSampleDescription(context: NonNullable<ReturnType<typeof readRcmContext>>) {
   if (context.testPlan) {
-    return `Testing plan sourced from the RCM: ${summarizeText(context.testPlan)} Complete sample selection after documenting the population and sampling approach.`;
+    return context.testPlan;
   }
 
   return "Complete sample selection after documenting the population, completeness considerations, and sampling approach from the RCM.";
@@ -1541,21 +1512,6 @@ function readSampleString(sample: Record<string, unknown>, aliases: string[]) {
   }
 
   return null;
-}
-
-function buildAttributeKey(text: string, index: number) {
-  const normalized = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 48);
-
-  return normalized.length > 0 ? normalized : `attribute_${index}`;
-}
-
-function summarizeText(value: string) {
-  const collapsed = value.replace(/\s+/g, " ").trim();
-  return collapsed.length > 180 ? `${collapsed.slice(0, 177)}...` : collapsed;
 }
 
 function formatControlReferenceForWorkpaper(

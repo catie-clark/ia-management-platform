@@ -19,10 +19,17 @@ import type {
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
+type ControlRcmPayloadRow = {
+  id: string;
+  source_payload: Record<string, unknown> | null;
+};
+
 type SaveTestingMatrixInput = {
   auditId: string;
   controlId: string;
   matrix: {
+    id?: string;
+    displayOrder?: number;
     title: string;
     populationDescription: string;
     populationSize?: number;
@@ -30,6 +37,7 @@ type SaveTestingMatrixInput = {
     sampleSize?: number;
     conclusion: string;
     attributes: Array<{
+      clientId?: string;
       id?: string;
       attributeKey?: string;
       label: string;
@@ -37,6 +45,7 @@ type SaveTestingMatrixInput = {
       displayOrder: number;
     }>;
     samples: Array<{
+      clientId?: string;
       id?: string;
       sampleIdentifier: string;
       sampleDescription: string;
@@ -54,11 +63,14 @@ type SaveTestingMatrixInput = {
 };
 
 export async function loadAuditControlTestingMatrices(supabase: SupabaseAdminClient, auditId: string) {
-  const [matricesResult, attributesResult, samplesResult, resultsResult] = await Promise.all([
+  const [matricesResult, attributesResult, samplesResult, resultsResult, controlsResult] = await Promise.all([
     supabase
       .from("control_testing_matrices")
-      .select("id, audit_id, control_id, title, population_description, population_size, sample_description, sample_size, conclusion, created_at, updated_at")
+      .select("id, audit_id, control_id, display_order, title, population_description, population_size, sample_description, sample_size, conclusion, created_at, updated_at")
       .eq("audit_id", auditId)
+      .order("control_id", { ascending: true })
+      .order("display_order", { ascending: true })
+      .order("created_at", { ascending: true })
       .returns<ControlTestingMatrixRow[]>(),
     supabase
       .from("control_testing_matrix_attributes")
@@ -72,6 +84,11 @@ export async function loadAuditControlTestingMatrices(supabase: SupabaseAdminCli
       .from("control_testing_matrix_results")
       .select("id, matrix_id, sample_id, attribute_id, result")
       .returns<ControlTestingMatrixResultRow[]>(),
+    supabase
+      .from("controls")
+      .select("id, source_payload")
+      .eq("audit_id", auditId)
+      .returns<ControlRcmPayloadRow[]>(),
   ]);
 
   if (matricesResult.error) {
@@ -86,9 +103,17 @@ export async function loadAuditControlTestingMatrices(supabase: SupabaseAdminCli
   if (resultsResult.error) {
     throw new Error(resultsResult.error.message);
   }
+  if (controlsResult.error) {
+    throw new Error(controlsResult.error.message);
+  }
 
   const matrices = matricesResult.data ?? [];
   const matrixIds = new Set(matrices.map((matrix) => matrix.id));
+  const rcmTestPlanByControlId = new Map(
+    (controlsResult.data ?? [])
+      .map((control) => [control.id, readRcmTestPlan(control.source_payload ?? {})] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+  );
   const attributesByMatrixId = groupByMatrixId(
     (attributesResult.data ?? [])
       .filter((attribute) => matrixIds.has(attribute.matrix_id))
@@ -105,20 +130,30 @@ export async function loadAuditControlTestingMatrices(supabase: SupabaseAdminCli
       .map(mapControlTestingMatrixResult),
   );
 
-  return matrices.map((matrix) =>
-    mapControlTestingMatrix({
-      matrix,
-      attributes: attributesByMatrixId[matrix.id] ?? [],
-      samples: samplesByMatrixId[matrix.id] ?? [],
-      results: resultsByMatrixId[matrix.id] ?? [],
-    }),
-  );
+  return matrices
+    .map((matrix) =>
+      mapControlTestingMatrix({
+        matrix: {
+          ...matrix,
+          sample_description: resolveMatrixSampleDescription(matrix.sample_description, rcmTestPlanByControlId.get(matrix.control_id)),
+        },
+        attributes: attributesByMatrixId[matrix.id] ?? [],
+        samples: samplesByMatrixId[matrix.id] ?? [],
+        results: resultsByMatrixId[matrix.id] ?? [],
+      }),
+    )
+    .sort((left, right) => left.controlId.localeCompare(right.controlId) || left.displayOrder - right.displayOrder || left.createdAt.localeCompare(right.createdAt));
 }
 
 export async function loadControlTestingMatrix(auditId: string, controlId: string) {
+  const matrices = await loadControlTestingMatricesForControl(auditId, controlId);
+  return matrices[0] ?? null;
+}
+
+export async function loadControlTestingMatricesForControl(auditId: string, controlId: string) {
   const supabase = createSupabaseAdminClient();
   const matrices = await loadAuditControlTestingMatrices(supabase, auditId);
-  return matrices.find((matrix) => matrix.controlId === controlId) ?? null;
+  return matrices.filter((matrix) => matrix.controlId === controlId).sort((left, right) => left.displayOrder - right.displayOrder || left.createdAt.localeCompare(right.createdAt));
 }
 
 export async function saveControlTestingMatrix(args: SaveTestingMatrixInput) {
@@ -126,8 +161,13 @@ export async function saveControlTestingMatrix(args: SaveTestingMatrixInput) {
   const { auditId, controlId, matrix } = args;
   await assertControlBelongsToAudit(supabase, auditId, controlId);
 
-  const existingMatrix = await getExistingMatrix(supabase, auditId, controlId);
-  const matrixId = existingMatrix?.id ?? (await upsertMatrixRecord(supabase, auditId, controlId, matrix));
+  const requestedMatrixId = matrix.id && isPersistedId(matrix.id) ? matrix.id : null;
+  const existingMatrix = requestedMatrixId
+    ? await getExistingMatrixById(supabase, auditId, controlId, requestedMatrixId)
+    : matrix.displayOrder === 1
+      ? await getExistingMatrixByOrder(supabase, auditId, controlId, 1)
+      : null;
+  const matrixId = existingMatrix?.id ?? (await insertMatrixRecord(supabase, auditId, controlId, matrix));
 
   if (existingMatrix) {
     await updateMatrixRecord(supabase, existingMatrix.id, matrix);
@@ -139,13 +179,57 @@ export async function saveControlTestingMatrix(args: SaveTestingMatrixInput) {
   const sampleIdMap = new Map(samples.map((sample) => [sample.clientId, sample.id]));
   await syncResults(supabase, matrixId, matrix.results, sampleIdMap, attributeIdMap);
 
-  const savedMatrix = await loadControlTestingMatrix(auditId, controlId);
+  const savedMatrix = await loadControlTestingMatrixById(auditId, controlId, matrixId);
 
   if (!savedMatrix) {
     throw new Error("The testing matrix could not be reloaded after save.");
   }
 
   return savedMatrix;
+}
+
+export async function deleteControlTestingMatrix(args: { auditId: string; controlId: string; matrixId: string }) {
+  const supabase = createSupabaseAdminClient();
+  const { auditId, controlId, matrixId } = args;
+  await assertControlBelongsToAudit(supabase, auditId, controlId);
+  const matrices = await loadControlTestingMatricesForControl(auditId, controlId);
+
+  if (!matrices.some((matrix) => matrix.id === matrixId)) {
+    throw new Error("The testing matrix was not found for this control.");
+  }
+
+  if (matrices.length <= 1) {
+    throw new Error("A control must keep at least one testing matrix.");
+  }
+
+  const { error } = await supabase.from("control_testing_matrices").delete().eq("id", matrixId).eq("audit_id", auditId).eq("control_id", controlId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const remainingMatrices = (await loadControlTestingMatricesForControl(auditId, controlId)).sort(
+    (left, right) => left.displayOrder - right.displayOrder || left.createdAt.localeCompare(right.createdAt),
+  );
+
+  for (const [index, matrix] of remainingMatrices.entries()) {
+    const nextDisplayOrder = index + 1;
+
+    if (matrix.displayOrder === nextDisplayOrder) {
+      continue;
+    }
+
+    const { error: updateError } = await supabase
+      .from("control_testing_matrices")
+      .update({ display_order: nextDisplayOrder, updated_at: new Date().toISOString() })
+      .eq("id", matrix.id);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
+
+  return loadControlTestingMatricesForControl(auditId, controlId);
 }
 
 async function assertControlBelongsToAudit(supabase: SupabaseAdminClient, auditId: string, controlId: string) {
@@ -165,12 +249,18 @@ async function assertControlBelongsToAudit(supabase: SupabaseAdminClient, auditI
   }
 }
 
-async function getExistingMatrix(supabase: SupabaseAdminClient, auditId: string, controlId: string) {
+async function loadControlTestingMatrixById(auditId: string, controlId: string, matrixId: string) {
+  const matrices = await loadControlTestingMatricesForControl(auditId, controlId);
+  return matrices.find((matrix) => matrix.id === matrixId) ?? null;
+}
+
+async function getExistingMatrixById(supabase: SupabaseAdminClient, auditId: string, controlId: string, matrixId: string) {
   const { data, error } = await supabase
     .from("control_testing_matrices")
     .select("id")
     .eq("audit_id", auditId)
     .eq("control_id", controlId)
+    .eq("id", matrixId)
     .maybeSingle<{ id: string }>();
 
   if (error) {
@@ -180,7 +270,23 @@ async function getExistingMatrix(supabase: SupabaseAdminClient, auditId: string,
   return data;
 }
 
-async function upsertMatrixRecord(
+async function getExistingMatrixByOrder(supabase: SupabaseAdminClient, auditId: string, controlId: string, displayOrder: number) {
+  const { data, error } = await supabase
+    .from("control_testing_matrices")
+    .select("id")
+    .eq("audit_id", auditId)
+    .eq("control_id", controlId)
+    .eq("display_order", displayOrder)
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+async function insertMatrixRecord(
   supabase: SupabaseAdminClient,
   auditId: string,
   controlId: string,
@@ -191,6 +297,7 @@ async function upsertMatrixRecord(
     .insert({
       audit_id: auditId,
       control_id: controlId,
+      display_order: await getNextMatrixDisplayOrder(supabase, auditId, controlId),
       title: matrix.title.trim(),
       population_description: matrix.populationDescription.trim(),
       population_size: matrix.populationSize ?? null,
@@ -247,14 +354,14 @@ async function syncAttributes(
     const attributeKey = dedupeKey(baseKey, usedKeys);
 
     return {
-    clientId: attribute.id ?? `new-attribute-${index}`,
-    id: attribute.id,
-    matrix_id: matrixId,
-    attribute_key: attributeKey,
-    label: attribute.label.trim(),
-    guidance: attribute.guidance.trim(),
-    display_order: attribute.displayOrder,
-    updated_at: new Date().toISOString(),
+      clientId: attribute.clientId ?? attribute.id ?? `new-attribute-${index}`,
+      id: attribute.id,
+      matrix_id: matrixId,
+      attribute_key: attributeKey,
+      label: attribute.label.trim(),
+      guidance: attribute.guidance.trim(),
+      display_order: attribute.displayOrder,
+      updated_at: new Date().toISOString(),
     };
   });
 
@@ -337,7 +444,7 @@ async function syncSamples(
   samples: SaveTestingMatrixInput["matrix"]["samples"],
 ) {
   const normalizedSamples = samples.map((sample, index) => ({
-    clientId: sample.id ?? `new-sample-${index}`,
+    clientId: sample.clientId ?? sample.id ?? `new-sample-${index}`,
     id: sample.id,
     matrix_id: matrixId,
     sample_identifier: sample.sampleIdentifier.trim() || `S-${String(index + 1).padStart(2, "0")}`,
@@ -472,7 +579,7 @@ async function syncResults(
     }
   }
 
-  const rowsToUpsert = normalizedResults.map(({ updated_at, ...row }) => ({
+  const rowsToUpsert = normalizedResults.map(({ id: _id, updated_at, ...row }) => ({
     ...row,
     updated_at,
   }));
@@ -495,6 +602,76 @@ function groupByMatrixId<T extends { matrixId: string }>(items: T[]) {
     groups[item.matrixId] = existing;
     return groups;
   }, {});
+}
+
+function resolveMatrixSampleDescription(currentValue: string | null, rcmTestPlan: string | undefined) {
+  const trimmed = currentValue?.trim() ?? "";
+
+  if (!rcmTestPlan || !isLegacySummarizedRcmTestPlan(trimmed)) {
+    return currentValue;
+  }
+
+  return rcmTestPlan;
+}
+
+function isLegacySummarizedRcmTestPlan(value: string) {
+  return (
+    value.startsWith("Testing plan sourced from the RCM: ") &&
+    value.endsWith(" Complete sample selection after documenting the population and sampling approach.")
+  );
+}
+
+function readRcmTestPlan(payload: Record<string, unknown>) {
+  return readString(payload, ["test_plan"]);
+}
+
+function readString(payload: Record<string, unknown>, aliases: string[]) {
+  for (const alias of aliases) {
+    const entry = Object.entries(payload).find(([key]) => normalizeKey(key) === normalizeKey(alias));
+
+    if (!entry) {
+      continue;
+    }
+
+    const value = entry[1];
+
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    const stringValue = String(value).trim();
+
+    if (stringValue.length > 0) {
+      return stringValue;
+    }
+  }
+
+  return null;
+}
+
+function normalizeKey(value: string) {
+  return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+async function getNextMatrixDisplayOrder(supabase: SupabaseAdminClient, auditId: string, controlId: string) {
+  const { data, error } = await supabase
+    .from("control_testing_matrices")
+    .select("display_order")
+    .eq("audit_id", auditId)
+    .eq("control_id", controlId)
+    .order("display_order", { ascending: false })
+    .limit(1)
+    .returns<Array<{ display_order: number | null }>>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data?.[0]?.display_order ?? 0) + 1;
+}
+
+function isPersistedId(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function sanitizeAttributeKey(value: string, index: number) {

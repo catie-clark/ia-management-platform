@@ -174,6 +174,7 @@ export type ControlTestingMatrixRow = {
   id: string;
   audit_id: string;
   control_id: string;
+  display_order: number | null;
   title: string;
   population_description: string | null;
   population_size: number | null;
@@ -275,6 +276,7 @@ export function mapControlTestingMatrix(args: {
     id: args.matrix.id,
     auditId: args.matrix.audit_id,
     controlId: args.matrix.control_id,
+    displayOrder: args.matrix.display_order ?? 1,
     title: args.matrix.title,
     populationDescription: args.matrix.population_description ?? "",
     populationSize: args.matrix.population_size ?? undefined,
@@ -325,6 +327,7 @@ export function mapControl(
     referenceId: control.source_record_key ?? control.id,
     name: control.control_name,
     description: readText(control.source_payload, ["description", "control_description", "summary"]) ?? control.control_name,
+    importedTestPlan: readText(control.source_payload, ["test_plan"]) ?? undefined,
     businessUnit: control.business_unit_id ? businessUnitMap.get(control.business_unit_id) ?? "Unknown business unit" : "Unassigned",
     scopeStatus: normalizeControlScopeStatus(explicitScopeStatus),
     hasExplicitScopeAssignment: typeof explicitScopeStatus === "string" && explicitScopeStatus.trim().length > 0,
@@ -424,6 +427,7 @@ export function mapDocument(document: AuditDocumentRow): AuditDocument {
     generatedMarkdown: readText(payload, ["generated_markdown"]) ?? undefined,
     previewSummary: readText(payload, ["preview_summary"]) ?? undefined,
     previewSections,
+    attachment: readAttachmentMetadata(payload, document.title),
     workpaperContent: normalizeDocumentType(document.document_type) === "WORKPAPER" ? readWorkpaperContent(payload, previewSections) : undefined,
     updatedAt: document.updated_at ? ensureIsoDate(document.updated_at) : undefined,
   };
@@ -725,6 +729,48 @@ function readPreviewSections(payload: Record<string, unknown>) {
     .filter((section): section is { heading: string; body: string[] } => section !== null);
 
   return sections.length > 0 ? sections : undefined;
+}
+
+function readAttachmentMetadata(payload: Record<string, unknown>, fallbackFileName: string): AuditDocument["attachment"] {
+  const storageBucket = readText(payload, ["storage_bucket"]);
+  const storagePath = readText(payload, ["storage_path"]);
+  const uploadedInApp = readBoolean(payload, ["uploaded_in_app"]);
+
+  if (!storageBucket && !storagePath && !uploadedInApp) {
+    return undefined;
+  }
+
+  return {
+    description: readText(payload, ["attachment_description", "description"]) ?? undefined,
+    fileName: readText(payload, ["file_name", "display_name"]) ?? fallbackFileName,
+    fileSizeBytes: readNumber(payload, ["file_size_bytes"]),
+    mimeType: readText(payload, ["mime_type"]) ?? undefined,
+    originalFileName: readText(payload, ["original_file_name"]) ?? undefined,
+    storageBucket: storageBucket ?? undefined,
+    storagePath: storagePath ?? undefined,
+    uploadedAt: readDateText(payload, ["uploaded_at"]),
+    uploadedInApp,
+  };
+}
+
+function readNumber(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = payload[key];
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function readBoolean(payload: Record<string, unknown>, keys: string[]) {

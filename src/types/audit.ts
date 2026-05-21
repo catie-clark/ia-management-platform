@@ -65,6 +65,7 @@ export interface Control {
   referenceId?: string;
   name: string;
   description: string;
+  importedTestPlan?: string;
   businessUnit: string;
   scopeStatus: ControlScopeStatus;
   hasExplicitScopeAssignment?: boolean;
@@ -131,6 +132,7 @@ export interface ControlTestingMatrix {
   id: string;
   auditId: string;
   controlId: string;
+  displayOrder: number;
   title: string;
   populationDescription: string;
   populationSize?: number;
@@ -200,6 +202,17 @@ export interface AuditDocument {
     heading: string;
     body: string[];
   }>;
+  attachment?: {
+    description?: string;
+    fileName: string;
+    fileSizeBytes?: number;
+    mimeType?: string;
+    originalFileName?: string;
+    storageBucket?: string;
+    storagePath?: string;
+    uploadedAt?: string;
+    uploadedInApp?: boolean;
+  };
   workpaperContent?: WorkpaperContent;
   generatedMarkdown?: string;
   updatedAt?: string;

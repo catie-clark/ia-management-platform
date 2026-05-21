@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, MessageSquareMore, Send } from "lucide-react";
 
+import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-card";
@@ -104,6 +105,15 @@ export function ReportingView({
     [reportingResults, resultFilter],
   );
   const selectedDocument = documentRows.find((document) => document.id === selectedResultId) ?? null;
+  const selectedDocumentControlAttachments = useMemo(
+    () =>
+      selectedDocument?.linkedControlId
+        ? documentRows.filter(
+            (document) => document.linkedControlId === selectedDocument.linkedControlId && document.type !== "WORKPAPER",
+          )
+        : [],
+    [documentRows, selectedDocument],
+  );
   const linkedBlockers = selectedDocument
     ? getLinkedBlockers(selectedDocument, viewModel.controls, viewModel.questions, viewModel.requests, viewModel.now)
     : [];
@@ -261,6 +271,7 @@ export function ReportingView({
       {selectedDocument?.type === "WORKPAPER" ? (
         <WorkpaperDetailPanel
           auditId={viewModel.auditId}
+          controlAttachments={selectedDocumentControlAttachments}
           controls={viewModel.controls}
           document={selectedDocument}
           mode={viewModel.mode}
@@ -282,7 +293,13 @@ export function ReportingView({
           open={Boolean(selectedDocument)}
           onClose={() => setSelectedResultId("")}
         >
-          <EvidenceInspectPanel document={selectedDocument} linkedBlockers={linkedBlockers} users={viewModel.users} controls={viewModel.controls} />
+          <EvidenceInspectPanel
+            auditId={viewModel.auditId}
+            document={selectedDocument}
+            linkedBlockers={linkedBlockers}
+            users={viewModel.users}
+            controls={viewModel.controls}
+          />
         </DetailPanel>
       ) : null}
     </div>
@@ -828,11 +845,13 @@ function ArtifactCard({
 }
 
 function EvidenceInspectPanel({
+  auditId,
   controls,
   document,
   linkedBlockers,
   users,
 }: {
+  auditId: string | null;
   controls: ReportingViewModel["controls"];
   document: AuditDocument;
   linkedBlockers: Array<{ id: string; title: string; detail: string; status: string; tone: "warning" | "risk" | "success" }>;
@@ -846,6 +865,16 @@ function EvidenceInspectPanel({
         <InfoCard label="Due date" value={document.dueDate ? formatDateTime(document.dueDate) : "Not set"} />
         <InfoCard label="Linked control" value={getLinkedControlLabel(document, controls)} />
       </section>
+
+      {document.attachment ? (
+        <AttachmentReferencePanel
+          attachments={[document]}
+          auditId={auditId}
+          description="Open or download the uploaded evidence file."
+          emptyMessage="This evidence item does not have an uploaded file."
+          title="Uploaded file"
+        />
+      ) : null}
 
       <section className="rounded-[24px] border border-black/5 bg-white p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Evidence summary</p>

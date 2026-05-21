@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, Expand, FilePenLine, Minimize2, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Download, Expand, FilePenLine, Minimize2, Plus, Trash2, X } from "lucide-react";
 
+import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import type { DashboardMode } from "@/lib/live-audit";
+import { buildDefaultTestingMatrixAttributes } from "@/lib/testing-matrix-defaults";
 import { cn, formatDateTime } from "@/lib/utils";
 import type {
+  AuditDocument,
   Control,
   ControlTestingMatrix,
   ControlTestingMatrixAttribute,
@@ -21,26 +24,34 @@ type TestingMatrixDetailPanelProps = {
   auditId: string | null;
   contained?: boolean;
   control: Control;
-  matrix: ControlTestingMatrix | null;
+  controlAttachments?: AuditDocument[];
+  matrices: ControlTestingMatrix[];
   mode: DashboardMode;
   onClose: () => void;
-  onMatrixUpdated: (nextMatrix: ControlTestingMatrix) => void;
+  onMatricesUpdated: (nextMatrices: ControlTestingMatrix[]) => void;
   panelClassName?: string;
 };
 
 type SaveResponse = {
   error?: string;
   matrix?: ControlTestingMatrix;
+  matrices?: ControlTestingMatrix[];
+};
+
+type DeleteResponse = {
+  error?: string;
+  matrices?: ControlTestingMatrix[];
 };
 
 export function TestingMatrixDetailPanel({
   auditId,
   contained = false,
   control,
-  matrix,
+  controlAttachments = [],
+  matrices,
   mode,
   onClose,
-  onMatrixUpdated,
+  onMatricesUpdated,
   panelClassName = "top-4 right-4 h-[calc(100dvh-2rem)] max-w-[76rem] overflow-y-auto rounded-[16px] border border-black/10 bg-[#f6f1e8] sm:p-4",
 }: TestingMatrixDetailPanelProps) {
   const router = useRouter();
@@ -48,12 +59,18 @@ export function TestingMatrixDetailPanel({
   const [isPending, setIsPending] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [attributesCollapsed, setAttributesCollapsed] = useState(true);
-  const [draft, setDraft] = useState<ControlTestingMatrix>(() => matrix ?? buildEmptyTestingMatrix(control, auditId));
+  const [drafts, setDrafts] = useState<ControlTestingMatrix[]>(() => buildInitialMatrixDrafts(matrices, control, auditId));
+  const [activeMatrixId, setActiveMatrixId] = useState(() => drafts[0]?.id ?? "");
   const canPersist = mode === "live" && Boolean(auditId);
 
   useEffect(() => {
-    setDraft(matrix ?? buildEmptyTestingMatrix(control, auditId));
-  }, [auditId, control, matrix]);
+    const nextDrafts = buildInitialMatrixDrafts(matrices, control, auditId);
+    setDrafts(nextDrafts);
+    setActiveMatrixId((current) => (nextDrafts.some((candidate) => candidate.id === current) ? current : nextDrafts[0]?.id ?? ""));
+  }, [auditId, control, matrices]);
+
+  const draft = drafts.find((candidate) => candidate.id === activeMatrixId) ?? drafts[0] ?? buildEmptyTestingMatrix(control, auditId);
+  const baselineDrafts = useMemo(() => buildInitialMatrixDrafts(matrices, control, auditId), [auditId, control, matrices]);
 
   const resultLookup = useMemo(() => {
     return draft.results.reduce<Record<string, TestingMatrixAttributeResult>>((lookup, result) => {
@@ -62,12 +79,12 @@ export function TestingMatrixDetailPanel({
     }, {});
   }, [draft.results]);
   const normalizedDraft = useMemo(() => normalizeMatrixDraft(draft, { includeTimestamp: false }), [draft]);
-  const normalizedBaseline = useMemo(
-    () => normalizeMatrixDraft(matrix ?? buildEmptyTestingMatrix(control, auditId), { includeTimestamp: false }),
-    [auditId, control, matrix],
-  );
+  const normalizedBaseline = useMemo(() => {
+    const baseline = baselineDrafts.find((candidate) => candidate.id === draft.id);
+    return baseline ? normalizeMatrixDraft(baseline, { includeTimestamp: false }) : null;
+  }, [baselineDrafts, draft.id]);
   const hasUnsavedChanges = useMemo(
-    () => JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedBaseline),
+    () => !isPersistedId(draft.id) || JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedBaseline),
     [normalizedBaseline, normalizedDraft],
   );
   const isCollapsedView = !isExpanded;
@@ -111,6 +128,66 @@ export function TestingMatrixDetailPanel({
           </div>
         </div>
 
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-b border-black/10 pb-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {drafts.map((matrixDraft, index) => (
+              <button
+                key={matrixDraft.id}
+                type="button"
+                onClick={() => handleSelectMatrix(matrixDraft.id)}
+                disabled={isPending}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em]",
+                  matrixDraft.id === draft.id
+                    ? "border-[rgba(0,46,98,0.22)] bg-[var(--brand-indigo-core)] text-white"
+                    : "border-black/10 bg-white text-[var(--brand-indigo-core)]",
+                )}
+              >
+                {matrixDraft.title.trim() || `Test Plan ${index + 1}`}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleAddMatrix()}
+              disabled={isPending}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+            >
+              <Plus size={14} />
+              Add matrix
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDuplicateMatrix()}
+              disabled={isPending}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+            >
+              <Copy size={14} />
+              Duplicate
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={!canPersist || isPending}
+              title="Export the testing workpaper and all testing matrices for this control as a formatted Excel bundle."
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Download size={14} />
+              Export bundle
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteMatrix}
+              disabled={isPending || drafts.length <= 1}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </div>
+        </div>
+
         <dl className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
           <MetaCell label="Control" value={`${control.referenceId ?? control.id} - ${control.name}`} />
           <MetaCell label="Last Update" value={draft.updatedAt ? formatDateTime(draft.updatedAt) : "Not saved yet"} />
@@ -121,32 +198,40 @@ export function TestingMatrixDetailPanel({
             className="md:col-span-2"
             label="Title"
             value={draft.title}
-            onChange={(value) => setDraft((current) => ({ ...current, title: value }))}
+            onChange={(value) => updateActiveDraft((current) => ({ ...current, title: value }))}
           />
           <EditorNumberField
             label="Population size"
             value={draft.populationSize}
-            onChange={(value) => setDraft((current) => ({ ...current, populationSize: value }))}
+            onChange={(value) => updateActiveDraft((current) => ({ ...current, populationSize: value }))}
           />
           <EditorNumberField
             label="Sample size"
-            value={draft.sampleSize}
-            onChange={(value) => setDraft((current) => ({ ...current, sampleSize: value }))}
+            value={draft.samples.length}
+            onChange={handleSampleSizeChange}
           />
           <EditorAreaField
             className="md:col-span-4"
             label="Population description"
             value={draft.populationDescription}
-            onChange={(value) => setDraft((current) => ({ ...current, populationDescription: value }))}
+            onChange={(value) => updateActiveDraft((current) => ({ ...current, populationDescription: value }))}
           />
           <EditorAreaField
             className="md:col-span-4"
-            label="Sampling approach / rationale"
+            label="Test Plan"
+            minRows={8}
             value={draft.sampleDescription}
-            onChange={(value) => setDraft((current) => ({ ...current, sampleDescription: value }))}
+            onChange={(value) => updateActiveDraft((current) => ({ ...current, sampleDescription: value }))}
           />
         </div>
       </section>
+
+      <AttachmentReferencePanel
+        attachments={controlAttachments}
+        auditId={auditId}
+        description="Open control support while completing sample testing."
+        emptyMessage="No control attachments are linked yet."
+      />
 
       <section className="border border-[rgba(1,30,65,0.14)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(1,30,65,0.05)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -182,7 +267,7 @@ export function TestingMatrixDetailPanel({
                   label="Attribute label"
                   value={attribute.label}
                   onChange={(value) => {
-                    setDraft((current) => ({
+                    updateActiveDraft((current) => ({
                       ...current,
                       attributes: current.attributes.map((item) => (item.id === attribute.id ? { ...item, label: value } : item)),
                     }));
@@ -192,7 +277,7 @@ export function TestingMatrixDetailPanel({
                   label="Guidance"
                   value={attribute.guidance}
                   onChange={(value) => {
-                    setDraft((current) => ({
+                    updateActiveDraft((current) => ({
                       ...current,
                       attributes: current.attributes.map((item) => (item.id === attribute.id ? { ...item, guidance: value } : item)),
                     }));
@@ -470,15 +555,19 @@ export function TestingMatrixDetailPanel({
     </>
   );
 
+  function updateActiveDraft(updater: (current: ControlTestingMatrix) => ControlTestingMatrix) {
+    setDrafts((current) => current.map((matrixDraft) => (matrixDraft.id === draft.id ? updater(matrixDraft) : matrixDraft)));
+  }
+
   function updateSample(sampleId: string, next: Partial<ControlTestingMatrixSample>) {
-    setDraft((current) => ({
+    updateActiveDraft((current) => ({
       ...current,
       samples: current.samples.map((sample) => (sample.id === sampleId ? { ...sample, ...next } : sample)),
     }));
   }
 
   function updateResult(sampleId: string, attributeId: string, value: TestingMatrixAttributeResult) {
-    setDraft((current) => {
+    updateActiveDraft((current) => {
       const existing = current.results.find((result) => result.sampleId === sampleId && result.attributeId === attributeId);
 
       if (existing) {
@@ -507,7 +596,7 @@ export function TestingMatrixDetailPanel({
   }
 
   function handleAddAttribute() {
-    setDraft((current) => {
+    updateActiveDraft((current) => {
       const attributeId = buildClientId("attribute");
       const nextAttribute: ControlTestingMatrixAttribute = {
         id: attributeId,
@@ -536,7 +625,7 @@ export function TestingMatrixDetailPanel({
   }
 
   function handleRemoveAttribute(attributeId: string) {
-    setDraft((current) => ({
+    updateActiveDraft((current) => ({
       ...current,
       attributes: current.attributes
         .filter((attribute) => attribute.id !== attributeId)
@@ -545,44 +634,130 @@ export function TestingMatrixDetailPanel({
     }));
   }
 
+  function handleSampleSizeChange(value: number | undefined) {
+    updateActiveDraft((current) => resizeSamples(current, value ?? 0));
+  }
+
   function handleAddSample() {
-    setDraft((current) => {
-      const sampleId = buildClientId("sample");
-      const nextSample: ControlTestingMatrixSample = {
-        id: sampleId,
-        matrixId: current.id,
-        sampleIdentifier: `S-${String(current.samples.length + 1).padStart(2, "0")}`,
-        sampleDescription: "",
-        sourceReference: "",
-        exceptionNoted: "",
-        displayOrder: current.samples.length + 1,
-      };
+    updateActiveDraft((current) => resizeSamples(current, current.samples.length + 1));
+  }
+
+  function handleRemoveSample(sampleId: string) {
+    updateActiveDraft((current) => {
+      const nextSamples = current.samples
+        .filter((sample) => sample.id !== sampleId)
+        .map((sample, index) => ({ ...sample, displayOrder: index + 1 }));
 
       return {
         ...current,
-        samples: [...current.samples, nextSample],
-        results: [
-          ...current.results,
-          ...current.attributes.map<ControlTestingMatrixResult>((attribute) => ({
-            id: "",
-            matrixId: current.id,
-            sampleId,
-            attributeId: attribute.id,
-            result: "NOT_TESTED",
-          })),
-        ],
+        sampleSize: nextSamples.length,
+        samples: nextSamples,
+        results: current.results.filter((result) => result.sampleId !== sampleId),
       };
     });
   }
 
-  function handleRemoveSample(sampleId: string) {
-    setDraft((current) => ({
-      ...current,
-      samples: current.samples
-        .filter((sample) => sample.id !== sampleId)
-        .map((sample, index) => ({ ...sample, displayOrder: index + 1 })),
-      results: current.results.filter((result) => result.sampleId !== sampleId),
-    }));
+  async function handleAddMatrix() {
+    const saved = await persistDraft({ notify: false, skipIfUnchanged: true });
+
+    if (!saved) {
+      return;
+    }
+
+    const nextDisplayOrder = drafts.length + 1;
+    const nextMatrix = buildEmptyTestingMatrix(control, auditId, {
+      displayOrder: nextDisplayOrder,
+      sampleDescription: getSeedTestPlan(control, drafts),
+      title: `Test Plan ${nextDisplayOrder}`,
+    });
+
+    setDrafts((current) => [...current, nextMatrix]);
+    setActiveMatrixId(nextMatrix.id);
+  }
+
+  async function handleDuplicateMatrix() {
+    const saved = await persistDraft({ notify: false, skipIfUnchanged: true });
+
+    if (!saved) {
+      return;
+    }
+
+    const nextDisplayOrder = drafts.length + 1;
+    const nextMatrix = cloneMatrixDraft(draft, {
+      displayOrder: nextDisplayOrder,
+      title: `${draft.title || "Test Plan"} Copy`,
+    });
+
+    setDrafts((current) => [...current, nextMatrix]);
+    setActiveMatrixId(nextMatrix.id);
+  }
+
+  async function handleSelectMatrix(nextMatrixId: string) {
+    if (nextMatrixId === draft.id || isPending) {
+      return;
+    }
+
+    const saved = await persistDraft({ notify: false, skipIfUnchanged: true });
+
+    if (saved) {
+      setActiveMatrixId(nextMatrixId);
+    }
+  }
+
+  async function handleDeleteMatrix() {
+    if (drafts.length <= 1 || isPending) {
+      return;
+    }
+
+    const nextActiveDraft = drafts.find((candidate) => candidate.id !== draft.id) ?? drafts[0];
+
+    if (!isPersistedId(draft.id) || !canPersist || !auditId) {
+      const nextDrafts = drafts.filter((candidate) => candidate.id !== draft.id).map((candidate, index) => ({ ...candidate, displayOrder: index + 1 }));
+      setDrafts(nextDrafts);
+      onMatricesUpdated(nextDrafts);
+      setActiveMatrixId(nextActiveDraft?.id ?? "");
+      return;
+    }
+
+    setIsPending(true);
+
+    try {
+      const response = await fetch(
+        `/api/controls/${control.id}/testing-matrix?auditId=${encodeURIComponent(auditId)}&matrixId=${encodeURIComponent(draft.id)}`,
+        { method: "DELETE" },
+      );
+      const result = (await response.json()) as DeleteResponse;
+
+      if (!response.ok || !result.matrices) {
+        throw new Error(result.error ?? "Unable to delete the testing matrix.");
+      }
+
+      setDrafts(result.matrices);
+      onMatricesUpdated(result.matrices);
+      setActiveMatrixId(result.matrices[0]?.id ?? "");
+      router.refresh();
+      showNotification({
+        title: "Matrix deleted",
+        message: "The testing matrix was removed from this control.",
+        tone: "success",
+      });
+    } catch (error) {
+      showNotification({
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Unable to delete the testing matrix.",
+        tone: "error",
+      });
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  function handleExport() {
+    if (!auditId) {
+      return;
+    }
+
+    window.location.href = `/api/controls/${control.id}/testing-matrix/export?auditId=${encodeURIComponent(auditId)}`;
   }
 
   function handleSave() {
@@ -615,8 +790,9 @@ export function TestingMatrixDetailPanel({
     }
 
     if (!canPersist || !auditId) {
-      onMatrixUpdated(nextDraft);
-      setDraft(nextDraft);
+      const nextDrafts = drafts.map((matrixDraft) => (matrixDraft.id === draft.id ? nextDraft : matrixDraft));
+      onMatricesUpdated(nextDrafts);
+      setDrafts(nextDrafts);
 
       if (notify) {
         showNotification({
@@ -640,6 +816,8 @@ export function TestingMatrixDetailPanel({
         body: JSON.stringify({
           auditId,
           matrix: {
+            id: isPersistedId(nextDraft.id) ? nextDraft.id : undefined,
+            displayOrder: nextDraft.displayOrder,
             title: nextDraft.title,
             populationDescription: nextDraft.populationDescription,
             populationSize: nextDraft.populationSize ?? null,
@@ -647,6 +825,7 @@ export function TestingMatrixDetailPanel({
             sampleSize: nextDraft.sampleSize ?? null,
             conclusion: "",
             attributes: nextDraft.attributes.map((attribute) => ({
+              clientId: attribute.id,
               id: isPersistedId(attribute.id) ? attribute.id : undefined,
               attributeKey: attribute.attributeKey,
               label: attribute.label,
@@ -654,6 +833,7 @@ export function TestingMatrixDetailPanel({
               displayOrder: attribute.displayOrder,
             })),
             samples: nextDraft.samples.map((sample) => ({
+              clientId: sample.id,
               id: isPersistedId(sample.id) ? sample.id : undefined,
               sampleIdentifier: sample.sampleIdentifier,
               sampleDescription: sample.sampleDescription,
@@ -676,8 +856,10 @@ export function TestingMatrixDetailPanel({
         throw new Error(result.error ?? "Unable to save the testing matrix.");
       }
 
-      setDraft(result.matrix);
-      onMatrixUpdated(result.matrix);
+      const nextMatrices = result.matrices ?? drafts.map((matrixDraft) => (matrixDraft.id === draft.id ? result.matrix as ControlTestingMatrix : matrixDraft));
+      setDrafts(nextMatrices);
+      setActiveMatrixId(result.matrix.id);
+      onMatricesUpdated(nextMatrices);
 
       if (notify) {
         showNotification({
@@ -687,7 +869,6 @@ export function TestingMatrixDetailPanel({
         });
       }
 
-      router.refresh();
       return true;
     } catch (error) {
       showNotification({
@@ -753,22 +934,38 @@ function EditorNumberField({
 function EditorAreaField({
   className,
   label,
+  minRows = 3,
   onChange,
   value,
 }: {
   className?: string;
   label: string;
+  minRows?: number;
   onChange: (value: string) => void;
   value: string;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [value]);
+
   return (
     <label className={cn("grid gap-1", className)}>
       <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</span>
       <textarea
+        ref={textareaRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        rows={3}
-        className="resize-none border border-black/10 bg-[#fffdfa] px-3 py-2 text-[13px] leading-5 outline-none"
+        rows={minRows}
+        className="resize-none overflow-hidden border border-black/10 bg-[#fffdfa] px-3 py-2 text-[13px] leading-5 outline-none"
       />
     </label>
   );
@@ -783,46 +980,39 @@ function MetaCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-function buildEmptyTestingMatrix(control: Control, auditId: string | null): ControlTestingMatrix {
+function buildInitialMatrixDrafts(matrices: ControlTestingMatrix[], control: Control, auditId: string | null) {
+  return matrices.length > 0
+    ? matrices.slice().sort((left, right) => left.displayOrder - right.displayOrder || left.createdAt.localeCompare(right.createdAt))
+    : [buildEmptyTestingMatrix(control, auditId)];
+}
+
+function buildEmptyTestingMatrix(
+  control: Control,
+  auditId: string | null,
+  options: {
+    displayOrder?: number;
+    sampleDescription?: string;
+    title?: string;
+  } = {},
+): ControlTestingMatrix {
   const matrixId = buildClientId("matrix");
-  const attributes: ControlTestingMatrixAttribute[] = [
-    {
-      id: buildClientId("attribute"),
-      matrixId,
-      attributeKey: "attribute_1",
-      label: "Was the control executed?",
-      guidance: "Confirm the control operated for the sampled item.",
-      displayOrder: 1,
-    },
-    {
-      id: buildClientId("attribute"),
-      matrixId,
-      attributeKey: "attribute_2",
-      label: "Was the control performed timely?",
-      guidance: "Validate the control was completed within required timing.",
-      displayOrder: 2,
-    },
-  ];
+  const attributes: ControlTestingMatrixAttribute[] = buildDefaultTestingMatrixAttributes(matrixId).map((attribute) => ({
+    ...attribute,
+    id: buildClientId("attribute"),
+  }));
   const samples: ControlTestingMatrixSample[] = [
-    {
-      id: buildClientId("sample"),
-      matrixId,
-      sampleIdentifier: "S-01",
-      sampleDescription: "",
-      sourceReference: "",
-      exceptionNoted: "",
-      displayOrder: 1,
-    },
+    buildSample(matrixId, 0),
   ];
 
   return {
     id: matrixId,
     auditId: auditId ?? "",
     controlId: control.id,
-    title: `${control.name} Testing Matrix`,
+    displayOrder: options.displayOrder ?? 1,
+    title: options.title ?? `${control.name} Testing Matrix`,
     populationDescription: `Population includes all items subject to ${control.name} during the audit period.`,
     populationSize: undefined,
-    sampleDescription: "",
+    sampleDescription: options.sampleDescription ?? control.importedTestPlan ?? "",
     sampleSize: samples.length,
     conclusion: "",
     attributes,
@@ -836,6 +1026,129 @@ function buildEmptyTestingMatrix(control: Control, auditId: string | null): Cont
         result: "NOT_TESTED",
       })),
     ),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function resizeSamples(draft: ControlTestingMatrix, nextSize: number): ControlTestingMatrix {
+  const targetSize = Math.max(0, Math.floor(nextSize));
+
+  if (targetSize === draft.samples.length) {
+    return {
+      ...draft,
+      sampleSize: draft.samples.length,
+      samples: draft.samples.map((sample, index) => ({ ...sample, displayOrder: index + 1 })),
+    };
+  }
+
+  if (targetSize < draft.samples.length) {
+    const samples = draft.samples.slice(0, targetSize).map((sample, index) => ({ ...sample, displayOrder: index + 1 }));
+    const retainedSampleIds = new Set(samples.map((sample) => sample.id));
+
+    return {
+      ...draft,
+      sampleSize: samples.length,
+      samples,
+      results: draft.results.filter((result) => retainedSampleIds.has(result.sampleId)),
+    };
+  }
+
+  const samplesToAdd = Array.from({ length: targetSize - draft.samples.length }, (_, index) =>
+    buildSample(draft.id, draft.samples.length + index),
+  );
+  const resultsToAdd = samplesToAdd.flatMap((sample) =>
+    draft.attributes.map<ControlTestingMatrixResult>((attribute) => ({
+      id: "",
+      matrixId: draft.id,
+      sampleId: sample.id,
+      attributeId: attribute.id,
+      result: "NOT_TESTED",
+    })),
+  );
+
+  return {
+    ...draft,
+    sampleSize: targetSize,
+    samples: [...draft.samples, ...samplesToAdd].map((sample, index) => ({ ...sample, displayOrder: index + 1 })),
+    results: [...draft.results, ...resultsToAdd],
+  };
+}
+
+function buildSample(matrixId: string, index: number): ControlTestingMatrixSample {
+  return {
+    id: buildClientId("sample"),
+    matrixId,
+    sampleIdentifier: `S-${String(index + 1).padStart(2, "0")}`,
+    sampleDescription: "",
+    sourceReference: "",
+    exceptionNoted: "",
+    displayOrder: index + 1,
+  };
+}
+
+function getSeedTestPlan(control: Control, matrices: ControlTestingMatrix[]) {
+  return control.importedTestPlan ?? matrices.find((matrix) => matrix.sampleDescription.trim().length > 0)?.sampleDescription ?? "";
+}
+
+function cloneMatrixDraft(
+  draft: ControlTestingMatrix,
+  options: {
+    displayOrder: number;
+    title: string;
+  },
+): ControlTestingMatrix {
+  const matrixId = buildClientId("matrix");
+  const attributeIdMap = new Map<string, string>();
+  const sampleIdMap = new Map<string, string>();
+  const attributes = draft.attributes.map((attribute) => {
+    const attributeId = buildClientId("attribute");
+    attributeIdMap.set(attribute.id, attributeId);
+
+    return {
+      ...attribute,
+      id: attributeId,
+      matrixId,
+    };
+  });
+  const samples = draft.samples.map((sample) => {
+    const sampleId = buildClientId("sample");
+    sampleIdMap.set(sample.id, sampleId);
+
+    return {
+      ...sample,
+      id: sampleId,
+      matrixId,
+      exceptionNoted: "",
+    };
+  });
+
+  return {
+    ...draft,
+    id: matrixId,
+    displayOrder: options.displayOrder,
+    title: options.title,
+    attributes,
+    sampleSize: samples.length,
+    samples,
+    results: draft.results.flatMap((result) => {
+      const sampleId = sampleIdMap.get(result.sampleId);
+      const attributeId = attributeIdMap.get(result.attributeId);
+
+      if (!sampleId || !attributeId) {
+        return [];
+      }
+
+      return [
+        {
+          id: "",
+          matrixId,
+          sampleId,
+          attributeId,
+          result: "NOT_TESTED" as const,
+        },
+      ];
+    }),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -858,10 +1171,12 @@ function normalizeMatrixDraft(
   return {
     ...draft,
     conclusion: "",
+    displayOrder: draft.displayOrder,
     updatedAt: options.includeTimestamp ? new Date().toISOString() : draft.updatedAt,
     title: draft.title.trim(),
     populationDescription: draft.populationDescription.trim(),
     sampleDescription: draft.sampleDescription.trim(),
+    sampleSize: draft.samples.length,
     attributes: draft.attributes.map((attribute, index) => ({
       ...attribute,
       label: attribute.label.trim(),
