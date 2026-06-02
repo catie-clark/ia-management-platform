@@ -24,6 +24,36 @@ export type ReportArtifactKey = "FINAL_REPORT" | "REPORTING_TOLLGATE";
 export type ReportReviewStageStatus = "PENDING" | "ACTIVE" | "APPROVED" | "SENT_BACK";
 export type ReportReviewCommentStatus = "OPEN" | "RESOLVED";
 
+export type ReviewNoteStatus = "OPEN" | "CLEARED" | "CLOSED";
+export type ReviewNoteAction = "RAISED" | "COMMENT" | "CLEARED" | "REOPENED" | "CLOSED";
+
+export interface ReviewNoteEvent {
+  id: string;
+  action: ReviewNoteAction;
+  actorName: string;
+  actorUserId?: string;
+  comment: string;
+  createdAt: string;
+}
+
+export interface ReviewNote {
+  id: string;
+  auditId: string;
+  documentId: string;
+  status: ReviewNoteStatus;
+  note: string;
+  createdByName: string;
+  createdByUserId?: string;
+  assignedToName: string;
+  assignedToUserId?: string;
+  reopenCount: number;
+  createdAt: string;
+  clearedAt?: string;
+  closedAt?: string;
+  lastActivityAt: string;
+  events: ReviewNoteEvent[];
+}
+
 export type ReviewStatus = "upcoming" | "active" | "complete" | "at_risk";
 export type AuditPhase = "Planning" | "Fieldwork" | "Reporting";
 export type ControlScopeStatus = "UNASSIGNED" | "IN_SCOPE" | "OUT_OF_SCOPE";
@@ -118,6 +148,10 @@ export interface ControlTestingMatrixSample {
   sourceReference: string;
   exceptionNoted: string;
   displayOrder: number;
+  testedByUserId?: string;
+  startedAt?: string;
+  completedAt?: string;
+  timeSpentMinutes?: number;
 }
 
 export interface ControlTestingMatrixResult {
@@ -138,6 +172,7 @@ export interface ControlTestingMatrix {
   populationSize?: number;
   sampleDescription: string;
   sampleSize?: number;
+  budgetedHours?: number;
   conclusion: string;
   attributes: ControlTestingMatrixAttribute[];
   samples: ControlTestingMatrixSample[];

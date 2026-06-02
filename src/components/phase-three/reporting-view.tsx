@@ -20,6 +20,7 @@ import {
   linkedSignalsForDocument,
 } from "@/lib/document-support";
 import { sanitizeDraftMarkdown, type NarrativePreviewSection } from "@/lib/planning-narrative/format";
+import { downloadDraftAsPptx } from "@/lib/pptx-export";
 import {
   buildReportingResults,
   canRoleActOnStage,
@@ -660,6 +661,22 @@ function ArtifactCard({
                     className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Export Word
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void downloadDraftAsPptx({
+                        auditLabel,
+                        label: draft.title,
+                        markdown: sanitizeDraftMarkdown(markdown),
+                        previewSections: draft.previewSections,
+                        previewSummary: draft.previewSummary,
+                      })
+                    }
+                    disabled={markdown.trim().length === 0}
+                    className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Export PPTX
                   </button>
                   {viewMode === "edit" ? (
                     <button

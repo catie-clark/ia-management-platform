@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { ControlTestingView } from "@/components/phase-two/control-testing-view";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-card";
+import { TestExecutionAnalyticsPanel } from "@/components/fieldwork/test-execution-analytics-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/control-visibility";
 import { cn } from "@/lib/utils";
 import { sanitizeDraftMarkdown, type NarrativePreviewSection } from "@/lib/planning-narrative/format";
+import { downloadDraftAsPptx } from "@/lib/pptx-export";
 import type { FieldworkViewModel } from "@/lib/fieldwork-data";
 import { formatDateTime, formatShortDate } from "@/lib/utils";
 import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, User } from "@/types/audit";
@@ -31,7 +33,7 @@ const allAuditUser = {
   name: "All Audit Controls",
   role: "DIRECTOR" as const,
 };
-type FieldworkSubtab = "control-testing" | "view-risks" | "document-review" | "tollgate-draft";
+type FieldworkSubtab = "control-testing" | "test-analytics" | "view-risks" | "document-review" | "tollgate-draft";
 
 type FieldworkArtifactDraftResponse = {
   draft: {
@@ -85,6 +87,7 @@ export function FieldworkView({
     () => filterControlsForUser(viewModel.controls, allAuditUser, "ALL", "IN_SCOPE"),
     [viewModel.controls],
   );
+  const visibleControlIds = useMemo(() => new Set(visibleControls.map((control) => control.id)), [visibleControls]);
   const visibleQuestions = useMemo(
     () => filterQuestionsForControls(viewModel.questions, visibleControls, allAuditUser, "ALL"),
     [viewModel.questions, visibleControls],
@@ -100,13 +103,19 @@ export function FieldworkView({
   const fieldworkDocuments = useMemo(
     () =>
       visibleDocuments
-        .filter((document) => document.type === "WORKPAPER" || document.type === "EVIDENCE")
+        .filter((document) => {
+          if (document.type !== "WORKPAPER" && document.type !== "EVIDENCE") {
+            return false;
+          }
+
+          return document.linkedControlId ? visibleControlIds.has(document.linkedControlId) : true;
+        })
         .sort((left, right) => {
           const leftTime = left.dueDate ? new Date(left.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
           const rightTime = right.dueDate ? new Date(right.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
           return leftTime - rightTime || left.title.localeCompare(right.title);
         }),
-    [visibleDocuments],
+    [visibleControlIds, visibleDocuments],
   );
   const workpapers = useMemo(() => fieldworkDocuments.filter((document) => document.type === "WORKPAPER"), [fieldworkDocuments]);
   const selectedDocument = fieldworkDocuments.find((document) => document.id === selectedId) ?? null;
@@ -183,12 +192,23 @@ export function FieldworkView({
           currentPhase={viewModel.currentPhase}
           documents={documentRows}
           embedded
+          fieldworkBudgetHours={viewModel.fieldworkBudgetHours}
           mode={viewModel.mode}
           questions={viewModel.questions}
           requests={viewModel.requests}
           testingMatrices={viewModel.testingMatrices}
           users={viewModel.users}
         />
+      ) : null}
+
+      {activeSubtab === "test-analytics" ? (
+        <div className="h-[760px] min-h-0 overflow-y-auto pr-1">
+          <TestExecutionAnalyticsPanel
+            controls={viewModel.controls}
+            testingMatrices={viewModel.testingMatrices}
+            users={viewModel.users}
+          />
+        </div>
       ) : null}
 
       {activeSubtab === "view-risks" ? (
@@ -427,13 +447,14 @@ export function FieldworkView({
 
 const fieldworkSubtabs: Array<{ id: FieldworkSubtab; label: string }> = [
   { id: "control-testing", label: "Control Testing" },
+  { id: "test-analytics", label: "Test Analytics" },
   { id: "view-risks", label: "View Risks" },
   { id: "document-review", label: "Document Review" },
   { id: "tollgate-draft", label: "Tollgate Draft" },
 ];
 
 function getFieldworkSubtab(value: string | null): FieldworkSubtab {
-  if (value === "view-risks" || value === "document-review" || value === "tollgate-draft") {
+  if (value === "test-analytics" || value === "view-risks" || value === "document-review" || value === "tollgate-draft") {
     return value;
   }
 
@@ -581,6 +602,18 @@ function FieldworkTollgateCard({
         tone: "error",
       });
     }
+  }
+
+  function exportPptx() {
+    void downloadDraftAsPptx({
+      auditLabel,
+      label: "Fieldwork tollgate",
+      markdown: sanitizeDraftMarkdown(markdown),
+      previewSections,
+      previewSummary,
+    })
+      .then(() => showNotification({ title: "Exported", message: "Fieldwork tollgate exported as a PowerPoint deck.", tone: "success" }))
+      .catch(() => showNotification({ title: "Export failed", message: "There was an error exporting the deck.", tone: "error" }));
   }
 
   function generateDraft() {
@@ -837,6 +870,14 @@ function FieldworkTollgateCard({
                     className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Export Word
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canExport}
+                    onClick={exportPptx}
+                    className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Export PPTX
                   </button>
                   {viewMode === "edit" ? (
                     <button

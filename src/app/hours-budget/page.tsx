@@ -195,6 +195,66 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
           </div>
         </section>
       </div>
+
+      {viewModel.controlTestBudgets.hasData ? (
+        <div className="mt-6">
+          <section className="border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+            <div className="flex flex-col gap-3 border-b border-black/5 px-5 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Control test budgets</p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Budget-to-actual by individual control test</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
+                  Per-test budgeted hours compared against effort logged on each testing matrix sample.
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-[var(--foreground)] lg:text-right">
+                {formatHours(viewModel.controlTestBudgets.totalActualHours)} logged /{" "}
+                {formatHours(viewModel.controlTestBudgets.totalBudgetedHours)} budgeted
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse">
+                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    <th className="border-b border-black/5 px-5 py-3 sm:px-6">Control test</th>
+                    <th className="border-b border-black/5 px-5 py-3">Progress</th>
+                    <th className="border-b border-black/5 px-5 py-3">Budget</th>
+                    <th className="border-b border-black/5 px-5 py-3">Actual</th>
+                    <th className="border-b border-black/5 px-5 py-3">Variance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewModel.controlTestBudgets.rows.map((row, index) => (
+                    <tr key={row.matrixId} className={index % 2 === 0 ? "bg-white" : "bg-[var(--surface-soft)]"}>
+                      <td className="border-b border-black/5 px-5 py-4 sm:px-6">
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{row.controlReferenceId}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{row.title}</p>
+                      </td>
+                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{row.completed}/{row.samples} samples</td>
+                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{row.budgetedHours !== null ? formatHours(row.budgetedHours) : "—"}</td>
+                      <td className="border-b border-black/5 px-5 py-4 text-sm font-medium text-[var(--foreground)]">{formatHours(row.actualHours)}</td>
+                      <td className="border-b border-black/5 px-5 py-4">
+                        <StatusBadge
+                          status={row.varianceHours === null ? "No budget" : formatSignedHours(row.varianceHours)}
+                          tone={row.varianceHours === null ? "neutral" : row.varianceHours > 0.05 ? "risk" : "success"}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[var(--surface-tint)]">
+                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)] sm:px-6">All control tests</td>
+                    <td className="px-5 py-4 text-sm text-[var(--muted)]">{viewModel.controlTestBudgets.rows.length} tests</td>
+                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatHours(viewModel.controlTestBudgets.totalBudgetedHours)}</td>
+                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatHours(viewModel.controlTestBudgets.totalActualHours)}</td>
+                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatSignedHours(viewModel.controlTestBudgets.varianceHours)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -28,6 +28,7 @@ const testingMatrixSampleSchema = z.object({
   sourceReference: z.string(),
   exceptionNoted: z.string(),
   displayOrder: z.number().int().nonnegative(),
+  timeSpentMinutes: z.number().int().nonnegative().nullable().optional(),
 });
 
 const testingMatrixRowResultSchema = z.object({
@@ -39,6 +40,7 @@ const testingMatrixRowResultSchema = z.object({
 
 const testingMatrixSaveSchema = z.object({
   auditId: z.string().uuid(),
+  testedByUserId: z.string().uuid().optional(),
   matrix: z.object({
     id: z.string().uuid().optional(),
     displayOrder: z.number().int().positive().optional(),
@@ -47,6 +49,7 @@ const testingMatrixSaveSchema = z.object({
     populationSize: z.number().int().nonnegative().nullable().optional(),
     sampleDescription: z.string(),
     sampleSize: z.number().int().nonnegative().nullable().optional(),
+    budgetedHours: z.number().nonnegative().nullable().optional(),
     conclusion: z.string(),
     attributes: z.array(testingMatrixAttributeSchema),
     samples: z.array(testingMatrixSampleSchema),
@@ -90,6 +93,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
     const matrix = await saveControlTestingMatrix({
       auditId: body.auditId,
       controlId,
+      testedByUserId: body.testedByUserId,
       matrix: {
         title: body.matrix.title,
         id: body.matrix.id,
@@ -98,6 +102,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ contr
         populationSize: body.matrix.populationSize ?? undefined,
         sampleDescription: body.matrix.sampleDescription,
         sampleSize: body.matrix.sampleSize ?? undefined,
+        budgetedHours: body.matrix.budgetedHours ?? null,
         conclusion: body.matrix.conclusion,
         attributes: body.matrix.attributes,
         samples: body.matrix.samples,

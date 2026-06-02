@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Download, Expand, FilePenLine, Minimize2, Send, X } from "lucide-react";
+import { Download, Expand, FilePenLine, Minimize2, Send, Sparkles, X } from "lucide-react";
 
 import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
 import { useActiveUser } from "@/components/layout/active-user-context";
+import { WorkpaperReviewNotes } from "@/components/workpapers/workpaper-review-notes";
 import { DetailPanel } from "@/components/ui/detail-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -18,7 +19,7 @@ import {
 import type { DashboardMode } from "@/lib/live-audit";
 import { buildWorkpaperPreview, getEmptyWorkpaperContent } from "@/lib/workpaper-content";
 import { formatDateTime } from "@/lib/utils";
-import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, User, WorkpaperContent } from "@/types/audit";
+import type { AuditDocument, Control, DocumentReviewStatus, Question, Request, ReviewNote, User, WorkpaperContent } from "@/types/audit";
 
 const editableSections: Array<{
   description: string;
@@ -106,9 +107,6 @@ type SaveDraftResponse = {
 
 type ReviewActionResponse = {
   document?: {
-    reviewComment?: string | null;
-    reviewCommentAuthor?: string | null;
-    reviewCommentDate?: string | null;
     reviewStatus?: string;
     status?: string;
     updatedAt?: string;
@@ -138,7 +136,9 @@ export function WorkpaperDetailPanel({
   const { showNotification } = useNotification();
   const [isPending, startUiTransition] = useTransition();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [reviewComment, setReviewComment] = useState("");
+  const [reviewNotes, setReviewNotes] = useState<ReviewNote[]>([]);
+  const openNoteCount = reviewNotes.filter((note) => note.status === "OPEN").length;
+  const unresolvedNoteCount = reviewNotes.filter((note) => note.status !== "CLOSED").length;
   const [resolvedWorkspaceSettings, setResolvedWorkspaceSettings] = useState<AuditWorkspaceSettings>(
     workspaceSettings ?? defaultAuditWorkspaceSettings,
   );
@@ -202,7 +202,6 @@ export function WorkpaperDetailPanel({
   useEffect(() => {
     if (!document) {
       setWorkpaperDraft(getEmptyWorkpaperContent());
-      setReviewComment("");
       return;
     }
 
@@ -210,7 +209,6 @@ export function WorkpaperDetailPanel({
       ...getEmptyWorkpaperContent(),
       ...document.workpaperContent,
     });
-    setReviewComment("");
   }, [document]);
 
   if (!document || document.type !== "WORKPAPER") {
@@ -265,6 +263,16 @@ export function WorkpaperDetailPanel({
               >
                 <Download size={15} />
                 Export bundle
+              </button>
+              <button
+                type="button"
+                onClick={handleDraftNarrative}
+                disabled={!canSaveDraft || !canPersist || !document.linkedControlId || isPending}
+                title="Draft the test result narrative and conclusion from the recorded testing-matrix results."
+                className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Sparkles size={15} />
+                Draft results
               </button>
               <button
                 type="button"
@@ -391,16 +399,8 @@ export function WorkpaperDetailPanel({
           </div>
 
           {canActAsReviewer ? (
-            <div className="mt-3 border border-black/5 bg-[var(--surface-tint)] p-3">
-              <p className="text-sm font-semibold text-[var(--foreground)]">Review actions for {activeUser.name}</p>
-              <textarea
-                value={reviewComment}
-                onChange={(event) => setReviewComment(event.target.value)}
-                rows={4}
-                placeholder="Optional approval note or required send-back comment."
-                className="mt-3 w-full resize-none border border-black/10 bg-white px-3 py-2 text-sm leading-5 text-[var(--foreground)] outline-none"
-              />
-              <div className="mt-4 flex flex-wrap gap-3">
+            <div className="mt-3 grid gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => handleReviewAction("approve")}
@@ -412,26 +412,31 @@ export function WorkpaperDetailPanel({
                 <button
                   type="button"
                   onClick={() => handleReviewAction("send_back")}
-                  disabled={isPending || reviewComment.trim().length === 0}
+                  disabled={isPending || openNoteCount === 0}
                   className="rounded-sm border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Send back
+                  Send back to tester
                 </button>
               </div>
-            </div>
-          ) : null}
-
-          {document.reviewComment ? (
-            <div className="mt-3 border border-black/5 bg-[var(--surface-tint)] p-3">
-              <p className="text-sm font-semibold text-[var(--foreground)]">Latest review note</p>
-              <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">{document.reviewComment}</p>
-              <p className="mt-2 text-xs text-[var(--muted)]">
-                {document.reviewCommentAuthor ?? "Reviewer"}
-                {document.reviewCommentDate ? ` - ${formatDateTime(document.reviewCommentDate)}` : ""}
+              <p className="text-[11px] text-[var(--muted)]">
+                {openNoteCount === 0
+                  ? "Add at least one review note below to send this workpaper back."
+                  : `${openNoteCount} open note${openNoteCount === 1 ? "" : "s"} will be sent to the preparer to address.`}
               </p>
             </div>
           ) : null}
         </section>
+
+        <WorkpaperReviewNotes
+          auditId={auditId}
+          documentId={document.id}
+          mode={mode === "live" ? "live" : "prototype"}
+          canReview={canActAsReviewer}
+          canAuthor={canAuthor}
+          preparerName={getOwnerName(effectiveAuthorUserId, users)}
+          preparerUserId={effectiveAuthorUserId}
+          onNotesChanged={setReviewNotes}
+        />
 
         <section className="border border-[rgba(1,30,65,0.14)] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(1,30,65,0.05)]">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Document context</p>
@@ -538,6 +543,52 @@ export function WorkpaperDetailPanel({
     window.location.href = `/api/controls/${document.linkedControlId}/testing-matrix/export?auditId=${encodeURIComponent(auditId)}`;
   }
 
+  function handleDraftNarrative() {
+    if (!document || !canSaveDraft || !canPersist || !auditId || !document.linkedControlId) {
+      return;
+    }
+
+    const linkedControl = controls.find((control) => control.id === document.linkedControlId);
+    const documentId = document.id;
+    const linkedControlId = document.linkedControlId;
+
+    startUiTransition(async () => {
+      try {
+        const response = await fetch(`/api/audits/${auditId}/workpapers/${documentId}/draft-narrative`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            controlId: linkedControlId,
+            controlLabel: linkedControl?.referenceId ?? linkedControl?.id ?? "Control",
+            controlName: linkedControl?.name ?? "the control",
+            controlDescription: linkedControl?.description,
+          }),
+        });
+        const result = (await response.json()) as { narrative?: string; source?: string; error?: string };
+
+        if (!response.ok || !result.narrative) {
+          throw new Error(result.error ?? "Unable to draft the test result narrative.");
+        }
+
+        setWorkpaperDraft((current) => ({ ...current, controlEffectivenessConclusion: result.narrative as string }));
+        showNotification({
+          title: result.source === "ai" ? "Narrative drafted" : "Narrative drafted (template)",
+          message:
+            result.source === "ai"
+              ? "Claude drafted the test result narrative into the conclusion field. Review and edit before saving."
+              : "Drafted a template narrative. Set ANTHROPIC_API_KEY to enable AI drafting. Review and edit before saving.",
+          tone: "success",
+        });
+      } catch (error) {
+        showNotification({
+          title: "Draft failed",
+          message: error instanceof Error ? error.message : "Unable to draft the test result narrative.",
+          tone: "error",
+        });
+      }
+    });
+  }
+
   function handleSaveDraft() {
     if (!document || !canSaveDraft) {
       return;
@@ -610,6 +661,14 @@ export function WorkpaperDetailPanel({
       return;
     }
 
+    if (action === "approve" && unresolvedNoteCount > 0) {
+      showNotification({
+        title: "Advancing with open notes",
+        message: `${unresolvedNoteCount} review note${unresolvedNoteCount === 1 ? "" : "s"} are not yet closed on this workpaper.`,
+        tone: "error",
+      });
+    }
+
     const nextReviewStatus = getPrototypeNextReviewStatus(reviewStatus, action);
     const preview = buildWorkpaperPreview(workpaperDraft);
 
@@ -618,15 +677,11 @@ export function WorkpaperDetailPanel({
         ...document,
         previewSections: preview.previewSections,
         previewSummary: preview.previewSummary,
-        reviewComment: action === "send_back" ? reviewComment.trim() : undefined,
-        reviewCommentAuthor: action === "send_back" ? activeUser.name : undefined,
-        reviewCommentDate: action === "send_back" ? new Date().toISOString() : undefined,
         reviewStatus: nextReviewStatus,
         status: nextReviewStatus === "APPROVED" ? "COMPLETE" : "IN_PROGRESS",
         updatedAt: new Date().toISOString(),
         workpaperContent: workpaperDraft,
       });
-      setReviewComment("");
       showNotification({
         title: "Workflow updated",
         message: getReviewSuccessMessage(action, resolvedWorkspaceSettings),
@@ -646,7 +701,6 @@ export function WorkpaperDetailPanel({
             action,
             actingRole: activeUser.role,
             actingUserName: activeUser.name,
-            comment: reviewComment,
             content: workpaperDraft,
           }),
         });
@@ -660,15 +714,11 @@ export function WorkpaperDetailPanel({
           ...document,
           previewSections: preview.previewSections,
           previewSummary: preview.previewSummary,
-          reviewComment: result.document?.reviewComment ?? (action === "send_back" ? reviewComment.trim() : undefined) ?? undefined,
-          reviewCommentAuthor: result.document?.reviewCommentAuthor ?? (action === "send_back" ? activeUser.name : undefined) ?? undefined,
-          reviewCommentDate: result.document?.reviewCommentDate ?? (action === "send_back" ? new Date().toISOString() : undefined) ?? undefined,
           reviewStatus: normalizeReviewStatus(result.document?.reviewStatus) ?? nextReviewStatus,
           status: normalizeDocumentStatus(result.document?.status) ?? (nextReviewStatus === "APPROVED" ? "COMPLETE" : "IN_PROGRESS"),
           updatedAt: result.document?.updatedAt ?? new Date().toISOString(),
           workpaperContent: workpaperDraft,
         });
-        setReviewComment("");
         showNotification({
           title: "Workflow updated",
           message: getReviewSuccessMessage(action, resolvedWorkspaceSettings),
@@ -907,7 +957,7 @@ function getReviewSuccessMessage(
   }
 
   if (action === "send_back") {
-    return "The testing workpaper was sent back with reviewer comment.";
+    return "The testing workpaper was sent back to the tester with review notes.";
   }
 
   return "The testing workpaper advanced to the next review step.";

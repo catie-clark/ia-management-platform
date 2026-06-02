@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { createNotificationForUserId, createNotificationsForRole } from "@/lib/audit-notifications";
 import { applyWorkpaperReviewAction } from "@/lib/fieldwork-workpaper-persistence";
+import { countOpenNotesForDocument } from "@/lib/review-notes-persistence";
 import { getEmptyWorkpaperContent } from "@/lib/workpaper-content";
 
 const workpaperContentSchema = z.object({
@@ -27,34 +28,35 @@ const workpaperContentSchema = z.object({
   controlEffectivenessConclusion: z.string(),
 });
 
-const reviewActionSchema = z
-  .object({
-    action: z.enum(["approve", "send_back", "send_to_review"]),
-    actingRole: z.enum(["AIC", "STAFF", "MANAGER", "DIRECTOR", "CAE"]),
-    actingUserName: z.string().min(1),
-    comment: z.string().optional(),
-    content: workpaperContentSchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.action === "send_back" && (!value.comment || value.comment.trim().length === 0)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "A send-back comment is required.",
-        path: ["comment"],
-      });
-    }
-  });
+// Send-back rationale now lives in review notes (one or more threads), so the
+// workpaper review action no longer carries a single comment.
+const reviewActionSchema = z.object({
+  action: z.enum(["approve", "send_back", "send_to_review"]),
+  actingRole: z.enum(["AIC", "STAFF", "MANAGER", "DIRECTOR", "CAE"]),
+  actingUserName: z.string().min(1),
+  content: workpaperContentSchema.optional(),
+});
 
 export async function PATCH(request: Request, context: { params: Promise<{ auditId: string; documentId: string }> }) {
   try {
     const { auditId, documentId } = await context.params;
     const body = reviewActionSchema.parse(await request.json());
+
+    if (body.action === "send_back") {
+      const openNotes = await countOpenNotesForDocument(auditId, documentId);
+      if (openNotes === 0) {
+        return NextResponse.json(
+          { error: "Add at least one review note before sending the workpaper back." },
+          { status: 400 },
+        );
+      }
+    }
+
     const result = await applyWorkpaperReviewAction({
       action: body.action,
       actingRole: body.actingRole,
       actingUserName: body.actingUserName,
       auditId,
-      comment: body.comment,
       content: body.content
         ? {
             ...getEmptyWorkpaperContent(),
@@ -85,7 +87,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ audit
         if (result.data?.owner_user_id) {
           await createNotificationForUserId({
             auditId,
-            detail: body.comment?.trim() || `${result.data?.title ?? "Workpaper"} was sent back for updates.`,
+            detail: `${result.data?.title ?? "Workpaper"} was sent back with review notes to address.`,
             entityId: documentId,
             entityType: "workpaper",
             eventType: "WORKPAPER_SENT_BACK",
@@ -146,9 +148,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ audit
     return NextResponse.json({
       document: {
         documentId,
-        reviewComment: result.payload.review_comment ?? null,
-        reviewCommentAuthor: result.payload.review_comment_author ?? null,
-        reviewCommentDate: result.payload.review_comment_date ?? null,
         reviewStatus: result.payload.review_status ?? "NOT_SUBMITTED",
         status: result.data?.status ?? "in_progress",
         updatedAt: result.data?.updated_at ?? new Date().toISOString(),

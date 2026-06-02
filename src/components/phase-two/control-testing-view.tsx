@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition, type Dispatch, type FormEvent, type SetStateAction, type TransitionStartFunction } from "react";
-import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Plus, Search, Upload } from "lucide-react";
+import { ArrowDownUp, ArrowRight, CircleHelp, Filter, Search, Upload } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
@@ -71,6 +71,7 @@ type ControlTestingViewProps = {
   currentPhase: AuditPhase;
   documents: AuditDocument[];
   embedded?: boolean;
+  fieldworkBudgetHours?: number | null;
   mode: DashboardMode;
   questions: Question[];
   requests: Request[];
@@ -110,6 +111,7 @@ export function ControlTestingView({
   currentPhase,
   documents,
   embedded = false,
+  fieldworkBudgetHours = null,
   mode,
   questions,
   requests,
@@ -602,10 +604,11 @@ export function ControlTestingView({
                   auditId={auditId}
                   canEditPlanningDecisions={canEditPlanningDecisions}
                   currentNow={currentNow}
-                  currentUserName={activeUser.name}
                   currentUserId={activeUser.id}
                   exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
+                  fieldworkBudgetHours={fieldworkBudgetHours}
                   isSaving={isSaving}
+                  allControls={controlRecords}
                   linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
                   linkedTestingMatrices={selectedControl ? getMatricesForControl(testingMatrixRows, selectedControl.id) : []}
                   linkedWorkpapers={linkedWorkpapers}
@@ -617,7 +620,6 @@ export function ControlTestingView({
                   saveSuccess={saveSuccess}
                   selectedControl={selectedControl}
                   setControlRecords={setControlRecords}
-                  setControlExceptions={setControlExceptionsByControlId}
                   setPlanningForm={setPlanningForm}
                   setDocumentRows={setDocumentRows}
                   setSaveError={setSaveError}
@@ -663,12 +665,15 @@ export function ControlTestingView({
             contained
             control={selectedControl}
             controlAttachments={linkedNonWorkpaperDocuments}
+            allMatrices={testingMatrixRows}
             matrices={selectedTestingMatrices}
+            fieldworkBudgetHours={fieldworkBudgetHours}
             mode={mode}
             onClose={() => setSelectedTestingMatrixControlId("")}
             onMatricesUpdated={(nextMatrices) => {
               setTestingMatrixRows((current) => replaceMatricesForControl(current, selectedControl.id, nextMatrices));
             }}
+            users={users}
           />
         ) : null}
       </section>
@@ -686,10 +691,11 @@ export function ControlTestingView({
               auditId={auditId}
               canEditPlanningDecisions={canEditPlanningDecisions}
               currentNow={currentNow}
-              currentUserName={activeUser.name}
               currentUserId={activeUser.id}
               isSaving={isSaving}
               exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
+              fieldworkBudgetHours={fieldworkBudgetHours}
+              allControls={controlRecords}
               linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
               linkedTestingMatrices={selectedControl ? getMatricesForControl(testingMatrixRows, selectedControl.id) : []}
               linkedWorkpapers={linkedWorkpapers}
@@ -701,7 +707,6 @@ export function ControlTestingView({
               saveSuccess={saveSuccess}
               selectedControl={selectedControl}
               setControlRecords={setControlRecords}
-              setControlExceptions={setControlExceptionsByControlId}
               setPlanningForm={setPlanningForm}
               setDocumentRows={setDocumentRows}
               setSaveError={setSaveError}
@@ -747,12 +752,15 @@ export function ControlTestingView({
             auditId={auditId}
             control={selectedControl}
             controlAttachments={linkedNonWorkpaperDocuments}
+            allMatrices={testingMatrixRows}
             matrices={selectedTestingMatrices}
+            fieldworkBudgetHours={fieldworkBudgetHours}
             mode={mode}
             onClose={() => setSelectedTestingMatrixControlId("")}
             onMatricesUpdated={(nextMatrices) => {
               setTestingMatrixRows((current) => replaceMatricesForControl(current, selectedControl.id, nextMatrices));
             }}
+            users={users}
           />
         )
       ) : null}
@@ -764,10 +772,11 @@ function ControlDetailContent({
   auditId,
   canEditPlanningDecisions,
   currentNow,
-  currentUserName,
   currentUserId,
   exceptions,
+  fieldworkBudgetHours,
   isSaving,
+  allControls,
   linkedNonWorkpaperDocuments,
   linkedTestingMatrices,
   linkedWorkpapers,
@@ -779,7 +788,6 @@ function ControlDetailContent({
   saveSuccess,
   selectedControl,
   setControlRecords,
-  setControlExceptions,
   setPlanningForm,
   setDocumentRows,
   setSaveError,
@@ -796,10 +804,11 @@ function ControlDetailContent({
   auditId: string | null;
   canEditPlanningDecisions: boolean;
   currentNow: string;
-  currentUserName: string;
   currentUserId: string;
   exceptions: ControlException[];
+  fieldworkBudgetHours?: number | null;
   isSaving: boolean;
+  allControls: Control[];
   linkedNonWorkpaperDocuments: AuditDocument[];
   linkedTestingMatrices: ControlTestingMatrix[];
   linkedWorkpapers: AuditDocument[];
@@ -811,7 +820,6 @@ function ControlDetailContent({
   saveSuccess: string;
   selectedControl: Control;
   setControlRecords: Dispatch<SetStateAction<Control[]>>;
-  setControlExceptions: Dispatch<SetStateAction<Record<string, ControlException[]>>>;
   setPlanningForm: Dispatch<SetStateAction<PlanningFormState>>;
   setDocumentRows: Dispatch<SetStateAction<AuditDocument[]>>;
   setSaveError: Dispatch<SetStateAction<string>>;
@@ -825,16 +833,22 @@ function ControlDetailContent({
   workspaceQuery: URLSearchParams;
   router: { push: (href: string) => void; refresh: () => void };
 }) {
-  const [isAddingException, setIsAddingException] = useState(false);
-  const [exceptionDraft, setExceptionDraft] = useState("");
   const [isAddingAttachment, setIsAddingAttachment] = useState(false);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentDescription, setAttachmentDescription] = useState("");
+  const controlHoursGuide = useMemo(
+    () =>
+      buildControlFieldworkHoursGuide({
+        controls: allControls,
+        fieldworkBudgetHours,
+        plannedHoursInput: planningForm.plannedHours,
+        selectedControlId: selectedControl.id,
+      }),
+    [allControls, fieldworkBudgetHours, planningForm.plannedHours, selectedControl.id],
+  );
 
   useEffect(() => {
-    setIsAddingException(false);
-    setExceptionDraft("");
     resetAttachmentForm();
   }, [selectedControl.id]);
 
@@ -957,6 +971,7 @@ function ControlDetailContent({
                   onChange={(event) => setPlanningForm((current) => ({ ...current, plannedHours: event.target.value }))}
                   className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
                 />
+                <FieldworkHoursGuide guide={controlHoursGuide} />
               </label>
             ) : null}
 
@@ -1087,98 +1102,7 @@ function ControlDetailContent({
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Control Exceptions</p>
             <p className="mt-1.5 text-[13px] text-[var(--muted)]">Capture testing exceptions identified while reviewing this control.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsAddingException(true)}
-            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-indigo-core)]"
-          >
-            <Plus size={14} />
-            Add exception
-          </button>
         </div>
-
-        {isAddingException ? (
-          <div className="mt-4 rounded-[14px] bg-[var(--surface-tint)] p-3.5">
-            <label className="grid gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Exception details</span>
-              <textarea
-                value={exceptionDraft}
-                onChange={(event) => setExceptionDraft(event.target.value)}
-                rows={4}
-                placeholder="Describe the exception, impact, and follow-up needed."
-                className="rounded-[16px] border border-black/5 bg-white px-3.5 py-3 text-[13px] outline-none"
-              />
-            </label>
-            <div className="mt-3 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const note = exceptionDraft.trim();
-
-                  if (!note || !auditId) {
-                    return;
-                  }
-
-                  startSaving(async () => {
-                    try {
-                      const response = await fetch(`/api/controls/${selectedControl.id}/exceptions`, {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
-                          auditId,
-                          createdByName: currentUserName,
-                          createdByUserId: currentUserId,
-                          note,
-                        }),
-                      });
-                      const result = (await response.json()) as ControlException | { error?: string };
-
-                      if (!response.ok) {
-                        throw new Error("error" in result ? result.error : "Unable to save the control exception.");
-                      }
-
-                      const createdException = result as ControlException;
-                      setControlExceptions((current) => ({
-                        ...current,
-                        [selectedControl.id]: [...(current[selectedControl.id] ?? []), createdException],
-                      }));
-                      setExceptionDraft("");
-                      setIsAddingException(false);
-                      router.refresh();
-                      showNotification({
-                        title: "Exception added",
-                        message: "The control exception was saved successfully.",
-                        tone: "success",
-                      });
-                    } catch (error) {
-                      showNotification({
-                        title: "Save failed",
-                        message: error instanceof Error ? error.message : "Unable to save the control exception.",
-                        tone: "error",
-                      });
-                    }
-                  });
-                }}
-                disabled={isSaving || !auditId || !exceptionDraft.trim()}
-                className="inline-flex items-center justify-center rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSaving ? "Saving..." : "Save exception"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setExceptionDraft("");
-                  setIsAddingException(false);
-                }}
-                className="inline-flex items-center justify-center rounded-full border border-black/5 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         <div className="mt-3 grid gap-2.5">
           {exceptions.length > 0 ? (
@@ -1450,6 +1374,83 @@ function InfoCard({ label, value }: { label: string; value: string }) {
       <p className="mt-1.5 text-[13px] font-medium text-[var(--foreground)]">{value}</p>
     </div>
   );
+}
+
+type FieldworkHoursGuideModel = {
+  fieldworkBudgetHours: number | null;
+  otherAllocatedHours: number;
+  remainingHours: number | null;
+  selectedBudgetHours: number;
+  totalAllocatedHours: number;
+};
+
+function FieldworkHoursGuide({ guide }: { guide: FieldworkHoursGuideModel }) {
+  if (guide.fieldworkBudgetHours === null) {
+    return (
+      <span className="border-l-2 border-[rgba(0,46,98,0.18)] pl-3 text-[12px] leading-5 text-[var(--muted)]">
+        Fieldwork hours have not been set in planning yet. This control budget will save independently.
+      </span>
+    );
+  }
+
+  const remainingTone = guide.remainingHours !== null && guide.remainingHours < 0 ? "text-[var(--brand-coral)]" : "text-[var(--brand-teal-core)]";
+
+  return (
+    <span className="grid gap-1 border-l-2 border-[rgba(0,46,98,0.18)] pl-3 text-[12px] leading-5 text-[var(--muted)]">
+      <span>
+        Fieldwork pool: <strong className="font-semibold text-[var(--foreground)]">{formatGuideHours(guide.fieldworkBudgetHours)}</strong>
+      </span>
+      <span>
+        Other controls allocated: <strong className="font-semibold text-[var(--foreground)]">{formatGuideHours(guide.otherAllocatedHours)}</strong>
+      </span>
+      <span>
+        Available after this control: <strong className={cn("font-semibold", remainingTone)}>{formatGuideHours(guide.remainingHours ?? 0)}</strong>
+      </span>
+    </span>
+  );
+}
+
+function buildControlFieldworkHoursGuide({
+  controls,
+  fieldworkBudgetHours,
+  plannedHoursInput,
+  selectedControlId,
+}: {
+  controls: Control[];
+  fieldworkBudgetHours?: number | null;
+  plannedHoursInput: string;
+  selectedControlId: string;
+}): FieldworkHoursGuideModel {
+  const normalizedFieldworkBudget = normalizeGuideHours(fieldworkBudgetHours);
+  const selectedBudgetHours = normalizeGuideHours(Number(plannedHoursInput)) ?? 0;
+  const otherAllocatedHours = controls.reduce((sum, control) => {
+    if (control.id === selectedControlId) {
+      return sum;
+    }
+
+    return sum + (normalizeGuideHours(control.plannedHours) ?? 0);
+  }, 0);
+  const totalAllocatedHours = otherAllocatedHours + selectedBudgetHours;
+
+  return {
+    fieldworkBudgetHours: normalizedFieldworkBudget,
+    otherAllocatedHours,
+    remainingHours: normalizedFieldworkBudget === null ? null : normalizedFieldworkBudget - totalAllocatedHours,
+    selectedBudgetHours,
+    totalAllocatedHours,
+  };
+}
+
+function normalizeGuideHours(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) {
+    return value === null || value === undefined ? null : 0;
+  }
+
+  return Math.round(value * 4) / 4;
+}
+
+function formatGuideHours(value: number) {
+  return `${value.toFixed(value % 1 === 0 ? 0 : 2)}h`;
 }
 
 function HoverInfoCard({ text }: { text: string }) {

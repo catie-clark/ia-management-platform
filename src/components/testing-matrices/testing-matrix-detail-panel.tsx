@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Copy, Download, Expand, FilePenLine, Minimize2, Plus, Trash2, X } from "lucide-react";
 
 import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
+import { SampleGenerator } from "@/components/testing-matrices/sample-generator";
+import { useActiveUser } from "@/components/layout/active-user-context";
 import { DetailPanel } from "@/components/ui/detail-panel";
+import type { SampleGenerationResult } from "@/lib/sampling";
 import { useNotification } from "@/components/ui/notification-provider";
 import type { DashboardMode } from "@/lib/live-audit";
 import { buildDefaultTestingMatrixAttributes } from "@/lib/testing-matrix-defaults";
@@ -18,18 +21,22 @@ import type {
   ControlTestingMatrixResult,
   ControlTestingMatrixSample,
   TestingMatrixAttributeResult,
+  User,
 } from "@/types/audit";
 
 type TestingMatrixDetailPanelProps = {
   auditId: string | null;
+  allMatrices?: ControlTestingMatrix[];
   contained?: boolean;
   control: Control;
   controlAttachments?: AuditDocument[];
+  fieldworkBudgetHours?: number | null;
   matrices: ControlTestingMatrix[];
   mode: DashboardMode;
   onClose: () => void;
   onMatricesUpdated: (nextMatrices: ControlTestingMatrix[]) => void;
   panelClassName?: string;
+  users?: User[];
 };
 
 type SaveResponse = {
@@ -45,17 +52,21 @@ type DeleteResponse = {
 
 export function TestingMatrixDetailPanel({
   auditId,
+  allMatrices,
   contained = false,
   control,
   controlAttachments = [],
+  fieldworkBudgetHours = null,
   matrices,
   mode,
   onClose,
   onMatricesUpdated,
   panelClassName = "top-4 right-4 h-[calc(100dvh-2rem)] max-w-[76rem] overflow-y-auto rounded-[16px] border border-black/10 bg-[#f6f1e8] sm:p-4",
+  users = [],
 }: TestingMatrixDetailPanelProps) {
   const router = useRouter();
   const { showNotification } = useNotification();
+  const { activeUser } = useActiveUser();
   const [isPending, setIsPending] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [attributesCollapsed, setAttributesCollapsed] = useState(true);
@@ -71,6 +82,16 @@ export function TestingMatrixDetailPanel({
 
   const draft = drafts.find((candidate) => candidate.id === activeMatrixId) ?? drafts[0] ?? buildEmptyTestingMatrix(control, auditId);
   const baselineDrafts = useMemo(() => buildInitialMatrixDrafts(matrices, control, auditId), [auditId, control, matrices]);
+  const matrixHoursGuide = useMemo(
+    () =>
+      buildMatrixFieldworkHoursGuide({
+        controlId: control.id,
+        currentControlDrafts: drafts,
+        fieldworkBudgetHours,
+        matrices: allMatrices ?? matrices,
+      }),
+    [allMatrices, control.id, drafts, fieldworkBudgetHours, matrices],
+  );
 
   const resultLookup = useMemo(() => {
     return draft.results.reduce<Record<string, TestingMatrixAttributeResult>>((lookup, result) => {
@@ -191,6 +212,7 @@ export function TestingMatrixDetailPanel({
         <dl className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2">
           <MetaCell label="Control" value={`${control.referenceId ?? control.id} - ${control.name}`} />
           <MetaCell label="Last Update" value={draft.updatedAt ? formatDateTime(draft.updatedAt) : "Not saved yet"} />
+          <MetaCell label="Budget vs logged" value={formatBudgetVsLogged(draft)} />
         </dl>
 
         <div className="mt-3 grid gap-3 md:grid-cols-4">
@@ -210,6 +232,12 @@ export function TestingMatrixDetailPanel({
             value={draft.samples.length}
             onChange={handleSampleSizeChange}
           />
+          <EditorNumberField
+            label="Budgeted hours"
+            value={draft.budgetedHours}
+            onChange={(value) => updateActiveDraft((current) => ({ ...current, budgetedHours: value }))}
+          />
+          <MatrixFieldworkHoursGuide className="md:col-span-3" guide={matrixHoursGuide} />
           <EditorAreaField
             className="md:col-span-4"
             label="Population description"
@@ -307,14 +335,17 @@ export function TestingMatrixDetailPanel({
               Evaluate each attribute for every sample item and capture only row-level exceptions.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleAddSample}
-            className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
-          >
-            <Plus size={14} />
-            Add sample row
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <SampleGenerator defaultPopulationSize={draft.populationSize} onApply={applyGeneratedSample} />
+            <button
+              type="button"
+              onClick={handleAddSample}
+              className="inline-flex items-center gap-2 rounded-sm border border-black/10 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)]"
+            >
+              <Plus size={14} />
+              Add sample row
+            </button>
+          </div>
         </div>
 
         {isCollapsedView ? (
@@ -642,6 +673,45 @@ export function TestingMatrixDetailPanel({
     updateActiveDraft((current) => resizeSamples(current, current.samples.length + 1));
   }
 
+  function applyGeneratedSample(result: SampleGenerationResult) {
+    updateActiveDraft((current) => {
+      const matrixId = current.id;
+      const samples = result.items.map<ControlTestingMatrixSample>((item, index) => ({
+        id: buildClientId("sample"),
+        matrixId,
+        sampleIdentifier: item.sampleIdentifier,
+        sampleDescription: item.sampleDescription,
+        sourceReference: item.sourceReference,
+        exceptionNoted: "",
+        displayOrder: index + 1,
+      }));
+      const results = samples.flatMap((sample) =>
+        current.attributes.map<ControlTestingMatrixResult>((attribute) => ({
+          id: "",
+          matrixId,
+          sampleId: sample.id,
+          attributeId: attribute.id,
+          result: "NOT_TESTED",
+        })),
+      );
+
+      return {
+        ...current,
+        populationSize: current.populationSize ?? (result.populationSize > 0 ? result.populationSize : undefined),
+        sampleSize: samples.length,
+        samples,
+        results,
+        sampleDescription: appendSamplingMethodology(current.sampleDescription, result.methodology),
+      };
+    });
+
+    showNotification({
+      title: "Sample generated",
+      message: `${result.items.length} sample items created. Methodology recorded in the test plan.`,
+      tone: "success",
+    });
+  }
+
   function handleRemoveSample(sampleId: string) {
     updateActiveDraft((current) => {
       const nextSamples = current.samples
@@ -815,6 +885,7 @@ export function TestingMatrixDetailPanel({
         },
         body: JSON.stringify({
           auditId,
+          testedByUserId: isPersistedId(activeUser.id) ? activeUser.id : undefined,
           matrix: {
             id: isPersistedId(nextDraft.id) ? nextDraft.id : undefined,
             displayOrder: nextDraft.displayOrder,
@@ -823,6 +894,7 @@ export function TestingMatrixDetailPanel({
             populationSize: nextDraft.populationSize ?? null,
             sampleDescription: nextDraft.sampleDescription,
             sampleSize: nextDraft.sampleSize ?? null,
+            budgetedHours: nextDraft.budgetedHours ?? null,
             conclusion: "",
             attributes: nextDraft.attributes.map((attribute) => ({
               clientId: attribute.id,
@@ -840,6 +912,7 @@ export function TestingMatrixDetailPanel({
               sourceReference: sample.sourceReference,
               exceptionNoted: sample.exceptionNoted,
               displayOrder: sample.displayOrder,
+              timeSpentMinutes: sample.timeSpentMinutes ?? null,
             })),
             results: nextDraft.results.map((result) => ({
               id: isPersistedId(result.id) ? result.id : undefined,
@@ -978,6 +1051,120 @@ function MetaCell({ label, value }: { label: string; value: string }) {
       <dd className="text-sm font-medium text-[var(--foreground)]">{value}</dd>
     </div>
   );
+}
+
+type MatrixFieldworkHoursGuideModel = {
+  currentControlTestHours: number;
+  fieldworkBudgetHours: number | null;
+  otherControlTestHours: number;
+  remainingHours: number | null;
+  totalAllocatedHours: number;
+};
+
+function MatrixFieldworkHoursGuide({
+  className,
+  guide,
+}: {
+  className?: string;
+  guide: MatrixFieldworkHoursGuideModel;
+}) {
+  if (guide.fieldworkBudgetHours === null) {
+    return (
+      <div className={cn("grid content-end border-l-2 border-[rgba(0,46,98,0.18)] pl-3 text-[12px] leading-5 text-[var(--muted)]", className)}>
+        Fieldwork hours have not been set in planning yet. Matrix budgets will save independently.
+      </div>
+    );
+  }
+
+  const remainingTone = guide.remainingHours !== null && guide.remainingHours < 0 ? "text-[var(--brand-coral)]" : "text-[var(--brand-teal-core)]";
+
+  return (
+    <div className={cn("grid content-end gap-1 border-l-2 border-[rgba(0,46,98,0.18)] pl-3 text-[12px] leading-5 text-[var(--muted)]", className)}>
+      <p>
+        Fieldwork pool: <strong className="font-semibold text-[var(--foreground)]">{formatMatrixGuideHours(guide.fieldworkBudgetHours)}</strong>
+      </p>
+      <p>
+        Other control tests allocated: <strong className="font-semibold text-[var(--foreground)]">{formatMatrixGuideHours(guide.otherControlTestHours)}</strong>
+      </p>
+      <p>
+        This control's tests: <strong className="font-semibold text-[var(--foreground)]">{formatMatrixGuideHours(guide.currentControlTestHours)}</strong>
+      </p>
+      <p>
+        Available after this control: <strong className={cn("font-semibold", remainingTone)}>{formatMatrixGuideHours(guide.remainingHours ?? 0)}</strong>
+      </p>
+    </div>
+  );
+}
+
+function buildMatrixFieldworkHoursGuide({
+  controlId,
+  currentControlDrafts,
+  fieldworkBudgetHours,
+  matrices,
+}: {
+  controlId: string;
+  currentControlDrafts: ControlTestingMatrix[];
+  fieldworkBudgetHours?: number | null;
+  matrices: ControlTestingMatrix[];
+}): MatrixFieldworkHoursGuideModel {
+  const normalizedFieldworkBudget = normalizeMatrixGuideHours(fieldworkBudgetHours);
+  const currentControlTestHours = currentControlDrafts.reduce((sum, matrix) => sum + (normalizeMatrixGuideHours(matrix.budgetedHours) ?? 0), 0);
+  const otherControlTestHours = matrices.reduce((sum, matrix) => {
+    if (matrix.controlId === controlId) {
+      return sum;
+    }
+
+    return sum + (normalizeMatrixGuideHours(matrix.budgetedHours) ?? 0);
+  }, 0);
+  const totalAllocatedHours = currentControlTestHours + otherControlTestHours;
+
+  return {
+    currentControlTestHours,
+    fieldworkBudgetHours: normalizedFieldworkBudget,
+    otherControlTestHours,
+    remainingHours: normalizedFieldworkBudget === null ? null : normalizedFieldworkBudget - totalAllocatedHours,
+    totalAllocatedHours,
+  };
+}
+
+function normalizeMatrixGuideHours(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (!Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+
+  return Math.round(value * 4) / 4;
+}
+
+function formatMatrixGuideHours(value: number) {
+  return `${value.toFixed(value % 1 === 0 ? 0 : 2)}h`;
+}
+
+function appendSamplingMethodology(existing: string, methodology: string) {
+  const marker = "Sampling methodology:";
+  const kept = existing
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(marker))
+    .join("\n")
+    .trimEnd();
+  const note = `${marker} ${methodology}`;
+  return kept.length > 0 ? `${kept}\n\n${note}` : note;
+}
+
+function formatBudgetVsLogged(draft: ControlTestingMatrix) {
+  const loggedHours = draft.samples.reduce((total, sample) => total + (sample.timeSpentMinutes ?? 0), 0) / 60;
+  const loggedLabel = `${loggedHours.toFixed(1)}h logged`;
+
+  if (draft.budgetedHours === undefined || draft.budgetedHours === null) {
+    return `No budget set | ${loggedLabel}`;
+  }
+
+  const variance = loggedHours - draft.budgetedHours;
+  const varianceLabel = variance > 0.05 ? `${variance.toFixed(1)}h over` : variance < -0.05 ? `${Math.abs(variance).toFixed(1)}h under` : "on budget";
+  return `${draft.budgetedHours.toFixed(1)}h budget | ${loggedLabel} (${varianceLabel})`;
 }
 
 function buildInitialMatrixDrafts(matrices: ControlTestingMatrix[], control: Control, auditId: string | null) {

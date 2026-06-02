@@ -28,6 +28,9 @@ export type AuditRecord = {
   scope_period_start?: string;
   scope_period_end?: string;
   total_budget_hours?: number | null;
+  planning_budget_hours?: number | null;
+  fieldwork_budget_hours?: number | null;
+  reporting_budget_hours?: number | null;
   planning_start_date?: string | null;
   planning_end_date?: string | null;
   fieldwork_start_date?: string | null;
@@ -180,6 +183,7 @@ export type ControlTestingMatrixRow = {
   population_size: number | null;
   sample_description: string | null;
   sample_size: number | null;
+  budgeted_hours: number | string | null;
   conclusion: string | null;
   created_at: string;
   updated_at: string;
@@ -202,6 +206,10 @@ export type ControlTestingMatrixSampleRow = {
   source_reference: string | null;
   exception_noted: string | null;
   display_order: number;
+  tested_by_user_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  time_spent_minutes: number | null;
 };
 
 export type ControlTestingMatrixResultRow = {
@@ -253,6 +261,10 @@ export function mapControlTestingMatrixSample(row: ControlTestingMatrixSampleRow
     sourceReference: row.source_reference ?? "",
     exceptionNoted: row.exception_noted ?? "",
     displayOrder: row.display_order,
+    testedByUserId: row.tested_by_user_id ?? undefined,
+    startedAt: row.started_at ? ensureIsoDate(row.started_at) : undefined,
+    completedAt: row.completed_at ? ensureIsoDate(row.completed_at) : undefined,
+    timeSpentMinutes: row.time_spent_minutes ?? undefined,
   };
 }
 
@@ -282,6 +294,10 @@ export function mapControlTestingMatrix(args: {
     populationSize: args.matrix.population_size ?? undefined,
     sampleDescription: args.matrix.sample_description ?? "",
     sampleSize: args.matrix.sample_size ?? undefined,
+    budgetedHours:
+      args.matrix.budgeted_hours === null || args.matrix.budgeted_hours === undefined
+        ? undefined
+        : Number(args.matrix.budgeted_hours),
     conclusion: args.matrix.conclusion ?? "",
     attributes: args.attributes.slice().sort((left, right) => left.displayOrder - right.displayOrder || left.id.localeCompare(right.id)),
     samples: args.samples.slice().sort((left, right) => left.displayOrder - right.displayOrder || left.id.localeCompare(right.id)),

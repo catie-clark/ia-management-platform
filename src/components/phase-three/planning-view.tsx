@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Bot, ChevronDown, Copy, FileText, Layers3, ShieldAlert, X } from "lucide-react";
+import { ArrowRight, Bot, ChevronDown, Copy, FileText, Layers3, ShieldAlert, Sparkles, X } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
@@ -10,6 +10,7 @@ import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-c
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { sanitizeDraftMarkdown } from "@/lib/planning-narrative/format";
+import { downloadDraftAsPptx } from "@/lib/pptx-export";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { AuditPhase, DocumentReviewStatus, PlanningSourceSet, RCSARecord } from "@/types/audit";
 
@@ -441,6 +442,8 @@ export function PlanningView({
               </div>
             </div>
           </article>
+
+          <AiScopeReviewPanel auditId={auditId} prompt={promptPackage.prompt} />
         </section>
       ) : null}
 
@@ -639,6 +642,18 @@ function PlanningArtifactCard({
     setReviewStatus(normalizePlanningReviewStatus(nextDraft.reviewStatus));
     setReviewInput("");
     setViewMode("preview");
+  }
+
+  function exportPptx() {
+    void downloadDraftAsPptx({
+      auditLabel,
+      label,
+      markdown: sanitizeDraftMarkdown(markdown),
+      previewSections,
+      previewSummary,
+    })
+      .then(() => showNotification({ title: "Exported", message: `${label} draft exported as a PowerPoint deck.`, tone: "success" }))
+      .catch(() => showNotification({ title: "Export failed", message: `There was an error exporting the ${label.toLowerCase()} deck.`, tone: "error" }));
   }
 
   function exportDraft() {
@@ -914,6 +929,14 @@ function PlanningArtifactCard({
                     className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Export Word
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canExport}
+                    onClick={exportPptx}
+                    className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Export PPTX
                   </button>
                   {viewMode === "edit" ? (
                     <button
@@ -1283,6 +1306,108 @@ function getSourceTone(sourceType: PlanningSourceSet["sourceType"]) {
   }
 
   return "neutral";
+}
+
+function AiScopeReviewPanel({ auditId, prompt }: { auditId: string | null; prompt: string }) {
+  const { showNotification } = useNotification();
+  const [isPending, startTransition] = useTransition();
+  const [result, setResult] = useState("");
+  const [source, setSource] = useState<"ai" | "unavailable" | "">("");
+  const [message, setMessage] = useState("");
+
+  function run() {
+    if (!auditId) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`/api/audits/${auditId}/planning-scope`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        });
+        const data = (await response.json()) as { source?: string; recommendation?: string; message?: string; error?: string };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Unable to run the AI scope review.");
+        }
+
+        if (data.source === "unavailable") {
+          setSource("unavailable");
+          setMessage(data.message ?? "");
+          setResult("");
+        } else {
+          setSource("ai");
+          setResult(data.recommendation ?? "");
+          setMessage("");
+        }
+      } catch (error) {
+        showNotification({
+          title: "Scope review failed",
+          message: error instanceof Error ? error.message : "Unable to run the AI scope review.",
+          tone: "error",
+        });
+      }
+    });
+  }
+
+  return (
+    <article className="mt-3 border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">AI scope review</p>
+          <h3 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Run an agentic scope review with Claude</h3>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+            Claude reviews the loaded planning inputs and recommends in-scope, watchlist, and out-of-scope areas with
+            rationale tied to the source data. Review and edit before relying on it.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={!auditId || isPending}
+          className="inline-flex items-center gap-2 rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Sparkles size={16} />
+          {isPending ? "Reviewing..." : "Run AI scope review"}
+        </button>
+      </div>
+
+      {!auditId ? <p className="mt-4 text-sm text-[var(--muted)]">AI scope review is available for saved live audits.</p> : null}
+
+      {source === "unavailable" ? (
+        <div className="mt-4 border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
+          {message}
+        </div>
+      ) : null}
+
+      {source === "ai" && result ? (
+        <div className="mt-4 grid gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <StatusBadge status="Claude-generated draft" tone="success" />
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(result);
+                showNotification({ title: "Copied", message: "Scope review copied to clipboard.", tone: "success" });
+              }}
+              className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-[var(--brand-indigo-core)]"
+            >
+              <Copy size={14} />
+              Copy
+            </button>
+          </div>
+          <textarea
+            readOnly
+            value={result}
+            rows={20}
+            className="w-full resize-y border border-black/10 bg-[var(--surface-soft)] px-4 py-4 text-sm leading-6 text-[var(--foreground)] outline-none"
+          />
+        </div>
+      ) : null}
+    </article>
+  );
 }
 
 function buildScopePromptPackage({

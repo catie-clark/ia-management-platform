@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadAuditControlTestingMatrices } from "@/lib/control-testing-matrix-persistence";
+import { loadAuditReviewNotes } from "@/lib/review-notes-persistence";
 import { controls, documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import {
   type AuditDocumentRow,
@@ -21,7 +22,7 @@ import {
 } from "@/lib/live-audit";
 import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
-import type { AuditDocument, AuditPhase, Control, ControlException, ControlTestingMatrix, Question, Request, User } from "@/types/audit";
+import type { AuditDocument, AuditPhase, Control, ControlException, ControlTestingMatrix, Question, Request, ReviewNote, User } from "@/types/audit";
 
 type RiskControlLinkRow = {
   control_id: string | null;
@@ -52,6 +53,7 @@ export type FieldworkViewModel = {
   auditPeriodLabel: string;
   auditStatus: string;
   currentPhase: AuditPhase;
+  fieldworkBudgetHours: number | null;
   mode: DashboardMode;
   controls: Control[];
   controlExceptions: ControlException[];
@@ -59,6 +61,7 @@ export type FieldworkViewModel = {
   documents: AuditDocument[];
   questions: Question[];
   requests: Request[];
+  reviewNotes: ReviewNote[];
   risks: FieldworkRiskRow[];
   users: User[];
   now: string;
@@ -80,6 +83,7 @@ export async function getFieldworkViewModel({
       auditPeriodLabel: "No audit selected",
       auditStatus: "pending",
       currentPhase: "Fieldwork",
+      fieldworkBudgetHours: null,
       mode,
       controls: [],
       controlExceptions: [],
@@ -87,6 +91,7 @@ export async function getFieldworkViewModel({
       documents: [],
       questions: [],
       requests: [],
+      reviewNotes: [],
       risks: [],
       users: [],
       now: new Date().toISOString(),
@@ -110,6 +115,7 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
     usersResult,
     businessUnitsResult,
     testingMatrices,
+    reviewNotes,
   ] = await Promise.all([
     getFieldworkAuditRecord(supabase, auditId),
     supabase
@@ -151,6 +157,7 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
     supabase.from("users").select("id, full_name, email, role, team").order("full_name", { ascending: true }).returns<UserRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitRow[]>(),
     loadAuditControlTestingMatrices(supabase, auditId),
+    loadAuditReviewNotes(supabase, auditId),
   ]);
 
   if (auditResult.error) {
@@ -266,6 +273,10 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
       auditResult.data?.period_start && auditResult.data?.period_end ? formatAuditScopePeriod(auditResult.data) : "Saved audit",
     auditStatus: auditResult.data?.status ?? "active",
     currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
+    fieldworkBudgetHours:
+      auditResult.data?.fieldwork_budget_hours === null || auditResult.data?.fieldwork_budget_hours === undefined
+        ? null
+        : Number(auditResult.data.fieldwork_budget_hours),
     mode: "live",
     controls: liveControls,
     controlExceptions: (controlExceptionsResult.data ?? []).map(mapControlException),
@@ -273,6 +284,7 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
     documents: normalizedDocuments,
     questions: liveQuestions,
     requests: liveRequests,
+    reviewNotes,
     risks: liveRisks,
     users: liveUsers,
     now: new Date().toISOString(),
@@ -286,9 +298,9 @@ async function getFieldworkAuditRecord(
   try {
     return await supabase
       .from("audits")
-      .select("id, name, period_start, period_end, scope_period_start, scope_period_end, status, active_phase")
+      .select("id, name, period_start, period_end, scope_period_start, scope_period_end, status, active_phase, fieldwork_budget_hours")
       .eq("id", auditId)
-      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end" | "status" | "active_phase">>();
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "scope_period_start" | "scope_period_end" | "status" | "active_phase" | "fieldwork_budget_hours">>();
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("scope_period_start")) {
       throw error;
@@ -296,9 +308,9 @@ async function getFieldworkAuditRecord(
 
     return supabase
       .from("audits")
-      .select("id, name, period_start, period_end, status, active_phase")
+      .select("id, name, period_start, period_end, status, active_phase, fieldwork_budget_hours")
       .eq("id", auditId)
-      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "status" | "active_phase">>();
+      .maybeSingle<Pick<AuditRecord, "id" | "name" | "period_start" | "period_end" | "status" | "active_phase" | "fieldwork_budget_hours">>();
   }
 }
 

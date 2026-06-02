@@ -27,6 +27,7 @@ type ControlRcmPayloadRow = {
 type SaveTestingMatrixInput = {
   auditId: string;
   controlId: string;
+  testedByUserId?: string;
   matrix: {
     id?: string;
     displayOrder?: number;
@@ -35,6 +36,7 @@ type SaveTestingMatrixInput = {
     populationSize?: number;
     sampleDescription: string;
     sampleSize?: number;
+    budgetedHours?: number | null;
     conclusion: string;
     attributes: Array<{
       clientId?: string;
@@ -52,6 +54,7 @@ type SaveTestingMatrixInput = {
       sourceReference: string;
       exceptionNoted: string;
       displayOrder: number;
+      timeSpentMinutes?: number | null;
     }>;
     results: Array<{
       id?: string;
@@ -66,7 +69,7 @@ export async function loadAuditControlTestingMatrices(supabase: SupabaseAdminCli
   const [matricesResult, attributesResult, samplesResult, resultsResult, controlsResult] = await Promise.all([
     supabase
       .from("control_testing_matrices")
-      .select("id, audit_id, control_id, display_order, title, population_description, population_size, sample_description, sample_size, conclusion, created_at, updated_at")
+      .select("id, audit_id, control_id, display_order, title, population_description, population_size, sample_description, sample_size, budgeted_hours, conclusion, created_at, updated_at")
       .eq("audit_id", auditId)
       .order("control_id", { ascending: true })
       .order("display_order", { ascending: true })
@@ -78,7 +81,7 @@ export async function loadAuditControlTestingMatrices(supabase: SupabaseAdminCli
       .returns<ControlTestingMatrixAttributeRow[]>(),
     supabase
       .from("control_testing_matrix_samples")
-      .select("id, matrix_id, sample_identifier, sample_description, source_reference, exception_noted, display_order")
+      .select("id, matrix_id, sample_identifier, sample_description, source_reference, exception_noted, display_order, tested_by_user_id, started_at, completed_at, time_spent_minutes")
       .returns<ControlTestingMatrixSampleRow[]>(),
     supabase
       .from("control_testing_matrix_results")
@@ -178,6 +181,7 @@ export async function saveControlTestingMatrix(args: SaveTestingMatrixInput) {
   const attributeIdMap = new Map(attributes.map((attribute) => [attribute.clientId, attribute.id]));
   const sampleIdMap = new Map(samples.map((sample) => [sample.clientId, sample.id]));
   await syncResults(supabase, matrixId, matrix.results, sampleIdMap, attributeIdMap);
+  await applyExecutionTimestamps(supabase, matrixId, args.testedByUserId);
 
   const savedMatrix = await loadControlTestingMatrixById(auditId, controlId, matrixId);
 
@@ -303,6 +307,7 @@ async function insertMatrixRecord(
       population_size: matrix.populationSize ?? null,
       sample_description: matrix.sampleDescription.trim(),
       sample_size: matrix.sampleSize ?? null,
+      budgeted_hours: normalizeBudgetHours(matrix.budgetedHours),
       conclusion: matrix.conclusion.trim(),
       updated_at: new Date().toISOString(),
     })
@@ -333,6 +338,7 @@ async function updateMatrixRecord(
       population_size: matrix.populationSize ?? null,
       sample_description: matrix.sampleDescription.trim(),
       sample_size: matrix.sampleSize ?? null,
+      budgeted_hours: normalizeBudgetHours(matrix.budgetedHours),
       conclusion: matrix.conclusion.trim(),
       updated_at: new Date().toISOString(),
     })
@@ -452,6 +458,7 @@ async function syncSamples(
     source_reference: sample.sourceReference.trim(),
     exception_noted: sample.exceptionNoted.trim(),
     display_order: sample.displayOrder,
+    time_spent_minutes: normalizeMinutes(sample.timeSpentMinutes),
     updated_at: new Date().toISOString(),
   }));
 
@@ -486,6 +493,7 @@ async function syncSamples(
         source_reference: row.source_reference,
         exception_noted: row.exception_noted,
         display_order: row.display_order,
+        time_spent_minutes: row.time_spent_minutes,
         updated_at: row.updated_at,
       })
       .eq("id", row.id as string);
@@ -506,7 +514,7 @@ async function syncSamples(
 
   const { data, error } = await supabase
     .from("control_testing_matrix_samples")
-    .select("id, matrix_id, sample_identifier, sample_description, source_reference, exception_noted, display_order")
+    .select("id, matrix_id, sample_identifier, sample_description, source_reference, exception_noted, display_order, tested_by_user_id, started_at, completed_at, time_spent_minutes")
     .eq("matrix_id", matrixId)
     .order("display_order", { ascending: true })
     .returns<ControlTestingMatrixSampleRow[]>();
@@ -588,6 +596,110 @@ async function syncResults(
     const { error } = await supabase
       .from("control_testing_matrix_results")
       .upsert(rowsToUpsert, { onConflict: "sample_id,attribute_id" });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+}
+
+function normalizeBudgetHours(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return null;
+  }
+
+  const rounded = Math.round(value * 100) / 100;
+  return rounded >= 0 ? rounded : null;
+}
+
+function normalizeMinutes(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return null;
+  }
+
+  const rounded = Math.round(value);
+  return rounded >= 0 ? rounded : null;
+}
+
+/**
+ * Stamp per-sample execution timing based on recorded results.
+ * - started_at is set the first time any attribute for a sample is marked PASS/FAIL.
+ * - completed_at is set once every attribute for the sample has a non-"NOT_TESTED" result.
+ * - tested_by_user_id records the active tester on first touch.
+ * Reopening a sample (clearing all results) resets the timestamps.
+ */
+async function applyExecutionTimestamps(supabase: SupabaseAdminClient, matrixId: string, testedByUserId?: string) {
+  const [{ data: attributeRows, error: attributesError }, { data: sampleRows, error: samplesError }, { data: resultRows, error: resultsError }] =
+    await Promise.all([
+      supabase.from("control_testing_matrix_attributes").select("id").eq("matrix_id", matrixId).returns<Array<{ id: string }>>(),
+      supabase
+        .from("control_testing_matrix_samples")
+        .select("id, started_at, completed_at, tested_by_user_id")
+        .eq("matrix_id", matrixId)
+        .returns<Array<{ id: string; started_at: string | null; completed_at: string | null; tested_by_user_id: string | null }>>(),
+      supabase
+        .from("control_testing_matrix_results")
+        .select("sample_id, result")
+        .eq("matrix_id", matrixId)
+        .returns<Array<{ sample_id: string; result: string }>>(),
+    ]);
+
+  if (attributesError) {
+    throw new Error(attributesError.message);
+  }
+  if (samplesError) {
+    throw new Error(samplesError.message);
+  }
+  if (resultsError) {
+    throw new Error(resultsError.message);
+  }
+
+  const attributeCount = (attributeRows ?? []).length;
+  const testedBySample = new Map<string, number>();
+
+  for (const result of resultRows ?? []) {
+    if (result.result === "PASS" || result.result === "FAIL") {
+      testedBySample.set(result.sample_id, (testedBySample.get(result.sample_id) ?? 0) + 1);
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+
+  for (const sample of sampleRows ?? []) {
+    const testedCount = testedBySample.get(sample.id) ?? 0;
+    const touched = testedCount > 0;
+    const complete = attributeCount > 0 && testedCount >= attributeCount;
+
+    const update: Record<string, string | null> = {};
+
+    if (touched) {
+      if (!sample.started_at) {
+        update.started_at = nowIso;
+      }
+      if (!sample.tested_by_user_id && testedByUserId) {
+        update.tested_by_user_id = testedByUserId;
+      }
+      if (complete) {
+        if (!sample.completed_at) {
+          update.completed_at = nowIso;
+        }
+      } else if (sample.completed_at) {
+        update.completed_at = null;
+      }
+    } else {
+      if (sample.started_at) {
+        update.started_at = null;
+      }
+      if (sample.completed_at) {
+        update.completed_at = null;
+      }
+    }
+
+    if (Object.keys(update).length === 0) {
+      continue;
+    }
+
+    const { error } = await supabase.from("control_testing_matrix_samples").update(update).eq("id", sample.id);
 
     if (error) {
       throw new Error(error.message);

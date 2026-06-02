@@ -20,7 +20,18 @@ import {
   sumPhasePlannedHours,
 } from "@/lib/phase-budget";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { loadAuditControlTestingMatrices } from "@/lib/control-testing-matrix-persistence";
+import { getControlTestBudgets, type ControlTestBudgetSummary } from "@/lib/test-execution-analytics";
 import type { AuditPhase, BudgetByPhase, Control, DemoTimeEntry, TimeSourceSummary, User } from "@/types/audit";
+
+const emptyControlTestBudgets: ControlTestBudgetSummary = {
+  hasData: false,
+  hasBudgets: false,
+  rows: [],
+  totalBudgetedHours: 0,
+  totalActualHours: 0,
+  varianceHours: 0,
+};
 
 export type HoursByTester = {
   actualHours: number;
@@ -48,6 +59,7 @@ export type HoursBudgetViewModel = {
   auditPeriodLabel: string;
   auditPeriodStart: string | null;
   controls: Control[];
+  controlTestBudgets: ControlTestBudgetSummary;
   currentPhase: "Planning" | "Fieldwork" | "Reporting";
   currentPhaseVariance: number;
   fieldworkEndDate: string | null;
@@ -115,6 +127,7 @@ export async function getHoursBudgetViewModel({
     auditPeriodLabel: "No audit selected",
     auditPeriodStart: null,
     controls: [],
+    controlTestBudgets: emptyControlTestBudgets,
     currentPhase,
     currentPhaseVariance: 0,
     fieldworkEndDate: null,
@@ -149,7 +162,7 @@ async function getLiveHoursBudgetViewModel({
   syncCount: number;
 }) {
   const supabase = createSupabaseAdminClient();
-  const [auditResult, controlsResult, usersResult, businessUnitsResult, timeEntriesResult] = await Promise.all([
+  const [auditResult, controlsResult, usersResult, businessUnitsResult, timeEntriesResult, testingMatrices] = await Promise.all([
     getLiveAuditBudgetRecord(supabase, auditId),
     supabase
       .from("controls")
@@ -159,11 +172,13 @@ async function getLiveHoursBudgetViewModel({
     supabase.from("users").select("id, full_name, email, role, team").order("full_name", { ascending: true }).returns<UserRow[]>(),
     supabase.from("business_units").select("id, name").returns<BusinessUnitRow[]>(),
     selectAuditTimeEntries(supabase, auditId),
+    loadAuditControlTestingMatrices(supabase, auditId),
   ]);
 
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
   const liveUsers = (usersResult.data ?? []).map(mapUser);
   const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
+  const controlTestBudgets = getControlTestBudgets({ controls: liveControls, matrices: testingMatrices });
   const currentPhase = phaseOverride ?? normalizeAuditPhase(auditResult.data?.active_phase);
   const phaseBudgetPlan = buildLivePhaseBudgetPlan({
     planning_budget_hours: auditResult.data?.planning_budget_hours ?? null,
@@ -203,6 +218,7 @@ async function getLiveHoursBudgetViewModel({
         : "Saved audit",
     auditPeriodStart: auditResult.data?.period_start ?? null,
     controls: fallbackSyncedHours.controls,
+    controlTestBudgets,
     currentPhase,
     currentPhaseVariance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
     fieldworkEndDate: auditResult.data?.fieldwork_end_date ?? null,
@@ -439,7 +455,7 @@ function mapAuditTimeEntries(rows: AuditTimeEntryRow[]) {
         controlId: row.control_id ?? "",
         entryDate: row.entry_date.includes("T") ? row.entry_date : `${row.entry_date}T00:00:00.000Z`,
         hours: roundToQuarter(Number(row.hours ?? 0)),
-        phase: "Planning",
+        phase,
         source: "Recorded",
         userId: row.user_id,
         workItemReference: row.work_item_reference ?? "Imported audit hours",
@@ -478,7 +494,7 @@ function sumActualHoursByPhase(timeEntries: DemoTimeEntry[]) {
   ]);
 
   for (const entry of timeEntries) {
-    totals.set("Planning", roundToQuarter((totals.get("Planning") ?? 0) + entry.hours));
+    totals.set(entry.phase, roundToQuarter((totals.get(entry.phase) ?? 0) + entry.hours));
   }
 
   return totals;

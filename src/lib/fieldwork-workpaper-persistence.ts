@@ -217,7 +217,6 @@ export async function applyWorkpaperReviewAction({
   actingRole,
   actingUserName,
   auditId,
-  comment,
   content,
   documentId,
 }: {
@@ -225,7 +224,6 @@ export async function applyWorkpaperReviewAction({
   actingRole: Role;
   actingUserName: string;
   auditId: string;
-  comment?: string;
   content?: WorkpaperContent;
   documentId: string;
 }) {
@@ -234,7 +232,6 @@ export async function applyWorkpaperReviewAction({
   const payload = { ...(existingDocument.source_payload ?? {}) };
   const now = new Date().toISOString();
   const currentReviewStatus = normalizeReviewStatus(payload.review_status);
-  const trimmedComment = comment?.trim();
 
   let nextReviewStatus: DocumentReviewStatus;
   let nextDocumentStatus: "complete" | "in_progress";
@@ -259,19 +256,10 @@ export async function applyWorkpaperReviewAction({
     review_status: nextReviewStatus,
   };
 
-  if (action === "send_back") {
-    nextPayload.review_comment = trimmedComment ?? "";
-    nextPayload.review_comment_author = actingUserName;
-    nextPayload.review_comment_date = now;
-  } else if (trimmedComment) {
-    nextPayload.review_comment = trimmedComment;
-    nextPayload.review_comment_author = actingUserName;
-    nextPayload.review_comment_date = now;
-  } else {
-    delete nextPayload.review_comment;
-    delete nextPayload.review_comment_author;
-    delete nextPayload.review_comment_date;
-  }
+  // Send-back rationale is captured in review notes now; clear the legacy single comment.
+  delete nextPayload.review_comment;
+  delete nextPayload.review_comment_author;
+  delete nextPayload.review_comment_date;
 
   const { data, error } = await supabase
     .from("audit_documents")
