@@ -564,6 +564,7 @@ function PlanningArtifactCard({
   const [reviewStatus, setReviewStatus] = useState<DocumentReviewStatus>("NOT_SUBMITTED");
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
 
+  const isFinalizedDraft = documentStatus === "COMPLETE" || reviewStatus === "APPROVED";
   const isReviewLocked = isPlanningDraftLockedForReview(reviewStatus);
   const canReset = Boolean(draftTitle || markdown.trim().length > 0 || previewSections.length > 0);
   const canExport = markdown.trim().length > 0;
@@ -817,7 +818,7 @@ function PlanningArtifactCard({
           >
             <ChevronDown size={18} className={`transition-transform duration-200 ${isCollapsed ? "-rotate-90" : "rotate-0"}`} />
           </button>
-          {!isCollapsed ? (
+          {!isCollapsed && !isFinalizedDraft ? (
             <>
               <button
                 type="button"
@@ -884,7 +885,11 @@ function PlanningArtifactCard({
                 Missing required template tokens: {missingTokens.join(", ")}
               </div>
             ) : null}
-            {isReviewLocked ? (
+            {isFinalizedDraft ? (
+              <div className="border border-[rgba(5,171,140,0.2)] bg-[rgba(5,171,140,0.08)] px-4 py-3 text-sm text-[var(--brand-teal-core)]">
+                This draft is approved and finalized.
+              </div>
+            ) : isReviewLocked ? (
               <div className="border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                 This draft is locked while it is in review.
               </div>
@@ -1126,7 +1131,7 @@ function getPlanningReviewTone(status: DocumentReviewStatus): "neutral" | "warni
 }
 
 function isPlanningDraftLockedForReview(status: DocumentReviewStatus) {
-  return status === "AIC_REVIEW" || status === "MANAGER_REVIEW" || status === "DIRECTOR_REVIEW";
+  return status === "AIC_REVIEW" || status === "MANAGER_REVIEW" || status === "DIRECTOR_REVIEW" || status === "APPROVED";
 }
 
 function PlanningMetric({

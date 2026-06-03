@@ -71,8 +71,8 @@ export function shouldShowReminder(item: Control | Question | Request, now = def
     return item.status !== "COMPLETED" && hoursToDue <= REMINDER_WINDOW_HOURS && hoursToDue >= 0;
   }
 
-  const ageInHours = hourDiff(now, item.dateSent);
-  return item.status === "OPEN" && ageInHours > REMINDER_WINDOW_HOURS;
+  const hoursToDue = hourDiff(item.dueDate, now);
+  return item.status !== "RESPONDED" && hoursToDue <= REMINDER_WINDOW_HOURS && hoursToDue >= 0;
 }
 
 export function getNow(now = defaultContext.now) {
@@ -192,7 +192,21 @@ export function getQuestionCurrentDelayHours(question: Question, now = defaultCo
   return Math.max(0, hourDiff(now, question.dueDate));
 }
 
-export function getQuestionRealizedDelayHours(question: Question) {
+export function getQuestionRealizedDelayHours(
+  question: Question,
+  questionPool?: Question[],
+  requestPool?: Request[],
+) {
+  if (questionPool && requestPool) {
+    const latestResolvedAt = getLatestChainResolvedAt({ question, questionPool, requestPool, visitedKeys: new Set<string>() });
+
+    if (!latestResolvedAt) {
+      return 0;
+    }
+
+    return Math.max(0, hourDiff(latestResolvedAt, question.dueDate));
+  }
+
   if (!question.responseDate) {
     return 0;
   }
@@ -208,7 +222,21 @@ export function getRequestCurrentDelayHours(request: Request, now = defaultConte
   return Math.max(0, hourDiff(now, request.dueDate));
 }
 
-export function getRequestRealizedDelayHours(request: Request) {
+export function getRequestRealizedDelayHours(
+  request: Request,
+  questionPool?: Question[],
+  requestPool?: Request[],
+) {
+  if (questionPool && requestPool) {
+    const latestResolvedAt = getLatestChainResolvedAt({ request, questionPool, requestPool, visitedKeys: new Set<string>() });
+
+    if (!latestResolvedAt) {
+      return 0;
+    }
+
+    return Math.max(0, hourDiff(latestResolvedAt, request.dueDate));
+  }
+
   const resolvedAt = request.completedAt ?? request.receivedDate;
 
   if (!resolvedAt) {
@@ -302,7 +330,9 @@ export function normalizeAuditPhaseFromAudit(audit: { active_phase?: string | nu
 
 export function getDashboardKpis(phase: AuditPhase, context: AuditLogicContext = defaultContext): KPIProps[] {
   if (phase === "Planning") {
-    const ownerAssignedCount = context.controls.filter((control) => Boolean(control.ownerId)).length;
+    const ownerEligibleControls = context.controls.filter((control) => control.scopeStatus === "IN_SCOPE");
+    const ownerAssignedCount = ownerEligibleControls.filter((control) => Boolean(control.ownerId)).length;
+    const ownerEligibleTotal = ownerEligibleControls.length;
     const scopeAssignedCount = context.controls.filter((control) => control.hasExplicitScopeAssignment).length;
     const configuredPhaseBudgets = context.budgetByPhase.filter((phaseBudget) => phaseBudget.isSet).length;
     const missingPhaseBudgets = context.budgetByPhase.length - configuredPhaseBudgets;
@@ -315,10 +345,10 @@ export function getDashboardKpis(phase: AuditPhase, context: AuditLogicContext =
     return [
       {
         title: "Owners assigned",
-        value: `${getPercent(ownerAssignedCount, totalControls)}%`,
-        status: ownerAssignedCount === totalControls ? "normal" : ownerAssignedCount >= Math.ceil(totalControls / 2) ? "warning" : "risk",
-        subtitle: `${ownerAssignedCount} of ${totalControls} controls have an assigned audit owner`,
-        delta: ownerAssignedCount === totalControls ? "Owner assignment is complete" : `${totalControls - ownerAssignedCount} controls still need assignment`,
+        value: `${getPercent(ownerAssignedCount, ownerEligibleTotal)}%`,
+        status: ownerAssignedCount === ownerEligibleTotal ? "normal" : ownerAssignedCount >= Math.ceil(ownerEligibleTotal / 2) ? "warning" : "risk",
+        subtitle: `${ownerAssignedCount} of ${ownerEligibleTotal} in-scope controls have an assigned audit owner`,
+        delta: ownerAssignedCount === ownerEligibleTotal ? "Owner assignment is complete" : `${ownerEligibleTotal - ownerAssignedCount} in-scope controls still need assignment`,
       },
       {
         title: "Phase budgets pending",
@@ -483,12 +513,15 @@ export function getRiskRows(phase: AuditPhase, context: AuditLogicContext = defa
     ];
 
     const planningDocumentRows: RiskRow[] = planningDraftDefinitions.flatMap((definition) => {
-      const matchingDocuments = context.documents.filter(
-        (document) => document.type === definition.type && document.status !== "COMPLETE",
-      );
+      const matchingDocuments = context.documents.filter((document) => document.type === definition.type);
+      const incompleteDocuments = matchingDocuments.filter((document) => document.status !== "COMPLETE");
 
-      if (matchingDocuments.length > 0) {
-        return matchingDocuments.map((document) => ({
+      if (matchingDocuments.length > 0 && incompleteDocuments.length === 0) {
+        return [];
+      }
+
+      if (incompleteDocuments.length > 0) {
+        return incompleteDocuments.map((document) => ({
           id: document.id,
           area: "Document" as const,
           title: document.title || definition.fallbackTitle,
@@ -550,7 +583,7 @@ export function getRiskRows(phase: AuditPhase, context: AuditLogicContext = defa
   const controlRows: RiskRow[] = context.controls
     .filter((control) => {
       const hoursToDue = control.dueDate ? hourDiff(control.dueDate, context.now) : Number.POSITIVE_INFINITY;
-      return hoursToDue <= 48 || control.actualHours > control.plannedHours;
+      return control.status !== "COMPLETE" && (hoursToDue <= 48 || control.actualHours > control.plannedHours);
     })
     .map((control) => ({
       id: control.id,
@@ -571,7 +604,7 @@ export function getRiskRows(phase: AuditPhase, context: AuditLogicContext = defa
       title: question.questionText,
       owner: question.assignedTo,
       status: getQuestionDisplayStatus(question, context.now),
-      trigger: isQuestionOverdue(question, context.now) ? "Response overdue" : "Awaiting response > 48h",
+      trigger: isQuestionOverdue(question, context.now) ? "Response overdue" : "Due inside 48 hours",
       dueDate: question.dueDate,
       severity: "risk" as const,
     }));
@@ -622,11 +655,12 @@ export function getExecutiveNarrative(phase: AuditPhase, context: AuditLogicCont
 
 export function getPhaseSpotlight(phase: AuditPhase, context: AuditLogicContext = defaultContext): PhaseSpotlight {
   if (phase === "Planning") {
-    const controlsAwaitingOwner = context.controls.filter((control) => !control.ownerId).length;
-    const controlsAwaitingBudget = context.controls.filter((control) => control.assignedPlannedHours === undefined).length;
-    const controlsAwaitingTimeline = context.controls.filter((control) => !control.assignedDueDate).length;
+    const ownerEligibleControls = context.controls.filter((control) => control.scopeStatus === "IN_SCOPE");
+    const controlsAwaitingOwner = ownerEligibleControls.filter((control) => !control.ownerId).length;
+    const controlsAwaitingBudget = ownerEligibleControls.filter((control) => control.assignedPlannedHours === undefined).length;
+    const controlsAwaitingTimeline = ownerEligibleControls.filter((control) => !control.assignedDueDate).length;
     const planningBudgetHoursPending = context.controls
-      .filter((control) => control.assignedPlannedHours === undefined)
+      .filter((control) => control.scopeStatus === "IN_SCOPE" && control.assignedPlannedHours === undefined)
       .reduce((sum, control) => sum + (control.importedPlannedHours ?? control.plannedHours), 0);
     const planningArtifactsPending = context.documents.filter(
       (document) => planningDocumentTypes.has(document.type) && document.status !== "COMPLETE",
@@ -775,6 +809,10 @@ function getPercent(value: number, total: number) {
 }
 
 function getPlanningControlGaps(control: Control) {
+  if (control.scopeStatus === "OUT_OF_SCOPE") {
+    return [];
+  }
+
   const gaps: string[] = [];
 
   if (!control.assignedOwnerId) {
@@ -819,19 +857,72 @@ function getChainDelayHours({
   now: string;
   visitedKeys: Set<string>;
 }): number {
+  const rootDueDate = question?.dueDate ?? request?.dueDate;
+
+  if (!rootDueDate) {
+    return 0;
+  }
+
+  const terminalAt = getChainTerminalAt({
+    question,
+    request,
+    questionPool,
+    requestPool,
+    now,
+    visitedKeys,
+  });
+
+  if (!terminalAt) {
+    return 0;
+  }
+
+  return Math.max(0, hourDiff(terminalAt, rootDueDate));
+}
+
+function getChainTerminalAt({
+  question,
+  request,
+  questionPool,
+  requestPool,
+  now,
+  visitedKeys,
+}: {
+  question?: Question;
+  request?: Request;
+  questionPool: Question[];
+  requestPool: Request[];
+  now: string;
+  visitedKeys: Set<string>;
+}): string | null {
+  if (hasOpenChainItem({ question, request, questionPool, requestPool, visitedKeys })) {
+    return now;
+  }
+
+  return getLatestChainResolvedAt({ question, request, questionPool, requestPool, visitedKeys: new Set<string>() });
+}
+
+function hasOpenChainItem({
+  question,
+  request,
+  questionPool,
+  requestPool,
+  visitedKeys,
+}: {
+  question?: Question;
+  request?: Request;
+  questionPool: Question[];
+  requestPool: Request[];
+  visitedKeys: Set<string>;
+}): boolean {
   const nodeKey = question ? `question:${question.id}` : request ? `request:${request.id}` : null;
 
   if (!nodeKey || visitedKeys.has(nodeKey)) {
-    return 0;
+    return false;
   }
 
   visitedKeys.add(nodeKey);
 
-  const ownDelay = question
-    ? Math.max(getQuestionCurrentDelayHours(question, now), getQuestionRealizedDelayHours(question))
-    : request
-      ? Math.max(getRequestCurrentDelayHours(request, now), getRequestRealizedDelayHours(request))
-      : 0;
+  const isOpen = question ? question.status !== "RESPONDED" : request ? request.status !== "COMPLETED" : false;
 
   const followUps = question
     ? getQuestionFollowUps(question, questionPool, requestPool)
@@ -839,18 +930,61 @@ function getChainDelayHours({
       ? getRequestFollowUps(request, questionPool, requestPool)
       : { questions: [], requests: [] };
 
-  const questionDelay: number = followUps.questions.reduce(
-    (total, followUp) =>
-      total + getChainDelayHours({ question: followUp, questionPool, requestPool, now, visitedKeys }),
-    0,
+  return (
+    isOpen ||
+    followUps.questions.some((followUp) =>
+      hasOpenChainItem({ question: followUp, questionPool, requestPool, visitedKeys }),
+    ) ||
+    followUps.requests.some((followUp) =>
+      hasOpenChainItem({ request: followUp, questionPool, requestPool, visitedKeys }),
+    )
   );
-  const requestDelay: number = followUps.requests.reduce(
-    (total, followUp) =>
-      total + getChainDelayHours({ request: followUp, questionPool, requestPool, now, visitedKeys }),
-    0,
-  );
+}
 
-  return ownDelay + questionDelay + requestDelay;
+function getLatestChainResolvedAt({
+  question,
+  request,
+  questionPool,
+  requestPool,
+  visitedKeys,
+}: {
+  question?: Question;
+  request?: Request;
+  questionPool: Question[];
+  requestPool: Request[];
+  visitedKeys: Set<string>;
+}): string | null {
+  const nodeKey = question ? `question:${question.id}` : request ? `request:${request.id}` : null;
+
+  if (!nodeKey || visitedKeys.has(nodeKey)) {
+    return null;
+  }
+
+  visitedKeys.add(nodeKey);
+
+  const resolvedAt = question?.responseDate ?? request?.completedAt ?? request?.receivedDate ?? null;
+  const followUps = question
+    ? getQuestionFollowUps(question, questionPool, requestPool)
+    : request
+      ? getRequestFollowUps(request, questionPool, requestPool)
+      : { questions: [], requests: [] };
+  const resolvedDates = [
+    resolvedAt,
+    ...followUps.questions.map((followUp) =>
+      getLatestChainResolvedAt({ question: followUp, questionPool, requestPool, visitedKeys }),
+    ),
+    ...followUps.requests.map((followUp) =>
+      getLatestChainResolvedAt({ request: followUp, questionPool, requestPool, visitedKeys }),
+    ),
+  ].filter((value): value is string => Boolean(value));
+
+  if (resolvedDates.length === 0) {
+    return null;
+  }
+
+  return resolvedDates.reduce((latest, candidate) =>
+    new Date(candidate).getTime() > new Date(latest).getTime() ? candidate : latest,
+  );
 }
 
 function capitalize(value: string) {

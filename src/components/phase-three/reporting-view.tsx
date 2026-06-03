@@ -27,6 +27,7 @@ import {
   getActiveReviewStage,
   getReportReadinessMessage,
   getResultsSummaryCards,
+  getWorkflowCompletionState,
   type ReportingResultItem,
 } from "@/lib/reporting";
 import type { ReportingArtifactDraft, ReportingSummaryCard, ReportingViewModel } from "@/lib/reporting-data";
@@ -573,6 +574,7 @@ function ArtifactCard({
   const title = isFinalReport ? "Generate final audit report draft" : "Generate reporting tollgate draft";
   const generateLabel = isFinalReport ? "Generate final report" : "Generate tollgate";
   const regenerateLabel = isFinalReport ? "Re-generate final report" : "Re-generate reporting tollgate";
+  const isFinalizedArtifact = draft.status === "COMPLETE" || getWorkflowCompletionState(workflow);
   const ownerLabel = "Jordan Lee";
   const reviewSummary = activeStage ? `${activeStage.reviewerRole} ${activeStage.status.replaceAll("_", " ")}` : null;
 
@@ -594,7 +596,7 @@ function ArtifactCard({
           >
             <ArrowRight size={18} className={`transition-transform duration-200 ${isCollapsed ? "rotate-0" : "rotate-90"}`} />
           </button>
-          {!isCollapsed ? (
+          {!isCollapsed && !isFinalizedArtifact ? (
             <>
               <button
                 type="button"
@@ -627,6 +629,11 @@ function ArtifactCard({
               {draft.updatedAt ? <span>Updated {formatDateTime(draft.updatedAt)}</span> : null}
               {reviewSummary ? <span>{reviewSummary}</span> : null}
             </div>
+            {isFinalizedArtifact ? (
+              <div className="border border-[rgba(5,171,140,0.2)] bg-[rgba(5,171,140,0.08)] px-4 py-3 text-sm text-[var(--brand-teal-core)]">
+                This artifact is approved and finalized.
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-5 grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
@@ -646,6 +653,7 @@ function ArtifactCard({
                   <button
                     type="button"
                     onClick={() => setViewMode("edit")}
+                    disabled={isFinalizedArtifact}
                     className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                       viewMode === "edit" ? "bg-[var(--brand-indigo-core)] text-white" : "border border-black/10 bg-white text-[var(--muted)]"
                     }`}
@@ -682,7 +690,7 @@ function ArtifactCard({
                     <button
                       type="button"
                       onClick={onSave}
-                      disabled={!canEditLive || isPending || markdown.trim().length === 0}
+                      disabled={!canEditLive || isPending || isFinalizedArtifact || markdown.trim().length === 0}
                       className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isPending ? "Saving..." : "Save edits"}
@@ -696,7 +704,7 @@ function ArtifactCard({
                   value={markdown}
                   onChange={(event) => onChangeMarkdown(event.target.value)}
                   rows={18}
-                  disabled={!canEditLive}
+                  disabled={!canEditLive || isFinalizedArtifact}
                   placeholder="Generate a draft, then edit it here."
                   className="mt-4 w-full resize-y border border-black/10 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none disabled:cursor-not-allowed disabled:opacity-70"
                 />
@@ -777,7 +785,7 @@ function ArtifactCard({
                   </div>
                 )}
 
-                {canEditLive && (canAct || isAicResolving) ? (
+                {canEditLive && !isFinalizedArtifact && (canAct || isAicResolving) ? (
                   <div className="mt-4 border border-black/5 bg-[var(--surface-soft)] p-4">
                     <p className="text-sm font-semibold text-[var(--foreground)]">
                       Signed in as {activeUserName} ({activeUserRole})

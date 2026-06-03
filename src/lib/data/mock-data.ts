@@ -19,7 +19,7 @@ export const users: User[] = [
   { id: "U5", name: "Mia Chen", email: "mia.chen@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
   { id: "U6", name: "Noah Bennett", email: "noah.bennett@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
   { id: "U7", name: "Sofia Ramirez", email: "sofia.ramirez@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
-  { id: "U8", name: "Avery Collins", email: "avery.collins@mfcorp.com", role: "STAFF", team: "Finance Lead", companyName: DEFAULT_COMPANY_NAME },
+  { id: "U8", name: "Avery Collins", email: "avery.collins@mfcorp.com", role: "STAFF", team: "Identity & Access Management - Avery Collins", companyName: DEFAULT_COMPANY_NAME },
 ];
 
 export const controls: Control[] = [

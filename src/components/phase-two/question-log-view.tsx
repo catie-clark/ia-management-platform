@@ -837,7 +837,7 @@ export function QuestionLogView({
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
-                        <ReminderButton visible={shouldShowReminder(question, currentNow)} tooltip="Awaiting response > 48h" />
+                        <ReminderButton visible={shouldShowReminder(question, currentNow)} tooltip="Due inside 48 hours" />
                         <button
                           type="button"
                           onClick={(event) => {

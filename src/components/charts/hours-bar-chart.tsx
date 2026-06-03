@@ -16,12 +16,13 @@ export function HoursBarChart({
   variant?: "dashboard" | "workspace";
 }) {
   const isWorkspace = variant === "workspace";
+  const yAxisMax = getYAxisMax(data);
 
   return (
     <section
       className={
         isWorkspace
-          ? "border border-black/5 bg-white px-5 py-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]"
+          ? "flex h-full min-h-[34rem] flex-col border border-black/5 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(1,30,65,0.05)]"
           : "rounded-[20px] border border-black/5 bg-white px-5 py-4 shadow-[0_16px_36px_rgba(1,30,65,0.07)]"
       }
     >
@@ -52,16 +53,22 @@ export function HoursBarChart({
         </div>
       </div>
 
-      <div className={isWorkspace ? "mt-3 h-[320px]" : "mt-4 h-[280px]"}>
+      <div className={isWorkspace ? "mt-3 min-h-[390px] flex-1" : "mt-4 h-[280px]"}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
             barGap={10}
-            margin={isWorkspace ? { top: 8, right: 8, left: -20, bottom: 0 } : { top: 12, right: 12, left: 0, bottom: 0 }}
+            margin={isWorkspace ? { top: 6, right: 8, left: -12, bottom: 0 } : { top: 12, right: 12, left: 0, bottom: 0 }}
           >
             <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
             <XAxis dataKey="phase" tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
-            <YAxis tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 12 }} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tick={{ fill: "var(--chart-axis)", fontSize: 12 }}
+              domain={[0, yAxisMax]}
+              tickCount={isWorkspace ? 6 : 5}
+            />
             <Tooltip
               cursor={{ fill: "rgba(245,168,0,0.08)" }}
               formatter={(value: number, name: string) => [value, formatSeriesLabel(name)]}
@@ -80,6 +87,18 @@ export function HoursBarChart({
       </div>
     </section>
   );
+}
+
+function getYAxisMax(data: BudgetByPhase[]) {
+  const maxHours = data.reduce((max, phase) => Math.max(max, phase.plannedHours, phase.actualHours), 0);
+
+  if (maxHours <= 0) {
+    return 100;
+  }
+
+  const paddedMax = maxHours * 1.08;
+  const step = paddedMax <= 120 ? 20 : paddedMax <= 300 ? 50 : 100;
+  return Math.ceil(paddedMax / step) * step;
 }
 
 function formatSeriesLabel(value: string) {

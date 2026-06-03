@@ -192,7 +192,6 @@ export function FieldworkView({
           currentPhase={viewModel.currentPhase}
           documents={documentRows}
           embedded
-          fieldworkBudgetHours={viewModel.fieldworkBudgetHours}
           mode={viewModel.mode}
           questions={viewModel.questions}
           requests={viewModel.requests}
@@ -500,6 +499,7 @@ function FieldworkTollgateCard({
   const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
   const [isWorkspaceExpanded, setIsWorkspaceExpanded] = useState(false);
 
+  const isFinalizedDraft = documentStatus === "COMPLETE" || reviewStatus === "APPROVED";
   const isReviewLocked = isReviewStageLocked(reviewStatus);
   const canReset = Boolean(draftTitle || markdown.trim().length > 0 || previewSections.length > 0);
   const canExport = markdown.trim().length > 0;
@@ -752,7 +752,7 @@ function FieldworkTollgateCard({
           >
             <ArrowRight size={18} className={`transition-transform duration-200 ${isCollapsed ? "rotate-0" : "rotate-90"}`} />
           </button>
-          {!isCollapsed ? (
+          {!isCollapsed && !isFinalizedDraft ? (
             <>
               <button
                 type="button"
@@ -817,7 +817,11 @@ function FieldworkTollgateCard({
                 Missing required template tokens: {missingTokens.join(", ")}
               </div>
             ) : null}
-            {isReviewLocked ? (
+            {isFinalizedDraft ? (
+              <div className="border border-[rgba(5,171,140,0.2)] bg-[rgba(5,171,140,0.08)] px-4 py-3 text-sm text-[var(--brand-teal-core)]">
+                This tollgate is approved and finalized.
+              </div>
+            ) : isReviewLocked ? (
               <div className="border border-[rgba(245,168,0,0.2)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--brand-amber-dark)]">
                 This draft is locked while it is in review.
               </div>
@@ -1360,7 +1364,7 @@ function getDraftReviewSuccessMessage(label: string, action: "approve" | "send_b
 }
 
 function isReviewStageLocked(status: DocumentReviewStatus) {
-  return status === "AIC_REVIEW" || status === "MANAGER_REVIEW" || status === "DIRECTOR_REVIEW";
+  return status === "AIC_REVIEW" || status === "MANAGER_REVIEW" || status === "DIRECTOR_REVIEW" || status === "APPROVED";
 }
 
 function downloadDraftAsWord({

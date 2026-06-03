@@ -71,7 +71,6 @@ type ControlTestingViewProps = {
   currentPhase: AuditPhase;
   documents: AuditDocument[];
   embedded?: boolean;
-  fieldworkBudgetHours?: number | null;
   mode: DashboardMode;
   questions: Question[];
   requests: Request[];
@@ -111,7 +110,6 @@ export function ControlTestingView({
   currentPhase,
   documents,
   embedded = false,
-  fieldworkBudgetHours = null,
   mode,
   questions,
   requests,
@@ -606,9 +604,7 @@ export function ControlTestingView({
                   currentNow={currentNow}
                   currentUserId={activeUser.id}
                   exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
-                  fieldworkBudgetHours={fieldworkBudgetHours}
                   isSaving={isSaving}
-                  allControls={controlRecords}
                   linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
                   linkedTestingMatrices={selectedControl ? getMatricesForControl(testingMatrixRows, selectedControl.id) : []}
                   linkedWorkpapers={linkedWorkpapers}
@@ -665,9 +661,7 @@ export function ControlTestingView({
             contained
             control={selectedControl}
             controlAttachments={linkedNonWorkpaperDocuments}
-            allMatrices={testingMatrixRows}
             matrices={selectedTestingMatrices}
-            fieldworkBudgetHours={fieldworkBudgetHours}
             mode={mode}
             onClose={() => setSelectedTestingMatrixControlId("")}
             onMatricesUpdated={(nextMatrices) => {
@@ -694,8 +688,6 @@ export function ControlTestingView({
               currentUserId={activeUser.id}
               isSaving={isSaving}
               exceptions={controlExceptionsByControlId[selectedControl.id] ?? []}
-              fieldworkBudgetHours={fieldworkBudgetHours}
-              allControls={controlRecords}
               linkedNonWorkpaperDocuments={linkedNonWorkpaperDocuments}
               linkedTestingMatrices={selectedControl ? getMatricesForControl(testingMatrixRows, selectedControl.id) : []}
               linkedWorkpapers={linkedWorkpapers}
@@ -752,9 +744,7 @@ export function ControlTestingView({
             auditId={auditId}
             control={selectedControl}
             controlAttachments={linkedNonWorkpaperDocuments}
-            allMatrices={testingMatrixRows}
             matrices={selectedTestingMatrices}
-            fieldworkBudgetHours={fieldworkBudgetHours}
             mode={mode}
             onClose={() => setSelectedTestingMatrixControlId("")}
             onMatricesUpdated={(nextMatrices) => {
@@ -774,9 +764,7 @@ function ControlDetailContent({
   currentNow,
   currentUserId,
   exceptions,
-  fieldworkBudgetHours,
   isSaving,
-  allControls,
   linkedNonWorkpaperDocuments,
   linkedTestingMatrices,
   linkedWorkpapers,
@@ -806,9 +794,7 @@ function ControlDetailContent({
   currentNow: string;
   currentUserId: string;
   exceptions: ControlException[];
-  fieldworkBudgetHours?: number | null;
   isSaving: boolean;
-  allControls: Control[];
   linkedNonWorkpaperDocuments: AuditDocument[];
   linkedTestingMatrices: ControlTestingMatrix[];
   linkedWorkpapers: AuditDocument[];
@@ -837,17 +823,6 @@ function ControlDetailContent({
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentDescription, setAttachmentDescription] = useState("");
-  const controlHoursGuide = useMemo(
-    () =>
-      buildControlFieldworkHoursGuide({
-        controls: allControls,
-        fieldworkBudgetHours,
-        plannedHoursInput: planningForm.plannedHours,
-        selectedControlId: selectedControl.id,
-      }),
-    [allControls, fieldworkBudgetHours, planningForm.plannedHours, selectedControl.id],
-  );
-
   useEffect(() => {
     resetAttachmentForm();
   }, [selectedControl.id]);
@@ -926,9 +901,7 @@ function ControlDetailContent({
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Planning decisions</p>
               <h3 className="mt-1.5 text-base font-semibold text-[var(--foreground)]">Control setup stored on this audit</h3>
               <p className="mt-1.5 text-[13px] text-[var(--muted)]">
-                {workspaceSettings.showControlBudgetHours
-                  ? "Managers, the AIC, and the director can assign the control owner, target due date, budgeted hours, and scope for this audit during planning."
-                  : "Managers, the AIC, and the director can assign the control owner, target due date, and scope for this audit during planning."}
+                Managers, the AIC, and the director can assign the control owner, target due date, and scope for this audit during planning.
               </p>
             </div>
           </div>
@@ -959,21 +932,6 @@ function ControlDetailContent({
                 className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
               />
             </label>
-
-            {workspaceSettings.showControlBudgetHours ? (
-              <label className="grid gap-2 md:col-span-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Budgeted hours</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.25"
-                  value={planningForm.plannedHours}
-                  onChange={(event) => setPlanningForm((current) => ({ ...current, plannedHours: event.target.value }))}
-                  className="rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-3.5 py-2.5 text-[13px] outline-none"
-                />
-                <FieldworkHoursGuide guide={controlHoursGuide} />
-              </label>
-            ) : null}
 
             <label className="grid gap-2 md:col-span-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Scope decision</span>
@@ -1374,83 +1332,6 @@ function InfoCard({ label, value }: { label: string; value: string }) {
       <p className="mt-1.5 text-[13px] font-medium text-[var(--foreground)]">{value}</p>
     </div>
   );
-}
-
-type FieldworkHoursGuideModel = {
-  fieldworkBudgetHours: number | null;
-  otherAllocatedHours: number;
-  remainingHours: number | null;
-  selectedBudgetHours: number;
-  totalAllocatedHours: number;
-};
-
-function FieldworkHoursGuide({ guide }: { guide: FieldworkHoursGuideModel }) {
-  if (guide.fieldworkBudgetHours === null) {
-    return (
-      <span className="border-l-2 border-[rgba(0,46,98,0.18)] pl-3 text-[12px] leading-5 text-[var(--muted)]">
-        Fieldwork hours have not been set in planning yet. This control budget will save independently.
-      </span>
-    );
-  }
-
-  const remainingTone = guide.remainingHours !== null && guide.remainingHours < 0 ? "text-[var(--brand-coral)]" : "text-[var(--brand-teal-core)]";
-
-  return (
-    <span className="grid gap-1 border-l-2 border-[rgba(0,46,98,0.18)] pl-3 text-[12px] leading-5 text-[var(--muted)]">
-      <span>
-        Fieldwork pool: <strong className="font-semibold text-[var(--foreground)]">{formatGuideHours(guide.fieldworkBudgetHours)}</strong>
-      </span>
-      <span>
-        Other controls allocated: <strong className="font-semibold text-[var(--foreground)]">{formatGuideHours(guide.otherAllocatedHours)}</strong>
-      </span>
-      <span>
-        Available after this control: <strong className={cn("font-semibold", remainingTone)}>{formatGuideHours(guide.remainingHours ?? 0)}</strong>
-      </span>
-    </span>
-  );
-}
-
-function buildControlFieldworkHoursGuide({
-  controls,
-  fieldworkBudgetHours,
-  plannedHoursInput,
-  selectedControlId,
-}: {
-  controls: Control[];
-  fieldworkBudgetHours?: number | null;
-  plannedHoursInput: string;
-  selectedControlId: string;
-}): FieldworkHoursGuideModel {
-  const normalizedFieldworkBudget = normalizeGuideHours(fieldworkBudgetHours);
-  const selectedBudgetHours = normalizeGuideHours(Number(plannedHoursInput)) ?? 0;
-  const otherAllocatedHours = controls.reduce((sum, control) => {
-    if (control.id === selectedControlId) {
-      return sum;
-    }
-
-    return sum + (normalizeGuideHours(control.plannedHours) ?? 0);
-  }, 0);
-  const totalAllocatedHours = otherAllocatedHours + selectedBudgetHours;
-
-  return {
-    fieldworkBudgetHours: normalizedFieldworkBudget,
-    otherAllocatedHours,
-    remainingHours: normalizedFieldworkBudget === null ? null : normalizedFieldworkBudget - totalAllocatedHours,
-    selectedBudgetHours,
-    totalAllocatedHours,
-  };
-}
-
-function normalizeGuideHours(value: number | null | undefined) {
-  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) {
-    return value === null || value === undefined ? null : 0;
-  }
-
-  return Math.round(value * 4) / 4;
-}
-
-function formatGuideHours(value: number) {
-  return `${value.toFixed(value % 1 === 0 ? 0 : 2)}h`;
 }
 
 function HoverInfoCard({ text }: { text: string }) {

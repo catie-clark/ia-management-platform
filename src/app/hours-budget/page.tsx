@@ -28,6 +28,8 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
   const viewModel = await getHoursBudgetViewModel({ auditId, auditLabel, mode, phaseOverride, syncCount });
   const trackedCapacity = viewModel.totalBudgetHours ?? viewModel.totalPlanned;
   const remaining = trackedCapacity - viewModel.totalActual;
+  const currentPhaseBudget = viewModel.phaseBudgets.find((phaseBudget) => phaseBudget.phase === viewModel.currentPhase);
+  const currentPhaseActual = currentPhaseBudget?.actualHours ?? 0;
 
   return (
     <div>
@@ -45,8 +47,8 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
         <div className="contents">
           <SummaryCell label="Phase planned hours" value={formatHours(viewModel.totalPlanned)} detail="Saved across planning, fieldwork and reporting" />
           <SummaryCell
-            label="Actual hours"
-            value={formatHours(viewModel.totalActual)}
+            label={`${viewModel.currentPhase} actual hours`}
+            value={formatHours(currentPhaseActual)}
             detail={`Recorded in ${viewModel.currentPhase.toLowerCase()} so far`}
             badge={<StatusBadge status="Actuals" tone={viewModel.currentPhaseVariance > 0 ? "risk" : "success"} />}
           />
@@ -77,7 +79,7 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
         </div>
       </section>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <AuditHoursPlanner
           auditId={viewModel.auditId}
           currentPhase={viewModel.currentPhase}
@@ -104,7 +106,7 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
       </div>
 
       <div className="mt-6">
-        <section className="border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+        <section className="flex h-[34rem] flex-col border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
           <div className="border-b border-black/5 px-5 py-4 sm:px-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
@@ -126,7 +128,7 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
             Total recorded actual hours in this staffing view: <span className="font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             {viewModel.timeEntries.length > 0 ? (
               <table className="min-w-full border-collapse">
                 <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
@@ -198,7 +200,7 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
 
       {viewModel.controlTestBudgets.hasData ? (
         <div className="mt-6">
-          <section className="border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+          <section className="flex h-[34rem] flex-col border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
             <div className="flex flex-col gap-3 border-b border-black/5 px-5 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Control test budgets</p>
@@ -213,7 +215,7 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
               </p>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               <table className="min-w-full border-collapse">
                 <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
                   <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
