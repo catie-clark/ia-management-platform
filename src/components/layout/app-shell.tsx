@@ -51,7 +51,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const isLandingPage = pathname === "/";
+  const isLandingPage = pathname === "/" || pathname === "/demo-login" || pathname === "/audit-intake";
   const demoUsers = useMemo(() => selectSwitcherUsers(users, users), []);
   const [availableUsers, setAvailableUsers] = useState<User[]>(demoUsers);
   const [activeUserId, setActiveUserId] = useState("U2");

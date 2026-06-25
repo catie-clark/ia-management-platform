@@ -246,3 +246,38 @@ tr:hover .control-cell-overdue-last {
     background-position: 0% 50%;
   }
 }
+
+@keyframes shimmer-sweep {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-btn {
+  background: linear-gradient(
+    90deg,
+    var(--brand-amber-core) 0%,
+    var(--brand-amber-bright) 38%,
+    #fff8e6 50%,
+    var(--brand-amber-bright) 62%,
+    var(--brand-amber-core) 100%
+  );
+  background-size: 200% auto;
+  animation: shimmer-sweep 2.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-btn {
+    animation: none;
+    background: var(--brand-amber-core);
+  }
+}
+
+.dot-pattern-bg {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 24px 24px;
+}

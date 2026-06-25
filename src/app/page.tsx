@@ -2,1687 +2,271 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import {
-  type ChangeEvent,
-  type Dispatch,
-  type FormEvent,
-  type InputHTMLAttributes,
-  type ReactNode,
-  type SetStateAction,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { CheckCircle2, FolderOpen, ShieldCheck, Sparkles, Upload, X } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import { ArrowRight, BarChart3, BookOpen, ClipboardList, Clock, FileStack } from "lucide-react";
 
 import { AuroraText } from "@/components/ui/aurora-text";
-import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 
-type UploadRequirement = {
-  id:
-    | "controls"
-    | "rcm"
-    | "questions"
-    | "requests"
-    | "documents"
-    | "applications"
-    | "users"
-    | "thirdParties"
-    | "risks"
-    | "riskControlLinks"
-    | "rcsaRecords"
-    | "issues"
-    | "monitoringResults"
-    | "priorAuditFindings";
-  label: string;
-  description: string;
-  helpText: string;
-  accept: string;
-  required: boolean;
-  category: "core" | "workflow" | "advanced";
-  sourceEntity:
-    | "controls"
-    | "rcm"
-    | "questions"
-    | "requests"
-    | "documents"
-    | "applications"
-    | "users"
-    | "third_parties"
-    | "risks"
-    | "risk_control_links"
-    | "rcsa_records"
-    | "issues"
-    | "monitoring_results"
-    | "prior_audit_findings";
-  keywords: string[];
-};
-
-type UploadMode = "guided" | "folder";
-
-type AuditForm = {
-  auditName: string;
-  auditPeriodStart: string;
-  auditPeriodEnd: string;
-  scopePeriodStart: string;
-  scopePeriodEnd: string;
-  totalBudgetHours: string;
-  importSourceAuditId: string;
-};
-
-type UploadedFiles = Record<UploadRequirement["id"], File | null>;
-
-type ExistingAuditOption = {
-  id: string;
-  name: string;
-  companyName?: string | null;
-  period: string;
-  status: string;
-  activePhase?: string;
-  totalBudgetHours: number | null;
-  planningBudgetHours: number | null;
-  fieldworkBudgetHours: number | null;
-  reportingBudgetHours: number | null;
-};
-
-type SavedImportSummary = {
-  auditId?: string;
-  batchId: string;
-  status: string;
-  rowCount: number;
-  fileCount: number;
-  totalBudgetHours?: number | null;
-  parseErrors: Array<{
-    fileName: string;
-    fieldName: UploadRequirement["id"];
-    message: string;
-  }>;
-  transformSummary?: {
-    businessUnitsUpserted: number;
-    usersUpserted: number;
-    controlsUpserted: number;
-    riskControlLinksUpserted: number;
-    questionsUpserted: number;
-    requestsUpserted: number;
-    documentsUpserted: number;
-    rowsValidated: number;
-  };
-};
-
-type FolderMappedFile = {
-  id: string;
-  file: File;
-  suggestedTarget: UploadRequirement["id"] | null;
-  assignedTarget: UploadRequirement["id"] | null;
-  suggestionScore: number;
-  suggestionReason: string[];
-  relativePath: string;
-};
-
-const uploadRequirements: UploadRequirement[] = [
+const features = [
   {
-    id: "controls",
-    label: "Controls dataset",
-    description: "Primary control population for the audit. This file defines which controls are in scope for the workspace.",
-    helpText: "Expected examples: controls export, scope list, test population, or Archer control inventory.",
-    accept: ".csv",
-    required: true,
-    category: "core",
-    sourceEntity: "controls",
-    keywords: [
-      "control",
-      "controls",
-      "control inventory",
-      "control population",
-      "control list",
-      "control universe",
-      "scope",
-      "scope list",
-      "scoped controls",
-      "population",
-      "test population",
-      "testing",
-      "control testing",
-      "archer",
-    ],
+    id: "dashboard",
+    icon: BarChart3,
+    eyebrow: "Executive Visibility",
+    title: "Audit status at a glance",
+    description:
+      "Real-time KPI cards, risk-flagged controls, and milestone timelines give every stakeholder a single view of audit health—no status meeting required.",
+    colSpan: "lg:col-span-7",
+    dark: true,
   },
   {
-    id: "rcm",
-    label: "RCM workbook",
-    description: "Optional risk control matrix workbook used to pre-populate testing matrices and testing workpapers for imported controls.",
-    helpText: "Expected examples: RCM workbook, risk control matrix, control test plan workbook. The workbook must include an `RCM` worksheet.",
-    accept: ".xlsx",
-    required: false,
-    category: "core",
-    sourceEntity: "rcm",
-    keywords: [
-      "rcm",
-      "risk control matrix",
-      "risk-control-matrix",
-      "control matrix",
-      "testing matrix",
-      "test plan",
-      "test steps",
-      "rcm workbook",
-      "workbook",
-    ],
+    id: "planning",
+    icon: BookOpen,
+    eyebrow: "Planning & Scoping",
+    title: "Scope rationale and tollgate prep",
+    description:
+      "Define audit objectives, document scope rationale, and build planning narratives and tollgate packages in a structured workflow.",
+    colSpan: "lg:col-span-5",
+    dark: false,
   },
   {
     id: "questions",
-    label: "Question log dataset",
-    description: "Optional auditor questions or inquiry tracking so the question log can load from imported data.",
-    helpText: "Expected examples: questions, inquiries, auditor asks, response tracker.",
-    accept: ".csv",
-    required: false,
-    category: "workflow",
-    sourceEntity: "questions",
-    keywords: ["question", "questions", "inquiry", "inquiries", "ask", "asks", "issue log", "qlog", "query"],
+    icon: ClipboardList,
+    eyebrow: "Question & Request Log",
+    title: "Track inquiries and PBC requests",
+    description:
+      "Log auditor questions, assign response deadlines, and track evidence requests with automated reminders and fulfillment status.",
+    colSpan: "lg:col-span-5",
+    dark: false,
   },
   {
-    id: "requests",
-    label: "Request log dataset",
-    description: "Optional PBC, evidence, or request tracker data for the request management workflow.",
-    helpText: "Expected examples: requests, pbc, evidence request, fulfillment tracker.",
-    accept: ".csv",
-    required: false,
-    category: "workflow",
-    sourceEntity: "requests",
-    keywords: [
-      "request",
-      "requests",
-      "pbc",
-      "provided by client",
-      "evidence",
-      "evidence request",
-      "fulfillment",
-      "supporting request",
-      "support request",
-    ],
+    id: "fieldwork",
+    icon: FileStack,
+    eyebrow: "Fieldwork & Workpapers",
+    title: "Evidence-linked testing workpapers",
+    description:
+      "Auto-generated testing matrices, reviewer sign-off workflows, and evidence dependency tracking from controls import to conclusion.",
+    colSpan: "lg:col-span-7",
+    dark: true,
   },
   {
-    id: "applications",
-    label: "Applications reference data",
-    description: "Optional application inventory to connect controls and issues to systems in scope.",
-    helpText: "Expected examples: applications, app inventory, system catalog.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "applications",
-    keywords: [
-      "application",
-      "applications",
-      "app",
-      "app inventory",
-      "system",
-      "systems",
-      "system inventory",
-      "inventory",
-      "catalog",
-    ],
-  },
-  {
-    id: "users",
-    label: "Users directory data",
-    description: "Optional user roster to seed audit participants, owners, and request contacts before other datasets are transformed.",
-    helpText: "Expected examples: users, user directory, personnel, audit team roster, employee contacts.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "users",
-    keywords: [
-      "user",
-      "users",
-      "user directory",
-      "directory",
-      "personnel",
-      "employee",
-      "employees",
-      "roster",
-      "contact",
-      "contacts",
-      "team",
-      "owner",
-      "owners",
-    ],
-  },
-  {
-    id: "thirdParties",
-    label: "Third-party reference data",
-    description: "Optional vendor or service-provider inventory for third-party and outsourced control context.",
-    helpText: "Expected examples: third parties, vendors, service providers, supplier inventory.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "third_parties",
-    keywords: [
-      "thirdparty",
-      "third party",
-      "third_party",
-      "vendor",
-      "vendors",
-      "supplier",
-      "suppliers",
-      "provider",
-      "providers",
-      "service provider",
-      "service providers",
-    ],
-  },
-  {
-    id: "risks",
-    label: "Risk register data",
-    description: "Optional risk register export to relate control coverage to the underlying risk landscape.",
-    helpText: "Expected examples: risks, risk register, inherent risk, residual risk.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "risks",
-    keywords: ["risk", "risks", "risk register", "riskregister", "inherent", "residual"],
-  },
-  {
-    id: "riskControlLinks",
-    label: "Risk-to-control mapping",
-    description: "Maps risk records to the controls they are mitigated by so the platform can load explicit risk-control relationships.",
-    helpText: "Expected examples: risk-to-control, risk_control_mapping, risk control links, risk control matrix.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "risk_control_links",
-    keywords: [
-      "riskcontrol",
-      "risk control",
-      "risk_control",
-      "risk to control",
-      "risktocontrol",
-      "risk control mapping",
-      "control mapping",
-      "risk control links",
-      "risk control matrix",
-      "controlmatrix",
-      "mitigates",
-      "mitigation mapping",
-    ],
-  },
-  {
-    id: "rcsaRecords",
-    label: "RCSA data",
-    description: "Optional RCSA outputs that can support planning, scoping, and coverage decisions.",
-    helpText: "Expected examples: rcsa, self assessment, risk control self assessment.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "rcsa_records",
-    keywords: [
-      "rcsa",
-      "self assessment",
-      "selfassessment",
-      "risk control self assessment",
-      "riskcontrolselfassessment",
-      "control self assessment",
-    ],
-  },
-  {
-    id: "issues",
-    label: "Issue tracker data",
-    description: "Optional issue or remediation data to provide current problem and action-plan context.",
-    helpText: "Expected examples: issues, findings tracker, remediation, open actions.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "issues",
-    keywords: [
-      "issue",
-      "issues",
-      "finding",
-      "findings",
-      "remediation",
-      "action",
-      "actions",
-      "tracker",
-      "issue tracker",
-      "remediation tracker",
-    ],
-  },
-  {
-    id: "monitoringResults",
-    label: "Monitoring results data",
-    description: "Optional monitoring or exception data to support trend analysis and ongoing control performance.",
-    helpText: "Expected examples: monitoring, exceptions, continuous monitoring, run results.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "monitoring_results",
-    keywords: [
-      "monitoring",
-      "monitoring results",
-      "exception",
-      "exceptions",
-      "results",
-      "continuous",
-      "continuous monitoring",
-      "run",
-      "run results",
-    ],
-  },
-  {
-    id: "priorAuditFindings",
-    label: "Prior audit findings",
-    description: "Optional historical findings to support repeat-issue analysis and planning decisions.",
-    helpText: "Expected examples: prior findings, historical audit issues, open audit actions.",
-    accept: ".csv",
-    required: false,
-    category: "advanced",
-    sourceEntity: "prior_audit_findings",
-    keywords: [
-      "prior audit",
-      "prior audits",
-      "prioraudit",
-      "prior finding",
-      "prior findings",
-      "priorfinding",
-      "audit finding",
-      "audit findings",
-      "auditfinding",
-      "historical finding",
-      "historical findings",
-      "historicalfinding",
-      "legacy findings",
-      "repeat issue",
-      "repeat issues",
-    ],
+    id: "budget",
+    icon: Clock,
+    eyebrow: "Hours, Budget & Reporting",
+    title: "Monitor spend and close cleanly",
+    description:
+      "Phase-level budget tracking, burn-rate visibility, and a reporting handoff workflow so the engagement closes on time and on budget.",
+    colSpan: "lg:col-span-12",
+    dark: false,
   },
 ];
 
-const emptyUploadedFiles: UploadedFiles = {
-  controls: null,
-  rcm: null,
-  questions: null,
-  requests: null,
-  documents: null,
-  applications: null,
-  users: null,
-  thirdParties: null,
-  risks: null,
-  riskControlLinks: null,
-  rcsaRecords: null,
-  issues: null,
-  monitoringResults: null,
-  priorAuditFindings: null,
-};
+export default function LandingPage() {
+  const prefersReducedMotion = useReducedMotion();
 
-function getRequiredUploadRequirementIds(files: UploadedFiles) {
-  const requiredIds: UploadRequirement["id"][] = ["controls"];
-
-  if (files.risks) {
-    requiredIds.push("riskControlLinks");
-  }
-
-  return requiredIds;
-}
-
-export default function HomePage() {
-  const router = useRouter();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedExistingAuditId, setSelectedExistingAuditId] = useState("");
-  const [auditForm, setAuditForm] = useState<AuditForm>({
-    auditName: "",
-    auditPeriodStart: "",
-    auditPeriodEnd: "",
-    scopePeriodStart: "",
-    scopePeriodEnd: "",
-    totalBudgetHours: "",
-    importSourceAuditId: "",
-  });
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFiles>(emptyUploadedFiles);
-  const [uploadMode, setUploadMode] = useState<UploadMode>("guided");
-  const [folderMappedFiles, setFolderMappedFiles] = useState<FolderMappedFile[]>([]);
-  const [hasConfiguredAudit, setHasConfiguredAudit] = useState(false);
-  const [isSavingAudit, setIsSavingAudit] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [savedImportSummary, setSavedImportSummary] = useState<SavedImportSummary | null>(null);
-  const [existingAuditOptions, setExistingAuditOptions] = useState<ExistingAuditOption[]>([]);
-
-  const requiredRequirementIds = useMemo(() => getRequiredUploadRequirementIds(uploadedFiles), [uploadedFiles]);
-  const requiredFilesSelected = requiredRequirementIds.every((requirementId) => uploadedFiles[requirementId] !== null);
-  const missingRequiredRequirementIds = requiredRequirementIds.filter((requirementId) => uploadedFiles[requirementId] === null);
-
-  const hasValidAuditPeriod =
-    auditForm.auditPeriodStart.length > 0 &&
-    auditForm.auditPeriodEnd.length > 0 &&
-    auditForm.auditPeriodStart <= auditForm.auditPeriodEnd;
-  const hasValidScopePeriod =
-    auditForm.scopePeriodStart.length > 0 &&
-    auditForm.scopePeriodEnd.length > 0 &&
-    auditForm.scopePeriodStart <= auditForm.scopePeriodEnd;
-  const hasValidTotalBudget =
-    auditForm.totalBudgetHours.trim().length === 0 ||
-    (Number.isFinite(Number(auditForm.totalBudgetHours)) && Number(auditForm.totalBudgetHours) >= 0);
-
-  const canLaunchPlatform =
-    auditForm.auditName.trim().length > 0 &&
-    hasValidAuditPeriod &&
-    hasValidScopePeriod &&
-    hasValidTotalBudget &&
-    requiredFilesSelected;
-  const selectedExistingAudit = existingAuditOptions.find((audit) => audit.id === selectedExistingAuditId) ?? null;
-  const liveDashboardQuery =
-    savedImportSummary?.auditId && auditForm.auditName.trim()
-      ? {
-          mode: "live",
-          auditId: savedImportSummary.auditId,
-          auditLabel: auditForm.auditName.trim(),
-          companyName: DEFAULT_COMPANY_NAME,
-          scopePeriodLabel: `${formatDate(auditForm.scopePeriodStart)} to ${formatDate(auditForm.scopePeriodEnd)}`,
-        }
-      : null;
-  const selectedAuditDashboardQuery = selectedExistingAudit
-    ? ({
-        mode: "live",
-        auditId: selectedExistingAudit.id,
-        auditLabel: selectedExistingAudit.name,
-        companyName: selectedExistingAudit.companyName ?? "",
-        scopePeriodLabel: selectedExistingAudit.period,
-      } as const)
-    : null;
-  const canLaunchNewAuditDashboard = liveDashboardQuery !== null && selectedAuditDashboardQuery === null;
-  const canLaunchExistingAuditDashboard = selectedAuditDashboardQuery !== null && liveDashboardQuery === null;
-  const configuredFileCount = useMemo(
-    () => Object.values(uploadedFiles).filter((file) => file !== null).length,
-    [uploadedFiles],
-  );
-  const uploadModeLabel = uploadMode === "folder" ? "Folder mapped" : "Manual mapping";
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAudits() {
-      try {
-        const response = await fetch("/api/audits", { cache: "no-store" });
-        const payload = (await response.json()) as
-          | Array<{
-              active_phase: string;
-              company_name?: string | null;
-              fieldwork_budget_hours?: number | null;
-              id: string;
-              name: string;
-              period_end: string;
-              period_start: string;
-              planning_budget_hours?: number | null;
-              reporting_budget_hours?: number | null;
-              scope_period_end?: string;
-              scope_period_start?: string;
-              status: string;
-              total_budget_hours?: number | null;
-            }>
-          | { error?: string };
-
-        if (!response.ok || !Array.isArray(payload) || cancelled) {
-          return;
-        }
-
-        setExistingAuditOptions(
-          payload.map((audit) => ({
-            id: audit.id,
-            name: audit.name,
-            companyName: audit.company_name ?? null,
-            period: `${formatDate(audit.scope_period_start ?? audit.period_start)} to ${formatDate(audit.scope_period_end ?? audit.period_end)}`,
-            status: `${audit.status} · ${audit.active_phase}`,
-            activePhase: audit.active_phase,
-            totalBudgetHours:
-              audit.total_budget_hours === null || audit.total_budget_hours === undefined
-                ? null
-                : Number(audit.total_budget_hours),
-            planningBudgetHours:
-              audit.planning_budget_hours === null || audit.planning_budget_hours === undefined
-                ? null
-                : Number(audit.planning_budget_hours),
-            fieldworkBudgetHours:
-              audit.fieldwork_budget_hours === null || audit.fieldwork_budget_hours === undefined
-                ? null
-                : Number(audit.fieldwork_budget_hours),
-            reportingBudgetHours:
-              audit.reporting_budget_hours === null || audit.reporting_budget_hours === undefined
-                ? null
-                : Number(audit.reporting_budget_hours),
-          })),
-        );
-      } catch {
-        if (!cancelled) {
-          setExistingAuditOptions([]);
-        }
-      }
-    }
-
-    void loadAudits();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [savedImportSummary]);
-
-  function openModal() {
-    setIsModalOpen(true);
-  }
-
-  function closeModal() {
-    setIsModalOpen(false);
-  }
-
-  function handleImportSourceAuditChange(nextAuditId: string) {
-    const selectedAudit = existingAuditOptions.find((audit) => audit.id === nextAuditId) ?? null;
-
-    setAuditForm((current) => ({
-      ...current,
-      importSourceAuditId: nextAuditId,
-      totalBudgetHours:
-        selectedAudit?.totalBudgetHours !== null && selectedAudit?.totalBudgetHours !== undefined
-          ? formatBudgetInput(selectedAudit.totalBudgetHours)
-          : "",
-    }));
-  }
-
-  function handleUploadModeChange(nextMode: UploadMode) {
-    setUploadMode(nextMode);
-    setSaveError("");
-  }
-
-  function handleFileChange(fileType: UploadRequirement["id"], event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-
-    setUploadedFiles((current) => ({ ...current, [fileType]: file }));
-
-    if (file) {
-      setFolderMappedFiles((current) =>
-        current.map((item) =>
-          item.assignedTarget === fileType
-            ? {
-                ...item,
-                assignedTarget: null,
-              }
-            : item,
-        ),
-      );
-    }
-  }
-
-  function handleFolderFilesChange(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFiles = Array.from(event.target.files ?? []).filter((file) => {
-      const normalizedName = file.name.toLowerCase();
-      return normalizedName.endsWith(".csv") || normalizedName.endsWith(".xlsx");
-    });
-    const mappedFiles = createFolderMappedFiles(selectedFiles);
-    setFolderMappedFiles(mappedFiles);
-    setUploadedFiles(buildUploadedFilesFromMappedFiles(mappedFiles));
-  }
-
-  function handleMappedFileTargetChange(fileId: string, nextTarget: UploadRequirement["id"] | "") {
-    const normalizedTarget = nextTarget || null;
-    const targetAlreadyUsed = normalizedTarget
-      ? folderMappedFiles.some((item) => item.id !== fileId && item.assignedTarget === normalizedTarget)
-      : false;
-
-    if (targetAlreadyUsed) {
-      return;
-    }
-
-    const nextMappedFiles = folderMappedFiles.map((item) =>
-      item.id === fileId
-        ? {
-            ...item,
-            assignedTarget: normalizedTarget,
-          }
-        : item,
-    );
-
-    setFolderMappedFiles(nextMappedFiles);
-    setUploadedFiles(buildUploadedFilesFromMappedFiles(nextMappedFiles));
-  }
-
-  async function handleCreateAudit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!canLaunchPlatform || isSavingAudit) {
-      return;
-    }
-
-    setIsSavingAudit(true);
-    setSaveError("");
-
-    try {
-      const formData = new FormData();
-      formData.append("auditName", auditForm.auditName.trim());
-      formData.append("auditPeriodStart", auditForm.auditPeriodStart);
-      formData.append("auditPeriodEnd", auditForm.auditPeriodEnd);
-      formData.append("scopePeriodStart", auditForm.scopePeriodStart);
-      formData.append("scopePeriodEnd", auditForm.scopePeriodEnd);
-      formData.append("totalBudgetHours", auditForm.totalBudgetHours.trim());
-      formData.append("importSourceAuditId", auditForm.importSourceAuditId);
-      formData.append("sourceSystem", "archer");
-
-      for (const requirement of uploadRequirements) {
-        const file = uploadedFiles[requirement.id];
-
-        if (file) {
-          formData.append(requirement.id, file);
-          formData.append(`sourceEntity_${requirement.id}`, requirement.sourceEntity);
-        }
-      }
-
-      const response = await fetch("/api/imports/csv", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = (await response.json()) as SavedImportSummary | { error?: string };
-
-      if (!response.ok) {
-        throw new Error("error" in payload ? payload.error : "The CSV upload failed.");
-      }
-
-      const uploadSummary = payload as SavedImportSummary;
-      const transformResponse = await fetch(`/api/imports/${uploadSummary.batchId}/transform`, {
-        method: "POST",
-      });
-      const transformPayload = (await transformResponse.json()) as
-        | { auditId?: string; summary?: SavedImportSummary["transformSummary"]; error?: string }
-        | undefined;
-
-      if (!transformResponse.ok) {
-        throw new Error(transformPayload?.error ?? "The transformation step failed.");
-      }
-
-      const auditId = transformPayload?.auditId;
-
-      if (!auditId) {
-        throw new Error("The import completed without returning an audit id.");
-      }
-
-      const auditLabel = auditForm.auditName.trim();
-      const scopePeriodLabel = `${formatDate(auditForm.scopePeriodStart)} to ${formatDate(auditForm.scopePeriodEnd)}`;
-
-      setSavedImportSummary({
-        ...uploadSummary,
-        auditId,
-        status: "loaded",
-        transformSummary: transformPayload?.summary,
-      });
-      setHasConfiguredAudit(true);
-      setIsModalOpen(false);
-      router.push(
-        `/dashboard?mode=live&auditId=${encodeURIComponent(auditId)}&auditLabel=${encodeURIComponent(auditLabel)}&companyName=${encodeURIComponent(DEFAULT_COMPANY_NAME)}&scopePeriodLabel=${encodeURIComponent(scopePeriodLabel)}`,
-      );
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "The CSV upload failed.");
-    } finally {
-      setIsSavingAudit(false);
-    }
-  }
-
-  function resetAuditSetup() {
-      setAuditForm({
-        auditName: "",
-        auditPeriodStart: "",
-      auditPeriodEnd: "",
-      scopePeriodStart: "",
-      scopePeriodEnd: "",
-      totalBudgetHours: "",
-      importSourceAuditId: "",
-    });
-    setUploadedFiles(emptyUploadedFiles);
-    setFolderMappedFiles([]);
-    setUploadMode("guided");
-    setHasConfiguredAudit(false);
-    setSaveError("");
-    setSavedImportSummary(null);
-    setIsModalOpen(true);
-  }
-
-  return (
-    <>
-      <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,168,0,0.14),_transparent_26%),linear-gradient(180deg,_#f8f4ea_0%,_#f6f4ef_52%,_#f2eee5_100%)] text-[var(--foreground)]">
-        <header className="border-b border-[rgba(255,255,255,0.08)] bg-[var(--brand-indigo-dark)]">
-          <div className="mx-auto flex max-w-7xl items-center px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-4">
-              <Image src="/crowe_logo_2c_w.png" alt="Crowe" width={128} height={36} className="h-6 w-auto" priority />
-              <div className="hidden h-8 w-px bg-white/12 sm:block" aria-hidden="true" />
-              <p className="hidden text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-amber-bright)] sm:block">
-                Internal audit platform
-              </p>
-            </div>
-          </div>
-        </header>
-
-        <div className="mx-auto flex min-h-[calc(100vh-68px)] max-w-7xl items-center px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-          <section className="w-full rounded-[36px] border border-[var(--border-subtle)] bg-[rgba(255,255,255,0.84)] p-5 shadow-panel backdrop-blur sm:p-7 lg:p-8">
-            <div className="max-w-4xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-[var(--brand-indigo-core)]">
-                Crowe Internal Audit
-              </p>
-              <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] sm:text-6xl lg:text-[5.8rem] lg:leading-[0.96]">
-                <AuroraText>AuditDESK</AuroraText>
-              </h1>
-              <p className="mt-4 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-indigo-core)] sm:text-base">
-                A hub for internal audit management
-              </p>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-[var(--muted)] sm:text-base">
-                Launch a new engagement or reopen an active workspace below.
-              </p>
-            </div>
-
-            <div className="mt-8 grid gap-5 lg:grid-cols-2">
-              <section className="rounded-[28px] border border-[rgba(1,30,65,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,241,231,0.92)_100%)] p-6 shadow-[0_20px_44px_rgba(1,30,65,0.08)]">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-indigo-core)]">
-                      Start new audit engagement
-                    </p>
-                    <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-[var(--foreground)]">
-                      Create the engagement in a guided popup
-                    </h2>
-                  </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(1,30,65,0.08)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-core)]">
-                    <Sparkles size={14} />
-                    Guided intake
-                  </div>
-                </div>
-
-                <p className="mt-4 text-sm leading-7 text-[var(--muted)]">
-                  Open the existing intake modal to define audit and scope periods, then map controls, questions,
-                  requests, and reference datasets before import. Testing matrices and workpapers are generated from the imported controls.
-                </p>
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <button
-                    type="button"
-                    onClick={openModal}
-                    className="inline-flex items-center justify-center gap-2 rounded-full border border-[rgba(245,168,0,0.24)] bg-[var(--brand-amber-core)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-indigo-dark)] transition-transform duration-200 hover:-translate-y-0.5 hover:bg-[var(--brand-amber-bright)]"
-                  >
-                    <FolderOpen size={16} />
-                    Start new audit
-                  </button>
-
-                  <Link
-                    href={liveDashboardQuery ? { pathname: "/dashboard", query: liveDashboardQuery } : "/dashboard"}
-                    aria-disabled={!canLaunchNewAuditDashboard}
-                    className={`inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.2em] transition-all duration-200 ${
-                      canLaunchNewAuditDashboard
-                        ? "border border-[rgba(1,30,65,0.08)] bg-white text-[var(--brand-indigo-dark)] hover:-translate-y-0.5"
-                        : "pointer-events-none border border-[rgba(1,30,65,0.08)] bg-[var(--surface-soft)] text-[rgba(1,30,65,0.36)]"
-                    }`}
-                  >
-                    Launch platform
-                  </Link>
-                </div>
-
-                <div className="mt-5 rounded-[24px] border border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-dark)] p-5 text-white">
-                  {hasConfiguredAudit ? (
-                    <div className="grid gap-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8af0dd]">
-                            Audit configured
-                          </p>
-                          <h3 className="mt-1.5 text-lg font-semibold text-white">{auditForm.auditName}</h3>
-                          <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">Company: {DEFAULT_COMPANY_NAME}</p>
-                          <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
-                            Scope period: {formatDate(auditForm.scopePeriodStart)} to {formatDate(auditForm.scopePeriodEnd)}
-                          </p>
-                          <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
-                            Audit period: {formatDate(auditForm.auditPeriodStart)} to {formatDate(auditForm.auditPeriodEnd)}
-                          </p>
-                          {auditForm.totalBudgetHours.trim().length > 0 ? (
-                            <p className="mt-1 text-sm leading-5 text-[var(--muted-on-dark)]">
-                              Total audit hours: {auditForm.totalBudgetHours}h
-                            </p>
-                          ) : null}
-                        </div>
-                        <CheckCircle2 className="shrink-0 text-[#8af0dd]" size={20} />
-                      </div>
-
-                      <div className="grid gap-2">
-                        {uploadRequirements.map((requirement) => {
-                          const file = uploadedFiles[requirement.id];
-
-                          return (
-                            <div
-                              key={requirement.id}
-                              className="flex items-center justify-between gap-3 rounded-[16px] border border-white/10 bg-white/[0.04] px-3 py-2.5"
-                            >
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-white">{requirement.label}</p>
-                                <p className="mt-0.5 truncate text-sm text-[var(--muted-on-dark)]">
-                                  {file ? file.name : requirement.required ? "Required file missing" : "Not provided"}
-                                </p>
-                              </div>
-                              <StatusPill complete={Boolean(file)} />
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
-                        <p className="text-sm text-[var(--muted-on-dark)]">
-                          {configuredFileCount} file{configuredFileCount === 1 ? "" : "s"} staged with {uploadModeLabel.toLowerCase()}.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={resetAuditSetup}
-                          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-                        >
-                          Edit setup
-                        </button>
-                      </div>
-
-                      {savedImportSummary ? (
-                        <div className="rounded-[16px] border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-[var(--muted-on-dark)]">
-                          Import batch `{savedImportSummary.batchId}` saved with {savedImportSummary.rowCount} parsed row
-                          {savedImportSummary.rowCount === 1 ? "" : "s"} across {savedImportSummary.fileCount} file
-                          {savedImportSummary.fileCount === 1 ? "" : "s"}.
-                        </div>
-                      ) : null}
-
-                      {savedImportSummary?.transformSummary ? (
-                        <div className="rounded-[16px] border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-[var(--muted-on-dark)]">
-                          Loaded {savedImportSummary.transformSummary.controlsUpserted} controls,{" "}
-                          {savedImportSummary.transformSummary.riskControlLinksUpserted} risk-to-control links,{" "}
-                          {savedImportSummary.transformSummary.questionsUpserted} questions,{" "}
-                          {savedImportSummary.transformSummary.requestsUpserted} requests, and generated{" "}
-                          {savedImportSummary.transformSummary.documentsUpserted} testing workpapers.
-                        </div>
-                      ) : null}
-
-                      {savedImportSummary?.parseErrors.length ? (
-                        <div className="rounded-[16px] border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.1)] px-3 py-2.5 text-sm text-[var(--muted-on-dark)]">
-                          Some files were skipped:{" "}
-                          {savedImportSummary.parseErrors.map((item) => `${item.fileName} (${item.message})`).join("; ")}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="grid gap-3">
-                      <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[var(--brand-amber-bright)]">
-                        <ShieldCheck size={18} />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">No audit created yet</h3>
-                        <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
-                          The popup now captures the actual operating datasets the platform expects and can map a
-                          folder full of CSV files into those sections before import.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-[28px] border border-[rgba(1,30,65,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(246,241,231,0.9)_100%)] p-6 shadow-[0_20px_44px_rgba(1,30,65,0.08)]">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-indigo-core)]">
-                      Return to existing audit
-                    </p>
-                    <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-[var(--foreground)]">
-                      Reopen a saved audit workspace
-                    </h2>
-                  </div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(1,30,65,0.08)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-core)]">
-                    <ShieldCheck size={14} />
-                    Supabase-backed
-                  </div>
-                </div>
-
-                <p className="mt-4 text-sm leading-7 text-[var(--muted)]">
-                  Select an existing audit saved to Supabase to reopen the workspace with its audit name, scope period,
-                  and current status.
-                </p>
-
-                <div className="mt-5 grid gap-3">
-                  <label className="grid gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                      Select existing audit
-                    </span>
-                    <select
-                      value={selectedExistingAuditId}
-                      onChange={(event) => setSelectedExistingAuditId(event.target.value)}
-                      className="w-full rounded-2xl border border-[rgba(1,30,65,0.08)] bg-white px-4 py-2.5 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-[var(--brand-amber-bright)]"
-                    >
-                      <option value="" className="bg-white text-[var(--foreground)]">
-                        {existingAuditOptions.length > 0 ? "Choose an audit" : "No saved audits yet"}
-                      </option>
-                      {existingAuditOptions.map((audit) => (
-                        <option key={audit.id} value={audit.id} className="bg-white text-[var(--foreground)]">
-                          {audit.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <div className="rounded-[24px] border border-[rgba(1,30,65,0.08)] bg-[var(--brand-indigo-dark)] p-5 text-white">
-                    {selectedExistingAudit ? (
-                      <div className="grid gap-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8af0dd]">
-                              Selected audit
-                            </p>
-                            <h3 className="mt-1.5 text-lg font-semibold text-white">{selectedExistingAudit.name}</h3>
-                          </div>
-                          <CheckCircle2 className="shrink-0 text-[#8af0dd]" size={20} />
-                        </div>
-                        {selectedExistingAudit.companyName ? (
-                          <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
-                            Company: {selectedExistingAudit.companyName}
-                          </p>
-                        ) : null}
-                        <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
-                          Period: {selectedExistingAudit.period}
-                        </p>
-                        <p className="text-sm leading-5 text-[var(--muted-on-dark)]">
-                          Status: {selectedExistingAudit.status}
-                        </p>
-                        <Link
-                          href={selectedAuditDashboardQuery ? { pathname: "/dashboard", query: selectedAuditDashboardQuery } : "/dashboard"}
-                          aria-disabled={!canLaunchExistingAuditDashboard}
-                          className={`mt-1 inline-flex w-fit items-center justify-center rounded-full px-4 py-2 text-sm font-semibold uppercase tracking-[0.18em] transition-transform duration-200 ${
-                            canLaunchExistingAuditDashboard
-                              ? "bg-white text-[var(--brand-indigo-dark)] hover:-translate-y-0.5"
-                              : "pointer-events-none bg-white/30 text-white/55"
-                          }`}
-                        >
-                          Launch platform
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="grid gap-3">
-                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[var(--brand-amber-bright)]">
-                          <FolderOpen size={18} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">No existing audit selected</h3>
-                          <p className="mt-1.5 text-sm leading-5 text-[var(--muted-on-dark)]">
-                            Choose a saved audit from the dropdown when one exists, or create a new audit to persist it to Supabase.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-            </div>
-
-          </section>
-        </div>
-      </main>
-
-      <NewAuditModal
-        open={isModalOpen}
-        form={auditForm}
-        files={uploadedFiles}
-        existingAuditOptions={existingAuditOptions}
-        folderMappedFiles={folderMappedFiles}
-        uploadMode={uploadMode}
-        onUploadModeChange={handleUploadModeChange}
-        onClose={closeModal}
-        onSubmit={handleCreateAudit}
-        onFormChange={setAuditForm}
-        onImportSourceAuditChange={handleImportSourceAuditChange}
-        onFileChange={handleFileChange}
-        onFolderFilesChange={handleFolderFilesChange}
-        onMappedFileTargetChange={handleMappedFileTargetChange}
-        canCreateAudit={canLaunchPlatform}
-        isSavingAudit={isSavingAudit}
-        saveError={saveError}
-        missingRequiredRequirementIds={missingRequiredRequirementIds}
-      />
-    </>
-  );
-}
-
-function NewAuditModal({
-  open,
-  form,
-  files,
-  existingAuditOptions,
-  folderMappedFiles,
-  uploadMode,
-  onUploadModeChange,
-  onClose,
-  onSubmit,
-  onFormChange,
-  onImportSourceAuditChange,
-  onFileChange,
-  onFolderFilesChange,
-  onMappedFileTargetChange,
-  canCreateAudit,
-  isSavingAudit,
-  saveError,
-  missingRequiredRequirementIds,
-}: {
-  open: boolean;
-  form: AuditForm;
-  files: UploadedFiles;
-  existingAuditOptions: ExistingAuditOption[];
-  folderMappedFiles: FolderMappedFile[];
-  uploadMode: UploadMode;
-  onUploadModeChange: (nextMode: UploadMode) => void;
-  onClose: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onFormChange: Dispatch<SetStateAction<AuditForm>>;
-  onImportSourceAuditChange: (nextAuditId: string) => void;
-  onFileChange: (fileType: UploadRequirement["id"], event: ChangeEvent<HTMLInputElement>) => void;
-  onFolderFilesChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onMappedFileTargetChange: (fileId: string, nextTarget: UploadRequirement["id"] | "") => void;
-  canCreateAudit: boolean;
-  isSavingAudit: boolean;
-  saveError: string;
-  missingRequiredRequirementIds: UploadRequirement["id"][];
-}) {
-  const firstInputRef = useRef<HTMLInputElement>(null);
-  const folderInputProps: InputHTMLAttributes<HTMLInputElement> & {
-    webkitdirectory?: string;
-    directory?: string;
-  } = {
-    webkitdirectory: "",
-    directory: "",
+  const fadeUp = {
+    hidden: { opacity: 0, y: prefersReducedMotion ? 0 : 28 },
+    visible: (delay: number) => ({
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: prefersReducedMotion ? 0 : 0.52,
+        delay: prefersReducedMotion ? 0 : delay,
+        ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+      },
+    }),
   };
 
-  if (!open) {
-    return null;
-  }
-
-  const unmatchedFiles = folderMappedFiles.filter((item) => item.assignedTarget === null);
-  const mappedFiles = folderMappedFiles.filter((item) => item.assignedTarget !== null);
-  const requiredRequirementIds = getRequiredUploadRequirementIds(files);
-  const requiredRequirements = uploadRequirements.filter((requirement) => requiredRequirementIds.includes(requirement.id));
-  const selectedImportSourceAudit =
-    existingAuditOptions.find((audit) => audit.id === form.importSourceAuditId) ?? null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[rgba(1,30,65,0.4)] p-4 backdrop-blur-sm">
-      <div className="flex min-h-full items-start justify-center py-4 sm:items-center">
-        <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[30px] border border-black/5 bg-[#fbfaf7] p-5 text-[var(--foreground)] shadow-[0_24px_80px_rgba(1,30,65,0.22)] sm:p-8">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">New audit</p>
-              <h2 className="mt-3 text-2xl font-semibold">Create a new audit workspace</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-                Capture the audit details and map incoming CSV files into the operating datasets the platform expects.
-                Controls are required. If a risk register is included, a risk-to-control mapping file is required too.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)]"
-              aria-label="Close new audit modal"
+    <div>
+      {/* Hero */}
+      <div className="relative min-h-screen overflow-hidden bg-[var(--brand-indigo-dark)]">
+        <div className="dot-pattern-bg absolute inset-0" aria-hidden="true" />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse 90% 55% at 50% -5%, rgba(245,168,0,0.22) 0%, transparent 60%), radial-gradient(ellipse 60% 40% at 15% 105%, rgba(5,171,140,0.12) 0%, transparent 55%)",
+          }}
+        />
+
+        <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
+          <Image src="/crowe_logo_2c_w.png" alt="Crowe" width={128} height={36} className="h-6 w-auto" priority />
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand-amber-bright)]">
+            Internal Audit Platform
+          </p>
+        </header>
+
+        <div className="relative z-10 mx-auto flex min-h-[calc(100vh-76px)] max-w-5xl flex-col items-center justify-center px-4 pb-20 pt-8 text-center sm:px-6 lg:px-8">
+          <motion.p
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            custom={0}
+            className="text-xs font-semibold uppercase tracking-[0.32em] text-[var(--brand-amber-bright)]"
+          >
+            Crowe Internal Audit
+          </motion.p>
+
+          <motion.h1
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            custom={0.07}
+            className="mt-5 text-[4.5rem] font-semibold leading-none tracking-[-0.04em] sm:text-[6rem] lg:text-[8.5rem]"
+          >
+            <AuroraText>AuditDESK</AuroraText>
+          </motion.h1>
+
+          <motion.p
+            variants={fadeUp}
+            initial="hidden"
+            animate="visible"
+            custom={0.2}
+            className="mt-5 max-w-xl text-base leading-8 text-[rgba(255,255,255,0.68)] sm:text-[1.05rem]"
+          >
+            A unified workspace for internal audit teams. Planning to reporting—scope, fieldwork, evidence, and handoff managed in one connected platform.
+          </motion.p>
+
+          <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={0.28} className="mt-10">
+            <Link
+              href="/demo-login"
+              className="shimmer-btn inline-flex items-center gap-2.5 rounded-full px-8 py-3.5 text-sm font-semibold uppercase tracking-[0.22em] text-[var(--brand-indigo-dark)] shadow-[0_0_36px_rgba(245,168,0,0.36)] transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
-              <X size={18} />
-            </button>
-          </div>
+              Launch Demo
+              <ArrowRight size={15} />
+            </Link>
+          </motion.div>
+        </div>
 
-          <form className="mt-6 flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
-            <div className="grid min-h-0 gap-6 overflow-y-auto pr-1">
-              <div className="grid gap-4">
-                <div className="grid gap-3">
-                  <Field label="Audit name">
-                    <input
-                      ref={firstInputRef}
-                      required
-                      autoFocus
-                      value={form.auditName}
-                      onChange={(event) => onFormChange((current) => ({ ...current, auditName: event.target.value }))}
-                      placeholder="Example: Q3 SOX ITGC Control Testing"
-                      className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
+        <motion.div
+          aria-hidden="true"
+          className="absolute bottom-8 left-1/2 flex -translate-x-1/2 flex-col items-center"
+          animate={prefersReducedMotion ? {} : { opacity: [0.2, 0.5, 0.2] }}
+          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+        >
+          <div className="h-10 w-px bg-gradient-to-b from-transparent via-[rgba(255,255,255,0.4)] to-transparent" />
+        </motion.div>
+      </div>
+
+      {/* Feature Bento Grid */}
+      <div className="bg-[#f6f4ef]">
+        <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            custom={0}
+            className="mb-12 max-w-3xl"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-indigo-core)]">
+              Platform capabilities
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--brand-indigo-dark)] sm:text-4xl">
+              Built for the full audit lifecycle
+            </h2>
+            <p className="mt-4 text-base leading-7 text-[var(--muted)]">
+              Every phase of an internal audit engagement—planning, fieldwork, evidence, and reporting—managed in one connected workspace.
+            </p>
+          </motion.div>
+
+          <div className="grid gap-4 lg:grid-cols-12">
+            {features.map((feature, index) => {
+              const Icon = feature.icon;
+              return (
+                <motion.div
+                  key={feature.id}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  custom={index * 0.07}
+                  className={`${feature.colSpan} rounded-[28px] border p-7 ${
+                    feature.dark
+                      ? "border-[rgba(255,255,255,0.06)] bg-gradient-to-br from-[var(--brand-indigo-dark)] to-[#0d2b55] shadow-[0_24px_56px_rgba(1,30,65,0.22)]"
+                      : "border-[rgba(1,30,65,0.06)] bg-gradient-to-br from-white to-[#f2ede3] shadow-[0_20px_44px_rgba(1,30,65,0.07)]"
+                  }`}
+                >
+                  <div
+                    className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${
+                      feature.dark
+                        ? "border border-white/10 bg-white/5"
+                        : "border border-[rgba(1,30,65,0.08)] bg-white/80"
+                    }`}
+                  >
+                    <Icon
+                      size={20}
+                      className={
+                        feature.dark ? "text-[var(--brand-amber-bright)]" : "text-[var(--brand-indigo-core)]"
+                      }
                     />
-                  </Field>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Audit period start">
-                      <input
-                        required
-                        type="date"
-                        value={form.auditPeriodStart}
-                        onChange={(event) => onFormChange((current) => ({ ...current, auditPeriodStart: event.target.value }))}
-                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                      />
-                    </Field>
-
-                    <Field label="Audit period end">
-                      <input
-                        required
-                        type="date"
-                        value={form.auditPeriodEnd}
-                        onChange={(event) => onFormChange((current) => ({ ...current, auditPeriodEnd: event.target.value }))}
-                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                      />
-                    </Field>
                   </div>
+                  <p
+                    className={`mt-4 text-[11px] font-semibold uppercase tracking-[0.22em] ${
+                      feature.dark ? "text-[var(--brand-amber-bright)]" : "text-[var(--brand-indigo-core)]"
+                    }`}
+                  >
+                    {feature.eyebrow}
+                  </p>
+                  <h3
+                    className={`mt-2 text-[1.25rem] font-semibold leading-snug ${
+                      feature.dark ? "text-white" : "text-[var(--brand-indigo-dark)]"
+                    }`}
+                  >
+                    {feature.title}
+                  </h3>
+                  <p
+                    className={`mt-3 text-sm leading-7 ${
+                      feature.dark ? "text-[rgba(255,255,255,0.62)]" : "text-[var(--muted)]"
+                    }`}
+                  >
+                    {feature.description}
+                  </p>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Scope period start">
-                      <input
-                        required
-                        type="date"
-                        value={form.scopePeriodStart}
-                        onChange={(event) => onFormChange((current) => ({ ...current, scopePeriodStart: event.target.value }))}
-                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                      />
-                    </Field>
-
-                    <Field label="Scope period end">
-                      <input
-                        required
-                        type="date"
-                        value={form.scopePeriodEnd}
-                        onChange={(event) => onFormChange((current) => ({ ...current, scopePeriodEnd: event.target.value }))}
-                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                      />
-                    </Field>
-                  </div>
-
-                  <div className="grid gap-3 lg:grid-cols-[0.72fr_1.28fr]">
-                    <Field label="Total audit hours">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.25"
-                        value={form.totalBudgetHours}
-                        onChange={(event) => onFormChange((current) => ({ ...current, totalBudgetHours: event.target.value }))}
-                        placeholder="Example: 240"
-                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                      />
-                    </Field>
-
-                    <Field label="Import planning hours from">
-                      <select
-                        value={form.importSourceAuditId}
-                        onChange={(event) => onImportSourceAuditChange(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none transition-colors focus:border-[var(--brand-indigo-bright)]"
-                      >
-                        <option value="">Do not import a prior audit budget</option>
-                        {existingAuditOptions.map((audit) => (
-                          <option key={audit.id} value={audit.id}>
-                            {audit.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  </div>
-
-                  {selectedImportSourceAudit ? (
-                    <div className="rounded-[18px] border border-[rgba(1,30,65,0.08)] bg-white px-4 py-3 text-sm text-[var(--muted)]">
-                      <p className="font-semibold text-[var(--foreground)]">
-                        Importing budget defaults from {selectedImportSourceAudit.name}
-                      </p>
-                      <p className="mt-1.5">
-                        Total: {formatBudgetPreview(selectedImportSourceAudit.totalBudgetHours)} | Planning:{" "}
-                        {formatBudgetPreview(selectedImportSourceAudit.planningBudgetHours)} | Fieldwork:{" "}
-                        {formatBudgetPreview(selectedImportSourceAudit.fieldworkBudgetHours)} | Reporting:{" "}
-                        {formatBudgetPreview(selectedImportSourceAudit.reportingBudgetHours)}
-                      </p>
-                    </div>
-                  ) : null}
-
-                  {form.auditPeriodStart && form.auditPeriodEnd && form.auditPeriodStart > form.auditPeriodEnd ? (
-                    <p className="text-sm font-medium text-[var(--brand-coral)]">
-                      Audit period end must be the same as or later than the start date.
-                    </p>
-                  ) : null}
-
-                  {form.scopePeriodStart && form.scopePeriodEnd && form.scopePeriodStart > form.scopePeriodEnd ? (
-                    <p className="text-sm font-medium text-[var(--brand-coral)]">
-                      Scope period end must be the same as or later than the start date.
-                    </p>
-                  ) : null}
-
-                  {form.totalBudgetHours.trim().length > 0 && Number(form.totalBudgetHours) < 0 ? (
-                    <p className="text-sm font-medium text-[var(--brand-coral)]">
-                      Total audit hours must be zero or greater.
-                    </p>
-                  ) : null}
-                </div>
-
-              </div>
-
-              <section className="rounded-[26px] border border-black/5 bg-white p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Intake mode</p>
-                    <h3 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Choose how files are mapped</h3>
-                  </div>
-                  <div className="inline-flex rounded-full border border-black/5 bg-[var(--surface-tint)] p-1">
-                    <button
-                      type="button"
-                      onClick={() => onUploadModeChange("guided")}
-                      className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                        uploadMode === "guided"
-                          ? "bg-[var(--brand-indigo-core)] text-white"
-                          : "text-[var(--brand-indigo-core)]"
-                      }`}
-                    >
-                      Section by section
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onUploadModeChange("folder")}
-                      className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                        uploadMode === "folder"
-                          ? "bg-[var(--brand-indigo-core)] text-white"
-                          : "text-[var(--brand-indigo-core)]"
-                      }`}
-                    >
-                      Folder import
-                    </button>
-                  </div>
-                </div>
-
-                {uploadMode === "guided" ? (
-                  <div className="mt-5 grid gap-4">
-                    <div className="rounded-[18px] border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.08)] px-4 py-3 text-sm text-[var(--muted)]">
-                      The controls dataset is required. All other file uploads are optional.
-                    </div>
-
-                    <div className="grid gap-4 lg:grid-cols-3">
-                      {uploadRequirements.map((requirement) => {
-                        const file = files[requirement.id];
-                        const isRequired = requiredRequirementIds.includes(requirement.id);
-
-                        return (
-                          <label key={requirement.id} className="grid gap-3 rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="text-sm font-semibold text-[var(--foreground)]">{requirement.label}</p>
-                                  <RequirementBadge required={isRequired} />
-                                </div>
-                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                                  {file ? `Selected: ${file.name}` : `Accepted format: ${requirement.accept}`}
-                                </p>
-                              </div>
-                              <StatusPill complete={Boolean(file)} />
-                            </div>
-
-                            <input
-                              type="file"
-                              accept={requirement.accept}
-                              required={isRequired}
-                              onChange={(event) => onFileChange(requirement.id, event)}
-                              className="w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none file:mr-3 file:rounded-full file:border-0 file:bg-[var(--surface-tint)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--brand-indigo-core)]"
-                            />
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-5 grid gap-5 lg:grid-cols-[0.92fr_1.08fr]">
-                    <div className="rounded-[22px] border border-black/5 bg-[#fcfbf8] p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Folder upload</p>
-                          <h4 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Import a folder and review the matches</h4>
-                        </div>
-                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-tint)] text-[var(--brand-indigo-core)]">
-                          <Upload size={18} />
-                        </span>
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-                        Choose a folder and the modal will infer the best target section for each supported file. You can adjust the mapping before the audit is created.
-                      </p>
-                      <input
-                        type="file"
-                        multiple
-                        accept=".csv,.xlsx"
-                        onChange={onFolderFilesChange}
-                        {...folderInputProps}
-                        className="mt-4 w-full rounded-2xl border border-black/5 bg-white px-4 py-3 text-sm outline-none file:mr-4 file:rounded-full file:border-0 file:bg-[var(--surface-tint)] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[var(--brand-indigo-core)]"
-                      />
-                      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                        Supported imports from folder mode: `.csv` datasets and `.xlsx` RCM workbooks.
-                      </p>
-                    </div>
-
-                    <div className="rounded-[22px] border border-black/5 bg-[#fcfbf8] p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Mapping review</p>
-                          <h4 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Visual file-to-section mapping</h4>
-                        </div>
-                        <div className="rounded-full bg-[var(--surface-tint)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-indigo-core)]">
-                          {folderMappedFiles.length} file{folderMappedFiles.length === 1 ? "" : "s"}
-                        </div>
-                      </div>
-
-                      {folderMappedFiles.length === 0 ? (
-                        <p className="mt-4 text-sm leading-6 text-[var(--muted)]">
-                          No folder selected yet. Once you choose a folder, each supported file appears here with its suggested target and an override selector.
-                        </p>
-                      ) : (
-                      <div className="mt-4 grid gap-3">
-                          {folderMappedFiles
-                            .slice()
-                            .sort((left, right) => {
-                              if (left.assignedTarget && !right.assignedTarget) {
-                                return -1;
-                              }
-
-                              if (!left.assignedTarget && right.assignedTarget) {
-                                return 1;
-                              }
-
-                              return right.suggestionScore - left.suggestionScore;
-                            })
-                            .map((item) => (
-                            <div
-                              key={item.id}
-                              className={`rounded-[18px] border p-4 ${
-                                item.assignedTarget
-                                  ? "border-black/5 bg-white"
-                                  : "border-[rgba(229,55,107,0.32)] bg-[rgba(229,55,107,0.04)]"
-                              }`}
-                            >
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-[var(--foreground)]">{item.file.name}</p>
-                                  <p className="mt-1 truncate text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                                    Path: {item.relativePath}
-                                  </p>
-                                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                                    <span
-                                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                                        item.suggestionScore >= 4
-                                          ? "bg-[rgba(5,171,140,0.12)] text-[var(--brand-teal-core)]"
-                                          : item.suggestionScore >= 2
-                                            ? "bg-[rgba(245,168,0,0.16)] text-[var(--brand-amber-dark)]"
-                                            : "bg-[rgba(229,55,107,0.1)] text-[var(--brand-coral)]"
-                                      }`}
-                                    >
-                                      {item.suggestionScore >= 4 ? "High confidence" : item.suggestionScore >= 2 ? "Medium confidence" : "Low confidence"}
-                                    </span>
-                                    <span className="text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                                      Suggested: {item.suggestedTarget ? getRequirementLabel(item.suggestedTarget) : "No confident match"}
-                                    </span>
-                                  </div>
-                                  {item.suggestionReason.length > 0 ? (
-                                    <p className="mt-2 text-sm text-[var(--muted)]">
-                                      Match signals: {item.suggestionReason.join(", ")}
-                                    </p>
-                                  ) : null}
-                                </div>
-                                <select
-                                  value={item.assignedTarget ?? ""}
-                                  onChange={(event) =>
-                                    onMappedFileTargetChange(
-                                      item.id,
-                                      (event.target.value as UploadRequirement["id"] | "") ?? "",
-                                    )
-                                  }
-                                  className="rounded-full border border-black/5 bg-[var(--surface-tint)] px-4 py-2 text-sm text-[var(--foreground)] outline-none"
-                                >
-                                  <option value="">Leave unassigned</option>
-                                  {uploadRequirements.map((requirement) => (
-                                    <option
-                                      key={requirement.id}
-                                      value={requirement.id}
-                                      disabled={
-                                        folderMappedFiles.some(
-                                          (mappedFile) =>
-                                            mappedFile.id !== item.id && mappedFile.assignedTarget === requirement.id,
-                                        )
-                                      }
-                                    >
-                                      {requirement.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              {!item.assignedTarget ? (
-                                <p className="mt-3 text-sm font-medium text-[var(--brand-coral)]">
-                                  Assign this uploaded dataset to an intake section before creating the audit.
-                                </p>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {unmatchedFiles.length > 0 ? (
-                        <div className="mt-4 rounded-[18px] border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.08)] p-4 text-sm text-[var(--muted)]">
-                          Unassigned files will not be uploaded until they are mapped to one of the intake sections above.
-                        </div>
-                      ) : null}
-                      {missingRequiredRequirementIds.length > 0 ? (
-                        <div className="mt-4 rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] p-4 text-sm text-[var(--brand-coral)]">
-                          Create audit remains disabled until these required sections are mapped:{" "}
-                          {requiredRequirements
-                            .filter((requirement) => missingRequiredRequirementIds.includes(requirement.id))
-                            .map((requirement) => requirement.label)
-                            .join(", ")}
-                          .
-                        </div>
-                      ) : null}
-                      {folderMappedFiles.length > 0 ? (
-                        <div className="mt-4 rounded-[18px] border border-black/5 bg-white p-4 text-sm text-[var(--muted)]">
-                          {mappedFiles.length} mapped, {unmatchedFiles.length} awaiting assignment.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              {saveError ? (
-                <p className="rounded-[18px] border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] px-4 py-3 text-sm text-[var(--brand-coral)]">
-                  {saveError}
-                </p>
-              ) : null}
+      {/* CTA */}
+      <div className="relative overflow-hidden bg-[var(--brand-indigo-dark)]">
+        <div className="dot-pattern-bg pointer-events-none absolute inset-0 opacity-50" aria-hidden="true" />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: "radial-gradient(ellipse 70% 50% at 50% 50%, rgba(245,168,0,0.14) 0%, transparent 60%)",
+          }}
+        />
+        <div className="relative z-10 mx-auto max-w-3xl px-4 py-24 text-center sm:px-6 lg:px-8">
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            custom={0}
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--brand-amber-bright)]">
+              Demo environment ready
+            </p>
+            <h2 className="mt-4 text-3xl font-semibold text-white sm:text-4xl">Explore AuditDESK now</h2>
+            <p className="mt-4 text-base leading-7 text-[rgba(255,255,255,0.62)]">
+              Choose a role and jump directly into a live workspace. No login required for the demo environment.
+            </p>
+            <div className="mt-8">
+              <Link
+                href="/demo-login"
+                className="shimmer-btn inline-flex items-center gap-2.5 rounded-full px-8 py-3.5 text-sm font-semibold uppercase tracking-[0.22em] text-[var(--brand-indigo-dark)] shadow-[0_0_36px_rgba(245,168,0,0.32)] transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
+              >
+                Launch Demo
+                <ArrowRight size={15} />
+              </Link>
             </div>
-
-            <div className="mt-6 flex flex-col gap-3 border-t border-black/5 bg-[#fbfaf7] pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-[var(--muted)]">
-                Create audit stays disabled until the audit name, valid date range, optional total hours value, and all required datasets are valid.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  disabled={isSavingAudit}
-                  className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!canCreateAudit || isSavingAudit}
-                  className="rounded-full bg-[var(--brand-indigo-core)] px-5 py-2 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  {isSavingAudit ? "Saving upload..." : "Create audit"}
-                </button>
-              </div>
-            </div>
-          </form>
+          </motion.div>
         </div>
       </div>
     </div>
   );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-semibold uppercase leading-none tracking-[0.18em] text-[var(--muted)]">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function RequirementBadge({ required }: { required: boolean }) {
-  return required ? (
-    <span className="rounded-full bg-[rgba(245,168,0,0.14)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-amber-dark)]">
-      Required
-    </span>
-  ) : (
-    <span className="rounded-full bg-[rgba(0,46,98,0.08)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-indigo-core)]">
-      Optional
-    </span>
-  );
-}
-
-function StatusPill({ complete }: { complete: boolean }) {
-  return complete ? (
-    <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(5,171,140,0.22)] bg-[rgba(5,171,140,0.12)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-teal-core)]">
-      <CheckCircle2 size={14} />
-      Added
-    </div>
-  ) : (
-    <div className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-[var(--surface-tint)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-      Pending
-    </div>
-  );
-}
-
-function createFolderMappedFiles(files: File[]) {
-  const nextAssignments = new Set<UploadRequirement["id"]>();
-
-  return files.map((file, index) => {
-    const suggestion = inferUploadTarget(file);
-    const relativePath = getRelativePath(file);
-    const assignedTarget =
-      suggestion.target && !nextAssignments.has(suggestion.target) ? suggestion.target : null;
-
-    if (assignedTarget) {
-      nextAssignments.add(assignedTarget);
-    }
-
-    return {
-      id: `${normalizeValue(relativePath || file.name)}-${index}`,
-      file,
-      suggestedTarget: suggestion.target,
-      assignedTarget,
-      suggestionScore: suggestion.score,
-      suggestionReason: suggestion.reasons,
-      relativePath,
-    };
-  });
-}
-
-function buildUploadedFilesFromMappedFiles(mappedFiles: FolderMappedFile[]): UploadedFiles {
-  const nextFiles: UploadedFiles = { ...emptyUploadedFiles };
-
-  for (const requirement of uploadRequirements) {
-    const matchedFile = mappedFiles.find((item) => item.assignedTarget === requirement.id);
-    nextFiles[requirement.id] = matchedFile?.file ?? null;
-  }
-
-  return nextFiles;
-}
-
-function inferUploadTarget(file: File) {
-  const searchableText = `${file.name} ${getRelativePath(file)}`.trim();
-  const normalizedSearchableText = normalizeValue(searchableText);
-  const searchableTokens = tokenizeValue(searchableText);
-  let bestMatch: UploadRequirement["id"] | null = null;
-  let bestScore = 0;
-  let bestReasons: string[] = [];
-
-  for (const requirement of uploadRequirements) {
-    const matchedKeywords = requirement.keywords.filter((keyword) =>
-      matchesKeywordSignal(normalizedSearchableText, searchableTokens, keyword),
-    );
-    const score = matchedKeywords.reduce((total, keyword) => total + getKeywordWeight(keyword), 0);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = requirement.id;
-      bestReasons = matchedKeywords;
-    }
-  }
-
-  return {
-    target: bestScore > 0 ? bestMatch : null,
-    score: bestScore,
-    reasons: bestReasons,
-  };
-}
-
-function getRequirementLabel(requirementId: UploadRequirement["id"]) {
-  return uploadRequirements.find((item) => item.id === requirementId)?.label ?? requirementId;
-}
-
-function normalizeValue(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function tokenizeValue(value: string) {
-  return value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function matchesKeywordSignal(normalizedSearchableText: string, searchableTokens: string[], keyword: string) {
-  const normalizedKeyword = normalizeValue(keyword);
-
-  if (normalizedKeyword.length === 0) {
-    return false;
-  }
-
-  if (normalizedSearchableText.includes(normalizedKeyword)) {
-    return true;
-  }
-
-  const keywordTokens = tokenizeValue(keyword);
-
-  return keywordTokens.length > 1 && keywordTokens.every((token) => searchableTokens.includes(token));
-}
-
-function getRelativePath(file: File) {
-  return "webkitRelativePath" in file && typeof file.webkitRelativePath === "string" && file.webkitRelativePath.length > 0
-    ? file.webkitRelativePath
-    : file.name;
-}
-
-function getKeywordWeight(keyword: string) {
-  const normalizedKeyword = normalizeValue(keyword);
-
-  if (
-    normalizedKeyword === "controls" ||
-    normalizedKeyword === "controlinventory" ||
-    normalizedKeyword === "controlpopulation" ||
-    normalizedKeyword === "riskcontrol" ||
-    normalizedKeyword === "riskcontrolmapping" ||
-    normalizedKeyword === "riskcontrollinks" ||
-    normalizedKeyword === "questions" ||
-    normalizedKeyword === "requests" ||
-    normalizedKeyword === "documents" ||
-    normalizedKeyword === "applications" ||
-    normalizedKeyword === "risks" ||
-    normalizedKeyword === "issues" ||
-    normalizedKeyword === "prioraudit" ||
-    normalizedKeyword === "priorfindings" ||
-    normalizedKeyword === "priorauditfindings" ||
-    normalizedKeyword === "auditfindings"
-  ) {
-    return 3;
-  }
-
-  return 1;
-}
-
-function formatBudgetInput(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toString();
-}
-
-function formatBudgetPreview(value: number | null) {
-  return value === null ? "Not set" : `${formatBudgetInput(value)}h`;
-}
-
-function formatDate(value: string) {
-  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
