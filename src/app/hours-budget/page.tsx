@@ -1,14 +1,16 @@
-import type { ReactNode } from "react";
-
 import { redirect } from "next/navigation";
 
 import { HoursBarChart } from "@/components/charts/hours-bar-chart";
-import { PageHeader } from "@/components/dashboard/page-header";
 import { AuditHoursPlanner } from "@/components/hours/audit-hours-planner";
 import { HoursUploadControls } from "@/components/hours/hours-upload-controls";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  WorkspaceHelpButton,
+  WorkspaceKpiGrid,
+  WorkspacePageHeader,
+} from "@/components/workspace/workspace-ui";
 import { getHoursBudgetViewModel } from "@/lib/hours-budget-data";
-import { formatDateTime, formatHours } from "@/lib/utils";
+import { cn, formatDateTime, formatHours } from "@/lib/utils";
 import type { AuditPhase } from "@/types/audit";
 
 type HoursBudgetPageProps = {
@@ -28,56 +30,88 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
   const viewModel = await getHoursBudgetViewModel({ auditId, auditLabel, mode, phaseOverride, syncCount });
   const trackedCapacity = viewModel.totalBudgetHours ?? viewModel.totalPlanned;
   const remaining = trackedCapacity - viewModel.totalActual;
-  const currentPhaseBudget = viewModel.phaseBudgets.find((phaseBudget) => phaseBudget.phase === viewModel.currentPhase);
+  const currentPhaseBudget = viewModel.phaseBudgets.find((pb) => pb.phase === viewModel.currentPhase);
   const currentPhaseActual = currentPhaseBudget?.actualHours ?? 0;
+
+  const phaseBadge = (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-[10px] border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]",
+        viewModel.mode === "live"
+          ? "border-[rgba(5,171,140,0.2)] bg-[rgba(5,171,140,0.08)] text-[var(--brand-teal-core)]"
+          : "border-black/10 bg-[var(--surface-tint)] text-[var(--muted)]",
+      )}
+    >
+      <span
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          viewModel.mode === "live" ? "bg-[var(--brand-teal-core)]" : "bg-[rgba(79,79,79,0.55)]",
+        )}
+        aria-hidden="true"
+      />
+      {viewModel.currentPhase} phase
+    </span>
+  );
 
   return (
     <div>
-      <PageHeader
-        title="Hours and budget"
-        description=""
-        phaseStatus={{
-          label: `${viewModel.currentPhase} phase - ${viewModel.mode === "live" ? "Live audit budget tracking" : "Prototype budget view"}`,
-          active: true,
-        }}
-        variant="dashboard-compact"
+      <WorkspacePageHeader
+        title="Hours & Budget"
+        statusBadge={phaseBadge}
+        purposeLine="Budget setup, actuals, and variance tracking for the current audit."
+        helpTip="Set phase budgets in the planning workspace. Upload recorded hours to track actuals and variance against plan."
+        helpLabel="About hours and budget"
       />
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="contents">
-          <SummaryCell label="Phase planned hours" value={formatHours(viewModel.totalPlanned)} detail="Saved across planning, fieldwork and reporting" />
-          <SummaryCell
-            label={`${viewModel.currentPhase} actual hours`}
-            value={formatHours(currentPhaseActual)}
-            detail={`Recorded in ${viewModel.currentPhase.toLowerCase()} so far`}
-            badge={<StatusBadge status="Actuals" tone={viewModel.currentPhaseVariance > 0 ? "risk" : "success"} />}
-          />
-          <SummaryCell
-            label={`${viewModel.currentPhase} variance`}
-            value={formatSignedHours(viewModel.currentPhaseVariance)}
-            detail={
+      <WorkspaceKpiGrid
+        items={[
+          {
+            label: "Total audit budget",
+            value: viewModel.totalBudgetHours !== null ? formatHours(viewModel.totalBudgetHours) : "Not set",
+            status: "normal",
+            detail: "Audit-level hour cap",
+            helpTip: "The audit-level hour cap set in the phase planner. Phase planned hours should sum to this value.",
+          },
+          {
+            label: "Phase planned hours",
+            value: formatHours(viewModel.totalPlanned),
+            status:
+              viewModel.totalBudgetHours !== null && viewModel.totalPlanned > viewModel.totalBudgetHours
+                ? "risk"
+                : "normal",
+            detail: "Sum across all phases",
+          },
+          {
+            label: `${viewModel.currentPhase} actuals`,
+            value: formatHours(currentPhaseActual),
+            status: "normal",
+            detail: "Logged for current phase",
+          },
+          {
+            label: `${viewModel.currentPhase} variance`,
+            value: formatSignedHours(viewModel.currentPhaseVariance),
+            status:
               viewModel.currentPhaseVariance > 0
-                ? `${viewModel.currentPhase} is trending over plan`
-                : `${viewModel.currentPhase} is within plan`
-            }
-            badge={<StatusBadge status="Variance" tone={viewModel.currentPhaseVariance > 0 ? "risk" : "success"} />}
-          />
-          <SummaryCell
-            label="Remaining audit hours"
-            value={formatHours(Math.abs(remaining))}
-            detail={
+                ? "risk"
+                : viewModel.currentPhaseVariance < 0
+                  ? "warning"
+                  : "normal",
+            detail: "Actual minus planned",
+            helpTip:
+              "Variance is actual hours minus planned hours for the current phase. Positive means over plan.",
+          },
+          {
+            label: "Remaining audit hours",
+            value: formatHours(Math.abs(remaining)),
+            status: remaining < 0 ? "risk" : "normal",
+            detail: remaining < 0 ? "Over budget" : "Available to spend",
+            helpTip:
               viewModel.totalBudgetHours === null
-                ? remaining < 0
-                  ? "Recorded actuals are above the current phase plan."
-                  : "Remaining against the currently saved phase plan."
-                : remaining < 0
-                  ? `Audit total of ${formatHours(viewModel.totalBudgetHours)} has been exceeded.`
-                  : `${formatHours(viewModel.totalBudgetHours)} total audit hours with ${formatHours(Math.abs(remaining))} remaining.`
-            }
-            badge={<StatusBadge status="Capacity" tone={remaining < 0 ? "risk" : "warning"} />}
-          />
-        </div>
-      </section>
+                ? "Remaining against the current phase plan total."
+                : `Remaining against the total audit budget of ${formatHours(viewModel.totalBudgetHours)}.`,
+          },
+        ]}
+      />
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <AuditHoursPlanner
@@ -105,138 +139,140 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
         />
       </div>
 
+      {/* Hours ledger */}
       <div className="mt-6">
-        <section className="flex h-[34rem] flex-col border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-          <div className="border-b border-black/5 px-5 py-4 sm:px-6">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Hours ledger</p>
-                <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Recorded hours by owner</h2>
-              </div>
-              <div className="flex flex-col items-start gap-3 lg:items-end">
-                <p className="max-w-md text-sm leading-6 text-[var(--muted)] lg:text-right">
-                  {viewModel.mode === "live"
-                    ? "Upload a CSV of recorded hours to replace the audit's saved hour rows and refresh the staffing ledger."
-                    : "Prototype mode shows the current sample staffing totals only."}
-                </p>
-                <HoursUploadControls auditId={viewModel.auditId} mode={viewModel.mode} />
-              </div>
-            </div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-[13px] font-semibold text-[var(--foreground)]">Recorded hours by owner</h2>
+            <WorkspaceHelpButton
+              label="About uploaded actuals"
+              tip={
+                viewModel.mode === "live"
+                  ? "Upload a CSV of recorded hours to replace the audit's saved hour rows and refresh the staffing ledger."
+                  : "Prototype mode shows sample staffing totals only."
+              }
+            />
           </div>
-
-          <div className="border-b border-black/5 bg-[var(--surface-soft)] px-5 py-3 text-sm text-[var(--muted)] sm:px-6">
-            Total recorded actual hours in this staffing view: <span className="font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-[12px] text-[var(--muted)]">
+              Total recorded:{" "}
+              <span className="font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</span>
+            </p>
+            <HoursUploadControls auditId={viewModel.auditId} mode={viewModel.mode} />
           </div>
-
-          <div className="min-h-0 flex-1 overflow-auto">
+        </div>
+        <div className="overflow-hidden rounded-[14px] border border-black/6">
+          <div className="max-h-[28rem] overflow-auto">
             {viewModel.timeEntries.length > 0 ? (
-              <table className="min-w-full border-collapse">
-                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
-                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                    <th className="border-b border-black/5 px-5 py-3 sm:px-6">Audit owner</th>
-                    <th className="border-b border-black/5 px-5 py-3">Role</th>
-                    <th className="border-b border-black/5 px-5 py-3">Phase</th>
-                    <th className="border-b border-black/5 px-5 py-3">Date</th>
-                    <th className="border-b border-black/5 px-5 py-3">Hours</th>
+              <table className="min-w-full border-collapse text-left text-[13px]">
+                <thead>
+                  <tr className="bg-[var(--surface-strong)] text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Audit owner</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Role</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Phase</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Date</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Hours</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {viewModel.hoursEntryRows.map((entry, index) => (
-                    <tr key={entry.id} className={index % 2 === 0 ? "bg-white" : "bg-[var(--surface-soft)]"}>
-                      <td className="border-b border-black/5 px-5 py-4 sm:px-6">
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{entry.ownerName}</p>
-                        <p className="mt-1 text-xs text-[var(--muted)]">Uploaded recorded hour entry</p>
+                <tbody className="divide-y divide-black/5 bg-white">
+                  {viewModel.hoursEntryRows.map((entry) => (
+                    <tr key={entry.id} className="transition-colors hover:bg-[var(--surface-soft)]">
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-[var(--foreground)]">{entry.ownerName}</p>
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">Uploaded recorded hour entry</p>
                       </td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{entry.ownerRole}</td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{entry.phase}</td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{formatDateTime(entry.entryDate)}</td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm font-medium text-[var(--foreground)]">{formatHours(entry.hours)}</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)]">{entry.ownerRole}</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)]">{entry.phase}</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)]">{formatDateTime(entry.entryDate)}</td>
+                      <td className="px-3 py-2.5 font-medium text-[var(--foreground)]">{formatHours(entry.hours)}</td>
                     </tr>
                   ))}
                   <tr className="bg-[var(--surface-tint)]">
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)] sm:px-6">Recorded actual total</td>
-                    <td className="px-5 py-4 text-sm text-[var(--muted)]">All team members</td>
-                    <td className="px-5 py-4 text-sm text-[var(--muted)]">All phases</td>
-                    <td className="px-5 py-4 text-sm text-[var(--muted)]">Current audit</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">Recorded actual total</td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">All team members</td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">All phases</td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">Current audit</td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</td>
                   </tr>
                 </tbody>
               </table>
             ) : (
-              <table className="min-w-full border-collapse">
-                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
-                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                    <th className="border-b border-black/5 px-5 py-3 sm:px-6">Audit owner</th>
-                    <th className="border-b border-black/5 px-5 py-3">Role</th>
-                    <th className="border-b border-black/5 px-5 py-3">Actual</th>
+              <table className="min-w-full border-collapse text-left text-[13px]">
+                <thead>
+                  <tr className="bg-[var(--surface-strong)] text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Audit owner</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Role</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actual</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {viewModel.hoursByTester.map((tester, index) => (
-                    <tr key={tester.id} className={index % 2 === 0 ? "bg-white" : "bg-[var(--surface-soft)]"}>
-                      <td className="border-b border-black/5 px-5 py-4 sm:px-6">
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{tester.name}</p>
-                        <p className="mt-1 text-xs text-[var(--muted)]">
+                <tbody className="divide-y divide-black/5 bg-white">
+                  {viewModel.hoursByTester.map((tester) => (
+                    <tr key={tester.id} className="transition-colors hover:bg-[var(--surface-soft)]">
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-[var(--foreground)]">{tester.name}</p>
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">
                           {viewModel.mode === "live"
                             ? "Current audit totals without uploaded line-item hours"
                             : "Rolled up from current recorded audit totals"}
                         </p>
                       </td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{tester.role}</td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm font-medium text-[var(--foreground)]">{formatHours(tester.actualHours)}</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)]">{tester.role}</td>
+                      <td className="px-3 py-2.5 font-medium text-[var(--foreground)]">{formatHours(tester.actualHours)}</td>
                     </tr>
                   ))}
                   <tr className="bg-[var(--surface-tint)]">
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)] sm:px-6">Recorded actual total</td>
-                    <td className="px-5 py-4 text-sm text-[var(--muted)]">All team members</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">Recorded actual total</td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">All team members</td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">{formatHours(viewModel.totalActual)}</td>
                   </tr>
                 </tbody>
               </table>
             )}
           </div>
-        </section>
+        </div>
       </div>
 
+      {/* Control test budgets */}
       {viewModel.controlTestBudgets.hasData ? (
         <div className="mt-6">
-          <section className="flex h-[34rem] flex-col border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-            <div className="flex flex-col gap-3 border-b border-black/5 px-5 py-4 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">Control test budgets</p>
-                <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Budget-to-actual by individual control test</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-                  Per-test budgeted hours compared against effort logged on each testing matrix sample.
-                </p>
-              </div>
-              <p className="text-sm font-semibold text-[var(--foreground)] lg:text-right">
-                {formatHours(viewModel.controlTestBudgets.totalActualHours)} logged /{" "}
-                {formatHours(viewModel.controlTestBudgets.totalBudgetedHours)} budgeted
-              </p>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[13px] font-semibold text-[var(--foreground)]">Budget-to-actual by control test</h2>
+              <WorkspaceHelpButton
+                label="About control test budget visibility"
+                tip="Control test budgets appear when at least one testing matrix sample has a budget hour value assigned. Visibility is limited to matrices with budget data."
+              />
             </div>
-
-            <div className="min-h-0 flex-1 overflow-auto">
-              <table className="min-w-full border-collapse">
-                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
-                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                    <th className="border-b border-black/5 px-5 py-3 sm:px-6">Control test</th>
-                    <th className="border-b border-black/5 px-5 py-3">Progress</th>
-                    <th className="border-b border-black/5 px-5 py-3">Budget</th>
-                    <th className="border-b border-black/5 px-5 py-3">Actual</th>
-                    <th className="border-b border-black/5 px-5 py-3">Variance</th>
+            <p className="text-[12px] text-[var(--muted)]">
+              {formatHours(viewModel.controlTestBudgets.totalActualHours)} logged /{" "}
+              {formatHours(viewModel.controlTestBudgets.totalBudgetedHours)} budgeted
+            </p>
+          </div>
+          <div className="overflow-hidden rounded-[14px] border border-black/6">
+            <div className="max-h-[28rem] overflow-auto">
+              <table className="min-w-full border-collapse text-left text-[13px]">
+                <thead>
+                  <tr className="bg-[var(--surface-strong)] text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Control test</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Progress</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Budget</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actual</th>
+                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Variance</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {viewModel.controlTestBudgets.rows.map((row, index) => (
-                    <tr key={row.matrixId} className={index % 2 === 0 ? "bg-white" : "bg-[var(--surface-soft)]"}>
-                      <td className="border-b border-black/5 px-5 py-4 sm:px-6">
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{row.controlReferenceId}</p>
-                        <p className="mt-1 text-xs text-[var(--muted)]">{row.title}</p>
+                <tbody className="divide-y divide-black/5 bg-white">
+                  {viewModel.controlTestBudgets.rows.map((row) => (
+                    <tr key={row.matrixId} className="transition-colors hover:bg-[var(--surface-soft)]">
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-[var(--foreground)]">{row.controlReferenceId}</p>
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">{row.title}</p>
                       </td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{row.completed}/{row.samples} samples</td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm text-[var(--muted)]">{row.budgetedHours !== null ? formatHours(row.budgetedHours) : "—"}</td>
-                      <td className="border-b border-black/5 px-5 py-4 text-sm font-medium text-[var(--foreground)]">{formatHours(row.actualHours)}</td>
-                      <td className="border-b border-black/5 px-5 py-4">
+                      <td className="px-3 py-2.5 text-[var(--muted)]">{row.completed}/{row.samples} samples</td>
+                      <td className="px-3 py-2.5 text-[var(--muted)]">
+                        {row.budgetedHours !== null ? formatHours(row.budgetedHours) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium text-[var(--foreground)]">{formatHours(row.actualHours)}</td>
+                      <td className="px-3 py-2.5">
                         <StatusBadge
                           status={row.varianceHours === null ? "No budget" : formatSignedHours(row.varianceHours)}
                           tone={row.varianceHours === null ? "neutral" : row.varianceHours > 0.05 ? "risk" : "success"}
@@ -245,43 +281,24 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
                     </tr>
                   ))}
                   <tr className="bg-[var(--surface-tint)]">
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)] sm:px-6">All control tests</td>
-                    <td className="px-5 py-4 text-sm text-[var(--muted)]">{viewModel.controlTestBudgets.rows.length} tests</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatHours(viewModel.controlTestBudgets.totalBudgetedHours)}</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatHours(viewModel.controlTestBudgets.totalActualHours)}</td>
-                    <td className="px-5 py-4 text-sm font-semibold text-[var(--foreground)]">{formatSignedHours(viewModel.controlTestBudgets.varianceHours)}</td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">All control tests</td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">{viewModel.controlTestBudgets.rows.length} tests</td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">
+                      {formatHours(viewModel.controlTestBudgets.totalBudgetedHours)}
+                    </td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">
+                      {formatHours(viewModel.controlTestBudgets.totalActualHours)}
+                    </td>
+                    <td className="px-3 py-2.5 font-semibold text-[var(--foreground)]">
+                      {formatSignedHours(viewModel.controlTestBudgets.varianceHours)}
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-          </section>
+          </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function SummaryCell({
-  label,
-  value,
-  detail,
-  badge,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  badge?: ReactNode;
-}) {
-  return (
-    <div className="border border-black/5 bg-white px-5 py-4 shadow-[0_6px_18px_rgba(1,30,65,0.04)]">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</p>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{detail}</p>
-        </div>
-        {badge}
-      </div>
     </div>
   );
 }
@@ -291,25 +308,13 @@ function getSingleValue(value: string | string[] | undefined) {
 }
 
 function getPhaseOverride(value?: string): AuditPhase | undefined {
-  if (value === "planning" || value === "Planning") {
-    return "Planning";
-  }
-
-  if (value === "fieldwork" || value === "Fieldwork") {
-    return "Fieldwork";
-  }
-
-  if (value === "reporting" || value === "Reporting") {
-    return "Reporting";
-  }
-
+  if (value === "planning" || value === "Planning") return "Planning";
+  if (value === "fieldwork" || value === "Fieldwork") return "Fieldwork";
+  if (value === "reporting" || value === "Reporting") return "Reporting";
   return undefined;
 }
 
 function formatSignedHours(value: number) {
-  if (value === 0) {
-    return "0h";
-  }
-
+  if (value === 0) return "0h";
   return `${value > 0 ? "+" : "-"}${formatHours(Math.abs(value))}`;
 }

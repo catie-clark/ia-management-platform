@@ -22,7 +22,7 @@ export function HoursBarChart({
     <section
       className={
         isWorkspace
-          ? "flex h-full min-h-[34rem] flex-col border border-black/5 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(1,30,65,0.05)]"
+          ? "flex h-full min-h-[34rem] flex-col border border-black/6 bg-white px-5 py-4"
           : "rounded-[20px] border border-black/5 bg-white px-5 py-4 shadow-[0_16px_36px_rgba(1,30,65,0.07)]"
       }
     >
