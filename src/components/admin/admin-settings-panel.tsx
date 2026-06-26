@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { SlidersHorizontal } from "lucide-react";
 
 import { useNotification } from "@/components/ui/notification-provider";
 import {
@@ -68,23 +67,9 @@ export function AdminSettingsPanel({ auditId }: { auditId: string | null }) {
   );
 
   return (
-    <section className="rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Workspace settings</p>
-          <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Personalize how this audit workspace behaves</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-            Configure audit-specific display and workflow preferences without changing the underlying control data.
-          </p>
-        </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-[var(--surface-tint)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-indigo-core)]">
-          <SlidersHorizontal size={14} />
-          Audit preferences
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-4">
-        <article className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+    <section className="border border-black/6 bg-white p-5">
+      <div className="divide-y divide-black/5">
+        <div className="pb-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-2xl">
               <p className="text-sm font-semibold text-[var(--foreground)]">Show control budgeted hours</p>
@@ -149,9 +134,9 @@ export function AdminSettingsPanel({ auditId }: { auditId: string | null }) {
               </span>
             </button>
           </div>
-        </article>
+        </div>
 
-        <article className="rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
+        <div className="pt-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-2xl">
               <p className="text-sm font-semibold text-[var(--foreground)]">Workflow review stage labels</p>
@@ -200,7 +185,7 @@ export function AdminSettingsPanel({ auditId }: { auditId: string | null }) {
                   }
                 })
               }
-              className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-md border border-black/10 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save stage labels
             </button>
@@ -223,12 +208,12 @@ export function AdminSettingsPanel({ auditId }: { auditId: string | null }) {
                     }))
                   }
                   placeholder={formatReviewWorkflowStageLabel(stage)}
-                  className="h-11 rounded-[14px] border border-black/10 bg-white px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-9 border border-black/10 bg-white px-3 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--brand-indigo-core)] disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </label>
             ))}
           </div>
-        </article>
+        </div>
       </div>
     </section>
   );
