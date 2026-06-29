@@ -22,7 +22,7 @@ import {
 } from "@/lib/control-visibility";
 import { cn, formatShortDate } from "@/lib/utils";
 import type { DashboardViewModel } from "@/lib/dashboard-data";
-import type { BudgetByPhase, ReviewStatus, RiskRow, TimelineItem } from "@/types/audit";
+import type { BudgetByPhase, ReviewStatus, TimelineItem } from "@/types/audit";
 
 const allAuditUser = {
   id: "ALL_AUDIT",
@@ -105,28 +105,6 @@ export function ExecutiveDashboardView({
     <>
       <DashboardPhaseSelector phase={viewModel.phase} />
       {viewModel.mode === "live" && <DashboardRefreshButton />}
-      {riskRows.length > 0 && (
-        <Link
-          href={`${getRiskTabPath(riskRows[0]!)}?${auditQuery}`}
-          className="inline-flex h-8 items-center rounded-full border border-[color:var(--main-border)] bg-white px-3 text-[12px] font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-soft)]"
-        >
-          Open top risk
-        </Link>
-      )}
-      <Link
-        href={`/hours-budget?${auditQuery}`}
-        className="inline-flex h-8 items-center rounded-full border border-[color:var(--main-border)] bg-white px-3 text-[12px] font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-soft)]"
-      >
-        View budget
-      </Link>
-      {getNextMilestoneHref(viewModel.milestoneItems, auditQuery) && (
-        <Link
-          href={getNextMilestoneHref(viewModel.milestoneItems, auditQuery)!}
-          className="inline-flex h-8 items-center rounded-full border border-[color:var(--main-border)] bg-white px-3 text-[12px] font-semibold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-soft)]"
-        >
-          Go to next milestone
-        </Link>
-      )}
     </>
   );
 
@@ -366,20 +344,6 @@ function getKpiHref({
   return `${pathname}?${params.toString()}`;
 }
 
-function getRiskTabPath(row: RiskRow): string {
-  return row.area === "Control" || row.area === "Document" ? "/fieldwork" : "/question-log";
-}
-
-function getNextMilestoneHref(items: TimelineItem[], auditQuery: string): string | null {
-  const next = items.find((m) => m.status === "active" || m.status === "at_risk");
-  if (!next) return null;
-
-  const tabPath = MILESTONE_PHASE_PATHS.find(([key]) =>
-    next.label.toLowerCase().includes(key),
-  )?.[1];
-
-  return tabPath ? `${tabPath}?${auditQuery}` : null;
-}
 
 function getRiskTableTitle(phase: DashboardViewModel["phase"]) {
   if (phase === "Planning") return "Planning gaps that can delay fieldwork";

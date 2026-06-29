@@ -459,7 +459,7 @@ export function ControlTestingView({
               <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
                 <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Control</th>
                 <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Owner</th>
-                <th className="bg-white px-3 py-2">
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">
                   <span className="inline-flex items-center gap-2">
                     Status
                     <HoverInfoCard text="Overdue controls show Blocked when any linked question, request, or document is also overdue. If the control is overdue but no linked items are overdue, status shows In Progress." />

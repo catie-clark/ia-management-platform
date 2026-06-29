@@ -273,7 +273,7 @@ async function getLiveReportingViewModel(auditId: string, auditLabel?: string): 
   const liveDocuments = mapReportingDocuments(
     normalizeAuditDocuments({
       controls: liveControls,
-      documents: (documentsResult.data ?? []).map(mapDocument),
+      documents: (documentsResult.data ?? []).map((doc) => mapDocument(doc)),
       questions: liveQuestions,
       requests: liveRequests,
       users: liveUsers,

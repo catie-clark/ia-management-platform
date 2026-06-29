@@ -167,11 +167,11 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
               <table className="min-w-full border-collapse text-left text-[13px]">
                 <thead>
                   <tr className="bg-[var(--surface-strong)] text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Audit owner</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Role</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Phase</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Date</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Hours</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Audit owner</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Role</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Phase</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Date</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Hours</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 bg-white">
@@ -200,9 +200,9 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
               <table className="min-w-full border-collapse text-left text-[13px]">
                 <thead>
                   <tr className="bg-[var(--surface-strong)] text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Audit owner</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Role</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actual</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Audit owner</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Role</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actual</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 bg-white">
@@ -253,11 +253,11 @@ export default async function HoursBudgetPage({ searchParams }: HoursBudgetPageP
               <table className="min-w-full border-collapse text-left text-[13px]">
                 <thead>
                   <tr className="bg-[var(--surface-strong)] text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Control test</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Progress</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Budget</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actual</th>
-                    <th className="sticky top-0 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Variance</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Control test</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Progress</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Budget</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actual</th>
+                    <th className="sticky top-0 bg-[var(--surface-strong)] px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Variance</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 bg-white">

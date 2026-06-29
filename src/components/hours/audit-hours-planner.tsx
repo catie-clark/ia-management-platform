@@ -122,7 +122,8 @@ export function AuditHoursPlanner({
     liveScheduleStart && liveScheduleEnd ? `${formatShortDate(liveScheduleStart)} - ${formatShortDate(liveScheduleEnd)}` : "Not set";
 
   return (
-    <section className="rounded-[14px] border border-black/6">
+    <div className="flex flex-col">
+    <section className="flex flex-1 flex-col rounded-[14px] border border-black/6">
       <div className="flex items-center justify-between border-b border-black/6 px-4 py-3">
         <div className="flex items-center gap-2">
           <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Phase hours plan</h3>
@@ -218,8 +219,8 @@ export function AuditHoursPlanner({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse">
+      <div className="flex-1 overflow-x-auto">
+        <table className="h-full min-w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
             <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
               <th className="border-b border-black/5 px-4 py-3">Phase</th>
@@ -356,12 +357,13 @@ export function AuditHoursPlanner({
         </table>
       </div>
 
-      {!canEdit && (
-        <p className="border-t border-black/6 px-4 py-3 text-[12px] text-[var(--muted)]">
-          Editing is available on live audits during the Planning phase.
-        </p>
-      )}
     </section>
+    {!canEdit && (
+      <p className="mt-2 px-1 text-[12px] text-[var(--muted)]">
+        Editing is available on live audits during the Planning phase.
+      </p>
+    )}
+    </div>
   );
 }
 

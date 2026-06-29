@@ -425,6 +425,46 @@ Acceptance criteria:
 - The selected demo persona is visible and coherent with workspace profile state.
 - Admin completes the tab sequence without introducing new visual patterns.
 
+## Phase 8: Shell and Layout Overhaul
+
+Goal: make the workspace feel open and editorial rather than a collection of nested containers. The header becomes a compact navigation bar, the sidebar toggle moves into the header, and tab content sits directly on the page background with no wrapping card.
+
+Primary changes:
+
+- App shell header:
+  - Reduce header height significantly. Remove the tagline ("Audit | Documentation, Evidence, Stages, and Knowledge") and the subtitle ("A hub for internal audit management").
+  - Keep: Crowe logo, current audit name and scope period (inline, compact), theme toggle, notifications button, profile button.
+  - Add the sidebar collapse/expand toggle button to the right side of the header, alongside the existing icon buttons, so users can open and close the nav from the header without reaching into the sidebar.
+  - Remove the "Supabase live data" and company name badges from the header. Company name is already visible in the audit context; the data source badge adds noise.
+  - Move the phase selector dropdown out of the header entirely. Each tab page that needs phase context should surface it in its own `WorkspacePageHeader` as a compact control or badge.
+
+- Main content area:
+  - Remove the rounded panel, border, shadow, and background wrapper that currently surrounds the `<main>` element. Tab content should render directly against the page background.
+  - Keep the outer page padding so content does not touch the viewport edge.
+  - The sidebar and content area can share a subtle divider or rely on spacing alone.
+
+- Sidebar:
+  - The sidebar remains collapsible, but the toggle button moves to the header (described above). Remove the toggle button that currently lives inside the sidebar.
+  - Keep existing active state styling and icon/label layout.
+
+- Phase selector:
+  - Remove the `DashboardPhaseSelector` from the `AppShell` header.
+  - Add it to the `WorkspacePageHeader` on the Executive Dashboard tab so it appears inline with the tab's own controls. Other tabs that need phase context should handle it the same way.
+
+Files likely touched:
+
+- `src/components/layout/app-shell.tsx`
+- `src/components/dashboard/executive-dashboard-view.tsx`
+- `src/components/dashboard/dashboard-phase-selector.tsx` (if props need adjustment)
+
+Acceptance criteria:
+
+- The header is visibly shorter and uncluttered. Audit name and scope period are easy to read without competing taglines.
+- Sidebar open/close is reachable from the header without scrolling or hunting inside the nav.
+- Tab pages render without any surrounding card, border, shadow, or panel background.
+- The phase selector appears on the dashboard tab page itself, not in the global header.
+- No layout regressions on mobile: header items do not overlap, sidebar collapses correctly, content is readable.
+
 ## Implementation Sequence
 
 1. Build shared workspace UI primitives in Phase 1 only as needed by Dashboard.

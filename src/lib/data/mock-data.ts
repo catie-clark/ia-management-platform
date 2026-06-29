@@ -11,6 +11,15 @@ import type {
 } from "@/types/audit";
 import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 
+// Computes an ISO date string offset from today. Hour and minute are UTC.
+// This keeps all demo dates perpetually current relative to the day the app runs.
+function d(offsetDays: number, hour = 17, minute = 0): string {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + offsetDays, hour, minute, 0, 0),
+  ).toISOString();
+}
+
 export const users: User[] = [
   { id: "U1", name: "Jordan Lee", email: "jordan.lee@mfcorp.com", role: "AIC", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
   { id: "U2", name: "Priya Shah", email: "priya.shah@mfcorp.com", role: "STAFF", team: "Internal Audit", companyName: DEFAULT_COMPANY_NAME },
@@ -32,8 +41,8 @@ export const controls: Control[] = [
     ownerId: "U2",
     assignedOwnerId: "U2",
     status: "IN_PROGRESS",
-    dueDate: "2026-04-13T16:00:00.000Z",
-    assignedDueDate: "2026-04-13T16:00:00.000Z",
+    dueDate: d(-3, 16),
+    assignedDueDate: d(-3, 16),
     plannedHours: 10,
     assignedPlannedHours: 10,
     actualHours: 8,
@@ -49,8 +58,8 @@ export const controls: Control[] = [
     ownerId: "U5",
     assignedOwnerId: "U5",
     status: "IN_PROGRESS",
-    dueDate: "2026-04-16T17:00:00.000Z",
-    assignedDueDate: "2026-04-16T17:00:00.000Z",
+    dueDate: d(0, 17),
+    assignedDueDate: d(0, 17),
     plannedHours: 12,
     assignedPlannedHours: 12,
     actualHours: 14,
@@ -66,9 +75,9 @@ export const controls: Control[] = [
     ownerId: "U6",
     assignedOwnerId: "U6",
     status: "COMPLETE",
-    dueDate: "2026-04-13T17:00:00.000Z",
-    assignedDueDate: "2026-04-13T17:00:00.000Z",
-    completedDate: "2026-04-13T15:45:00.000Z",
+    dueDate: d(-3, 17),
+    assignedDueDate: d(-3, 17),
+    completedDate: d(-3, 15, 45),
     plannedHours: 8,
     assignedPlannedHours: 8,
     actualHours: 8,
@@ -83,7 +92,7 @@ export const controls: Control[] = [
     scopeStatus: "OUT_OF_SCOPE",
     ownerId: "U7",
     status: "NOT_STARTED",
-    dueDate: "2026-04-24T17:00:00.000Z",
+    dueDate: d(8, 17),
     plannedHours: 9,
     actualHours: 0,
     riskLevel: "MEDIUM",
@@ -98,7 +107,7 @@ export const controls: Control[] = [
     ownerId: "U2",
     assignedOwnerId: "U2",
     status: "BLOCKED",
-    dueDate: "2026-04-14T18:00:00.000Z",
+    dueDate: d(-2, 18),
     plannedHours: 11,
     actualHours: 13,
     riskLevel: "HIGH",
@@ -113,8 +122,8 @@ export const controls: Control[] = [
     ownerId: "U5",
     assignedOwnerId: "U5",
     status: "COMPLETE",
-    dueDate: "2026-04-13T17:00:00.000Z",
-    completedDate: "2026-04-13T14:10:00.000Z",
+    dueDate: d(-3, 17),
+    completedDate: d(-3, 14, 10),
     plannedHours: 10,
     assignedPlannedHours: 10,
     actualHours: 10,
@@ -129,7 +138,7 @@ export const controls: Control[] = [
     scopeStatus: "OUT_OF_SCOPE",
     ownerId: "U5",
     status: "IN_PROGRESS",
-    dueDate: "2026-04-15T17:00:00.000Z",
+    dueDate: d(-1, 17),
     plannedHours: 8,
     actualHours: 9,
     riskLevel: "HIGH",
@@ -144,8 +153,8 @@ export const controls: Control[] = [
     ownerId: "U2",
     assignedOwnerId: "U2",
     status: "IN_PROGRESS",
-    dueDate: "2026-04-18T17:00:00.000Z",
-    assignedDueDate: "2026-04-18T17:00:00.000Z",
+    dueDate: d(2, 17),
+    assignedDueDate: d(2, 17),
     plannedHours: 12,
     actualHours: 15,
     riskLevel: "MEDIUM",
@@ -159,8 +168,8 @@ export const controls: Control[] = [
     scopeStatus: "IN_SCOPE",
     ownerId: "U6",
     status: "IN_PROGRESS",
-    dueDate: "2026-04-20T17:00:00.000Z",
-    assignedDueDate: "2026-04-20T17:00:00.000Z",
+    dueDate: d(4, 17),
+    assignedDueDate: d(4, 17),
     plannedHours: 7,
     actualHours: 5,
     riskLevel: "HIGH",
@@ -174,8 +183,8 @@ export const questions: Question[] = [
     controlId: "C-101",
     askedBy: "Priya Shah",
     assignedTo: "Avery Collins",
-    dateSent: "2026-04-09T14:00:00.000Z",
-    dueDate: "2026-04-11T14:00:00.000Z",
+    dateSent: d(-7, 14),
+    dueDate: d(-5, 14),
     status: "OPEN",
     questionText: "Who reviews the quarterly access recertification exceptions, and what criteria determine whether an exception is escalated?",
   },
@@ -184,8 +193,8 @@ export const questions: Question[] = [
     controlId: "C-102",
     askedBy: "Jordan Lee",
     assignedTo: "IT Ops Lead",
-    dateSent: "2026-04-05T14:00:00.000Z",
-    dueDate: "2026-04-07T14:00:00.000Z",
+    dateSent: d(-11, 14),
+    dueDate: d(-9, 14),
     status: "OVERDUE",
     questionText: "Why was emergency change ticket CHG-443 approved after deployment, and what compensating review occurred afterward?",
   },
@@ -194,21 +203,21 @@ export const questions: Question[] = [
     controlId: "C-103",
     askedBy: "Noah Bennett",
     assignedTo: "Treasury Manager",
-    dateSent: "2026-04-10T09:00:00.000Z",
-    dueDate: "2026-04-12T09:00:00.000Z",
+    dateSent: d(-6, 9),
+    dueDate: d(-4, 9),
     status: "RESPONDED",
     questionText: "What explains the increase in unresolved settlement exceptions during the last week of March, and who was responsible for clearing them?",
     responseText:
       "Volume increased after a processor mapping change. Treasury operations handled manual clears each morning until the mapping defect was fixed on March 29.",
-    responseDate: "2026-04-11T13:00:00.000Z",
+    responseDate: d(-5, 13),
   },
   {
     id: "Q-04",
     controlId: "C-104",
     askedBy: "Elena Martin",
     assignedTo: "Consumer Lending Manager",
-    dateSent: "2026-04-12T15:00:00.000Z",
-    dueDate: "2026-04-16T16:00:00.000Z",
+    dateSent: d(-4, 15),
+    dueDate: d(0, 16),
     status: "OPEN",
     questionText: "Which quality checks are required before a boarded loan can move to servicing, and who signs off on exceptions?",
   },
@@ -217,8 +226,8 @@ export const questions: Question[] = [
     controlId: "C-105",
     askedBy: "Priya Shah",
     assignedTo: "Compliance Director",
-    dateSent: "2026-04-07T13:00:00.000Z",
-    dueDate: "2026-04-09T13:00:00.000Z",
+    dateSent: d(-9, 13),
+    dueDate: d(-7, 13),
     status: "OVERDUE",
     questionText: "Why were three sanctions alerts closed without documented secondary review, and were any cases reopened?",
   },
@@ -227,21 +236,21 @@ export const questions: Question[] = [
     controlId: "C-106",
     askedBy: "Elena Martin",
     assignedTo: "Vendor Governance Lead",
-    dateSent: "2026-04-08T11:00:00.000Z",
-    dueDate: "2026-04-10T11:00:00.000Z",
+    dateSent: d(-8, 11),
+    dueDate: d(-6, 11),
     status: "RESPONDED",
     questionText: "Which critical vendors are still missing signed risk assessments, and what interim approval was used to keep them active?",
     responseText:
       "Two payment-service vendors were pending refreshed cyber attestations. The vendor governance committee approved temporary extensions through April 30 while the packets were finalized.",
-    responseDate: "2026-04-10T18:00:00.000Z",
+    responseDate: d(-6, 18),
   },
   {
     id: "Q-07",
     controlId: "C-107",
     askedBy: "Mia Chen",
     assignedTo: "BSA Operations Lead",
-    dateSent: "2026-04-12T16:00:00.000Z",
-    dueDate: "2026-04-16T17:00:00.000Z",
+    dateSent: d(-4, 16),
+    dueDate: d(0, 17),
     status: "OPEN",
     questionText: "What explains the gap between alert disposition and case escalation time for the March high-risk population?",
   },
@@ -250,8 +259,8 @@ export const questions: Question[] = [
     controlId: "C-108",
     askedBy: "Priya Shah",
     assignedTo: "Data Governance Manager",
-    dateSent: "2026-04-11T17:00:00.000Z",
-    dueDate: "2026-04-15T17:00:00.000Z",
+    dateSent: d(-5, 17),
+    dueDate: d(-1, 17),
     status: "OPEN",
     questionText: "Which retention exceptions remain open beyond policy thresholds, and what customer record categories are affected?",
   },
@@ -263,8 +272,8 @@ export const requests: Request[] = [
     controlId: "C-101",
     description: "Provide access review evidence",
     assignedTo: "Avery Collins",
-    dateRequested: "2026-04-10T12:00:00.000Z",
-    dueDate: "2026-04-14T12:00:00.000Z",
+    dateRequested: d(-6, 12),
+    dueDate: d(-2, 12),
     status: "OPEN",
   },
   {
@@ -272,10 +281,10 @@ export const requests: Request[] = [
     controlId: "C-102",
     description: "Provide approval matrix",
     assignedTo: "IT Ops Lead",
-    dateRequested: "2026-04-04T12:00:00.000Z",
-    dueDate: "2026-04-08T12:00:00.000Z",
+    dateRequested: d(-12, 12),
+    dueDate: d(-8, 12),
     status: "COMPLETED",
-    receivedDate: "2026-04-08T15:30:00.000Z",
+    receivedDate: d(-8, 15, 30),
     responseNotes: "Matrix received and cross-checked to ticket sample.",
   },
   {
@@ -283,8 +292,8 @@ export const requests: Request[] = [
     controlId: "C-104",
     description: "Provide loan boarding QA exceptions for Q1",
     assignedTo: "Operations Manager",
-    dateRequested: "2026-04-12T12:00:00.000Z",
-    dueDate: "2026-04-18T12:00:00.000Z",
+    dateRequested: d(-4, 12),
+    dueDate: d(2, 12),
     status: "IN_PROGRESS",
   },
   {
@@ -292,10 +301,10 @@ export const requests: Request[] = [
     controlId: "C-103",
     description: "Provide settlement exception tracker and aging summary",
     assignedTo: "Treasury Manager",
-    dateRequested: "2026-04-06T12:00:00.000Z",
-    dueDate: "2026-04-09T12:00:00.000Z",
+    dateRequested: d(-10, 12),
+    dueDate: d(-7, 12),
     status: "COMPLETED",
-    receivedDate: "2026-04-09T10:45:00.000Z",
+    receivedDate: d(-7, 10, 45),
     responseNotes: "Tracker received and reconciled to the March settlement break population.",
   },
   {
@@ -303,10 +312,10 @@ export const requests: Request[] = [
     controlId: "C-105",
     description: "Provide sanctions alert closure approvals for March",
     assignedTo: "Compliance Director",
-    dateRequested: "2026-04-08T12:00:00.000Z",
-    dueDate: "2026-04-11T12:00:00.000Z",
+    dateRequested: d(-8, 12),
+    dueDate: d(-5, 12),
     status: "COMPLETED",
-    receivedDate: "2026-04-11T09:20:00.000Z",
+    receivedDate: d(-5, 9, 20),
     responseNotes: "Approvals received for 27 of 30 alerts. Three closures remain unsupported and are tied to Q-05.",
   },
   {
@@ -314,10 +323,10 @@ export const requests: Request[] = [
     controlId: "C-106",
     description: "Provide current due diligence packet tracker for critical vendors",
     assignedTo: "Vendor Governance Lead",
-    dateRequested: "2026-04-10T10:00:00.000Z",
-    dueDate: "2026-04-17T10:00:00.000Z",
+    dateRequested: d(-6, 10),
+    dueDate: d(1, 10),
     status: "COMPLETED",
-    receivedDate: "2026-04-13T14:10:00.000Z",
+    receivedDate: d(-3, 14, 10),
     responseNotes: "Critical vendor packets received and agreed to the governance tracker.",
   },
   {
@@ -325,8 +334,8 @@ export const requests: Request[] = [
     controlId: "C-107",
     description: "Provide case escalation timestamps for high-risk alerts",
     assignedTo: "BSA Operations Lead",
-    dateRequested: "2026-04-12T10:00:00.000Z",
-    dueDate: "2026-04-18T10:00:00.000Z",
+    dateRequested: d(-4, 10),
+    dueDate: d(2, 10),
     status: "IN_PROGRESS",
   },
   {
@@ -334,8 +343,8 @@ export const requests: Request[] = [
     controlId: "C-108",
     description: "Provide open data retention exception register",
     assignedTo: "Data Governance Manager",
-    dateRequested: "2026-04-07T09:00:00.000Z",
-    dueDate: "2026-04-10T09:00:00.000Z",
+    dateRequested: d(-9, 9),
+    dueDate: d(-6, 9),
     status: "OPEN",
   },
 ];
@@ -349,7 +358,7 @@ export const documents: AuditDocument[] = [
     status: "IN_PROGRESS",
     reviewStatus: "NOT_SUBMITTED",
     ownerId: "U2",
-    dueDate: "2026-04-18T17:00:00.000Z",
+    dueDate: d(2, 17),
     previewSummary: "Walkthrough and sample results over quarterly access recertification evidence for high-risk retail banking applications.",
     previewSections: [
       {
@@ -383,7 +392,7 @@ export const documents: AuditDocument[] = [
     status: "NOT_STARTED",
     reviewStatus: "NOT_SUBMITTED",
     ownerId: "U1",
-    dueDate: "2026-04-15T17:00:00.000Z",
+    dueDate: d(-1, 17),
     templateName: "Standard IA Planning Tollgate",
     previewSummary: "Draft planning tollgate materials prepared for leadership review before formal fieldwork kickoff.",
     previewSections: [
@@ -417,7 +426,7 @@ export const documents: AuditDocument[] = [
     status: "IN_PROGRESS",
     reviewStatus: "AIC_REVIEW",
     ownerId: "U1",
-    dueDate: "2026-04-14T17:00:00.000Z",
+    dueDate: d(-2, 17),
     previewSummary: "Narrative draft summarizing why the audit scope leans into operational timing, manual review, and exception governance.",
     previewSections: [
       {
@@ -443,7 +452,7 @@ export const documents: AuditDocument[] = [
     status: "NOT_STARTED",
     reviewStatus: "NOT_SUBMITTED",
     ownerId: "U1",
-    dueDate: "2026-05-08T17:00:00.000Z",
+    dueDate: d(22, 17),
     previewSummary: "Early report shell showing the structure of the final audit report once observations are finalized.",
     previewSections: [
       {
@@ -471,7 +480,7 @@ export const documents: AuditDocument[] = [
     status: "COMPLETE",
     reviewStatus: "APPROVED",
     ownerId: "U5",
-    dueDate: "2026-04-08T17:00:00.000Z",
+    dueDate: d(-8, 17),
     previewSummary: "Supporting evidence package for the emergency change approval sample.",
     previewSections: [
       {
@@ -498,7 +507,7 @@ export const documents: AuditDocument[] = [
     status: "IN_PROGRESS",
     reviewStatus: "NOT_SUBMITTED",
     ownerId: "U7",
-    dueDate: "2026-04-18T17:00:00.000Z",
+    dueDate: d(2, 17),
     previewSummary: "Exception register requested from consumer lending to support loan boarding quality assurance testing.",
     previewSections: [
       {
@@ -519,7 +528,7 @@ export const documents: AuditDocument[] = [
     status: "IN_PROGRESS",
     reviewStatus: "MANAGER_REVIEW",
     ownerId: "U2",
-    dueDate: "2026-04-16T17:00:00.000Z",
+    dueDate: d(0, 17),
     previewSummary: "Workpaper documenting alert triage population, selected samples, and secondary-approval exceptions.",
     previewSections: [
       {
@@ -548,7 +557,7 @@ export const documents: AuditDocument[] = [
     status: "COMPLETE",
     reviewStatus: "APPROVED",
     ownerId: "U5",
-    dueDate: "2026-04-13T17:00:00.000Z",
+    dueDate: d(-3, 17),
     previewSummary: "Final vendor tracker export used to support due diligence completeness testing for critical vendors.",
     previewSections: [
       {
@@ -570,7 +579,7 @@ export const documents: AuditDocument[] = [
     status: "IN_PROGRESS",
     reviewStatus: "AIC_REVIEW",
     ownerId: "U2",
-    dueDate: "2026-04-15T17:00:00.000Z",
+    dueDate: d(-1, 17),
     previewSummary: "Retention exception register showing open items beyond policy thresholds and customer record categories impacted.",
     previewSections: [
       {
@@ -598,7 +607,7 @@ export const documents: AuditDocument[] = [
     status: "COMPLETE",
     reviewStatus: "APPROVED",
     ownerId: "U6",
-    dueDate: "2026-04-13T17:00:00.000Z",
+    dueDate: d(-3, 17),
     previewSummary: "Completed workpaper over settlement monitoring procedures and break-aging escalation testing.",
     previewSections: [
       {
@@ -833,10 +842,10 @@ export const rcsaRecords: RCSARecord[] = [
 ];
 
 export const milestones: TimelineItem[] = [
-  { id: "M-01", label: "Planning complete", date: "2026-04-15T17:00:00.000Z", status: "active" },
-  { id: "M-02", label: "Fieldwork tollgate", date: "2026-04-25T17:00:00.000Z", status: "upcoming" },
-  { id: "M-03", label: "Reporting complete", date: "2026-05-08T17:00:00.000Z", status: "upcoming" },
-  { id: "M-04", label: "Audit report filed", date: "2026-05-12T17:00:00.000Z", status: "upcoming" },
+  { id: "M-01", label: "Planning complete", date: d(-1, 17), status: "active" },
+  { id: "M-02", label: "Fieldwork tollgate", date: d(9, 17), status: "upcoming" },
+  { id: "M-03", label: "Reporting complete", date: d(22, 17), status: "upcoming" },
+  { id: "M-04", label: "Audit report filed", date: d(26, 17), status: "upcoming" },
 ];
 
 export const budgetByPhase: BudgetByPhase[] = [
@@ -845,4 +854,4 @@ export const budgetByPhase: BudgetByPhase[] = [
   { phase: "Reporting", plannedHours: 26, actualHours: 0, isSet: true },
 ];
 
-export const mockNow = "2026-04-16T12:00:00.000Z";
+export const mockNow = d(0, 12, 0);

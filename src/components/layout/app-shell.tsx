@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   BellRing,
   BriefcaseBusiness,
+  ChevronDown,
   CircleUserRound,
   ClipboardList,
   Clock3,
@@ -32,15 +33,58 @@ const preferredSwitcherUserIds: Partial<Record<(typeof switcherRoleOrder)[number
 };
 const additionalSwitcherUserIds = ["U8"] as const;
 
-const navItems = [
+type NavSubtab = { label: string; tabParam: string; tabValue: string };
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number }>;
+  subtabs?: NavSubtab[];
+};
+
+const navItems: NavItem[] = [
   { href: "/dashboard", label: "Executive Dashboard", icon: LayoutDashboard },
   { href: "/hours-budget", label: "Hours & Budget", icon: Clock3 },
   { href: "/question-log", label: "Question and Request Log", icon: ClipboardList },
-  { href: "/planning", label: "Planning", icon: BriefcaseBusiness },
-  { href: "/fieldwork", label: "Fieldwork", icon: NotebookTabs },
-  { href: "/reporting", label: "Reporting", icon: FileStack },
+  {
+    href: "/planning",
+    label: "Planning",
+    icon: BriefcaseBusiness,
+    subtabs: [
+      { label: "Planning Inputs", tabParam: "planningTab", tabValue: "planning-inputs" },
+      { label: "Scope Planning", tabParam: "planningTab", tabValue: "scope-planning" },
+      { label: "Planning Narrative", tabParam: "planningTab", tabValue: "planning-narrative" },
+      { label: "Planning Tollgate", tabParam: "planningTab", tabValue: "planning-tollgate" },
+    ],
+  },
+  {
+    href: "/fieldwork",
+    label: "Fieldwork",
+    icon: NotebookTabs,
+    subtabs: [
+      { label: "Control Testing", tabParam: "fieldworkTab", tabValue: "control-testing" },
+      { label: "Test Analytics", tabParam: "fieldworkTab", tabValue: "test-analytics" },
+      { label: "View Risks", tabParam: "fieldworkTab", tabValue: "view-risks" },
+      { label: "Document Review", tabParam: "fieldworkTab", tabValue: "document-review" },
+      { label: "Tollgate Draft", tabParam: "fieldworkTab", tabValue: "tollgate-draft" },
+    ],
+  },
+  {
+    href: "/reporting",
+    label: "Reporting",
+    icon: FileStack,
+    subtabs: [
+      { label: "Fieldwork Results", tabParam: "reportingTab", tabValue: "fieldwork-results" },
+      { label: "Reporting Tollgate", tabParam: "reportingTab", tabValue: "reporting-tollgate" },
+      { label: "Final Report", tabParam: "reportingTab", tabValue: "final-report" },
+    ],
+  },
   { href: "/admin", label: "Admin", icon: CircleUserRound },
 ];
+
+const PROFILE_SWITCHER_ENTRIES = [
+  { id: "U2", label: "Priya Shah", roleLabel: "Audit Staff", persona: "staff" },
+  { id: "U3", label: "Elena Martin", roleLabel: "Manager", persona: "manager" },
+] as const;
 
 const THEME_STORAGE_KEY = "theme-preference";
 const PERSONA_STORAGE_KEY = "workspace-persona";
@@ -61,6 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [themePreference, setThemePreference] = useState<ThemeMode | null>(null);
   const [resolvedTheme, setResolvedTheme] = useState<ThemeMode>("light");
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
+  const [expandedNavSections, setExpandedNavSections] = useState<Set<string>>(new Set());
   const personaParam = searchParams.get("persona");
   const personaSeededRef = useRef(false);
   const activeUser = availableUsers.find((user) => user.id === activeUserId) ?? getUserById(activeUserId);
@@ -112,6 +157,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setResolvedScopePeriod(currentScopePeriod);
   }, [currentScopePeriod]);
+
+  useEffect(() => {
+    const activeItem = navItems.find((item) => item.subtabs && pathname === item.href);
+    if (activeItem) {
+      setExpandedNavSections((current) => new Set([...current, activeItem.href]));
+    }
+  }, [pathname]);
 
   // Seed activeUserId from demo persona on first workspace entry; persist through refreshes.
   useEffect(() => {
@@ -310,7 +362,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            <div className="relative z-20 flex items-center gap-2">
+            <div className="relative z-[9999] flex items-center gap-2">
               <button
                 type="button"
                 title={themeToggleLabel}
@@ -379,64 +431,58 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </span>
                   </div>
 
-                  <div className="mt-4 grid gap-2">
+                  <div className="mt-4 grid gap-1.5">
                     {notifications.length > 0 ? (
                       notifications.map((item) => (
-                        <div key={item.id} className="rounded-xl border border-black/8 bg-[var(--surface-soft)] p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (item.linkHref) {
-                                  void handleNotificationAction(item.id, item.linkHref);
-                                }
-                              }}
-                              disabled={!item.linkHref}
-                              className="flex min-w-0 flex-1 items-start gap-3 text-left disabled:cursor-default"
-                            >
-                              <span
-                                className={cn(
-                                  "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
-                                  item.tone === "success"
-                                    ? "bg-[rgba(5,171,140,0.14)] text-[var(--brand-teal-core)]"
-                                    : "bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-bright)]",
-                                )}
-                              >
-                                <CheckCircle2 size={16} />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="text-sm font-semibold text-[var(--foreground)]">{item.title}</p>
-                                  {item.status === "unread" ? (
-                                    <span className="rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-amber-bright)]">
-                                      Unread
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{item.detail}</p>
-                              </div>
-                            </button>
-                            <div className="flex shrink-0 items-start gap-2">
-                              <span className="whitespace-nowrap text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                                {item.time}
-                              </span>
-                              {auditMode === "live" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void handleNotificationAction(item.id);
-                                  }}
-                                  className="rounded-full border border-black/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
-                                >
-                                  Dismiss
-                                </button>
+                        <div key={item.id} className="flex items-start gap-2.5 rounded-lg border border-black/8 bg-[var(--surface-soft)] px-3 py-2">
+                          <span
+                            className={cn(
+                              "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg",
+                              item.tone === "success"
+                                ? "bg-[rgba(5,171,140,0.14)] text-[var(--brand-teal-core)]"
+                                : "bg-[rgba(245,168,0,0.14)] text-[var(--brand-amber-bright)]",
+                            )}
+                          >
+                            <CheckCircle2 size={13} />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (item.linkHref) {
+                                void handleNotificationAction(item.id, item.linkHref);
+                              }
+                            }}
+                            disabled={!item.linkHref}
+                            className="min-w-0 flex-1 text-left disabled:cursor-default"
+                          >
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="text-[13px] font-semibold text-[var(--foreground)]">{item.title}</p>
+                              {item.status === "unread" ? (
+                                <span className="shrink-0 rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-amber-bright)]">
+                                  New
+                                </span>
                               ) : null}
                             </div>
+                            <p className="mt-0.5 text-[12px] leading-[1.4] text-[var(--muted)]">{item.detail}</p>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className="whitespace-nowrap text-[11px] text-[var(--muted)]">{item.time}</span>
+                            {auditMode === "live" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void handleNotificationAction(item.id);
+                                }}
+                                className="rounded-full border border-black/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                              >
+                                Dismiss
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ))
                     ) : (
-                      <div className="rounded-xl border border-black/8 bg-[var(--surface-soft)] p-4 text-sm text-[var(--muted)]">
+                      <div className="rounded-lg border border-black/8 bg-[var(--surface-soft)] p-3 text-[13px] text-[var(--muted)]">
                         No notifications are waiting for {activeUser.name}.
                       </div>
                     )}
@@ -448,36 +494,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="absolute right-0 top-11 z-50 min-w-[280px] rounded-2xl border border-black/10 bg-[var(--surface)] p-4 shadow-lg">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-indigo-core)]">Switch active user</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">
-                    Preview the workflow from audit preparation and final reporting reviewer perspectives.
+                    Preview the workspace as an audit staff member or the audit in charge.
                   </p>
                   <div className="mt-4 grid gap-2">
-                    {switchableUsers.map((user) => (
+                    {PROFILE_SWITCHER_ENTRIES.map((entry) => (
                       <button
-                        key={user.id}
+                        key={entry.id}
                         type="button"
                         onClick={() => {
-                          setActiveUserId(user.id);
+                          setActiveUserId(entry.id);
                           setShowProfileMenu(false);
-                          const nextPersona = user.id === "U3" ? "manager" : user.id === "U2" ? "staff" : null;
-                          if (nextPersona) {
-                            window.localStorage.setItem(PERSONA_STORAGE_KEY, nextPersona);
-                          } else {
-                            window.localStorage.removeItem(PERSONA_STORAGE_KEY);
-                          }
+                          window.localStorage.setItem(PERSONA_STORAGE_KEY, entry.persona);
                           personaSeededRef.current = true;
                         }}
                         className={cn(
                           "flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-colors",
-                          activeUser.id === user.id
+                          activeUser.id === entry.id
                             ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.08)]"
                             : "border-black/8 bg-[var(--surface-soft)] hover:bg-[var(--surface)]",
                         )}
                       >
                         <span>
-                          <span className="block text-sm font-semibold text-[var(--foreground)]">{user.name}</span>
-                          <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted)]">{getUserProfileLabel(user)}</span>
+                          <span className="block text-sm font-semibold text-[var(--foreground)]">{entry.label}</span>
+                          <span className="block text-xs uppercase tracking-[0.14em] text-[var(--muted)]">{entry.roleLabel}</span>
                         </span>
-                        {activeUser.id === user.id ? (
+                        {activeUser.id === entry.id ? (
                           <span className="rounded-full border border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.12)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--brand-amber-bright)]">
                             Active
                           </span>
@@ -506,41 +547,136 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </p>
               </div>
               <div className="-mx-1 overflow-x-auto lg:mx-0 lg:overflow-visible">
-                <div className="flex min-w-max gap-2 px-1 lg:min-w-0 lg:flex-col lg:px-0">
+                <div className="flex min-w-max gap-2 px-1 lg:min-w-0 lg:flex-col lg:gap-1 lg:px-0">
                   {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = pathname === item.href;
+                    const activeTabParam = item.subtabs?.[0]?.tabParam;
+                    const activeTabValue = activeTabParam ? searchParams.get(activeTabParam) : null;
+                    const isSubtabsOpen = expandedNavSections.has(item.href);
 
                     return (
-                      <Link
-                        key={item.href}
-                        href={
-                          currentAuditQuery
-                            ? { pathname: item.href, query: currentAuditQuery }
-                            : item.href
-                        }
-                        className={cn(
-                          "group flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all duration-200",
-                          isNavCollapsed && "lg:justify-center lg:px-2",
-                          isActive
-                            ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.10)] text-[var(--foreground)]"
-                            : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]",
+                      <div key={item.href} className="flex flex-col">
+                        {item.subtabs ? (
+                          <div
+                            className={cn(
+                              "flex items-center rounded-xl border transition-all duration-200",
+                              isNavCollapsed && "lg:justify-center",
+                              isActive
+                                ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.10)] text-[var(--foreground)]"
+                                : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]",
+                            )}
+                          >
+                            <Link
+                              href={
+                                currentAuditQuery
+                                  ? { pathname: item.href, query: currentAuditQuery }
+                                  : item.href
+                              }
+                              className={cn(
+                                "group flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-sm",
+                                isNavCollapsed && "lg:justify-center lg:px-2",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors",
+                                  isActive
+                                    ? "border-[rgba(245,168,0,0.34)] bg-[rgba(245,168,0,0.16)] text-[var(--brand-amber-dark)]"
+                                    : "border-black/8 bg-[var(--surface)] text-[var(--foreground)] group-hover:border-black/12",
+                                )}
+                              >
+                                <Icon size={16} />
+                              </span>
+                              <span className={cn("min-w-0 flex-1 text-[13px] font-medium leading-5", isNavCollapsed && "lg:hidden")}>
+                                {item.label}
+                              </span>
+                            </Link>
+                            {!isNavCollapsed && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedNavSections((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(item.href)) {
+                                      next.delete(item.href);
+                                    } else {
+                                      next.add(item.href);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className="mr-1.5 hidden h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[rgba(0,0,0,0.06)] lg:flex"
+                                aria-label={isSubtabsOpen ? "Collapse" : "Expand"}
+                              >
+                                <ChevronDown
+                                  size={12}
+                                  className={cn(
+                                    "text-[var(--muted)] transition-transform duration-200",
+                                    isSubtabsOpen && "rotate-180",
+                                  )}
+                                />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <Link
+                            href={
+                              currentAuditQuery
+                                ? { pathname: item.href, query: currentAuditQuery }
+                                : item.href
+                            }
+                            className={cn(
+                              "group flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all duration-200",
+                              isNavCollapsed && "lg:justify-center lg:px-2",
+                              isActive
+                                ? "border-[rgba(245,168,0,0.28)] bg-[rgba(245,168,0,0.10)] text-[var(--foreground)]"
+                                : "border-transparent text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors",
+                                isActive
+                                  ? "border-[rgba(245,168,0,0.34)] bg-[rgba(245,168,0,0.16)] text-[var(--brand-amber-dark)]"
+                                  : "border-black/8 bg-[var(--surface)] text-[var(--foreground)] group-hover:border-black/12",
+                              )}
+                            >
+                              <Icon size={16} />
+                            </span>
+                            <span className={cn("min-w-0 flex-1 text-[13px] font-medium leading-5", isNavCollapsed && "lg:hidden")}>
+                              {item.label}
+                            </span>
+                          </Link>
                         )}
-                      >
-                        <span
-                          className={cn(
-                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors",
-                            isActive
-                              ? "border-[rgba(245,168,0,0.34)] bg-[rgba(245,168,0,0.16)] text-[var(--brand-amber-dark)]"
-                              : "border-black/8 bg-[var(--surface)] text-[var(--foreground)] group-hover:border-black/12",
-                          )}
-                        >
-                          <Icon size={16} />
-                        </span>
-                        <span className={cn("min-w-0 flex-1 text-[13px] font-medium leading-5", isNavCollapsed && "lg:hidden")}>
-                          {item.label}
-                        </span>
-                      </Link>
+                        {item.subtabs && !isNavCollapsed && isSubtabsOpen && (
+                          <div className="hidden lg:flex lg:flex-col lg:gap-0.5 lg:pb-0.5 lg:pl-11">
+                            {item.subtabs.map((subtab) => {
+                              const isSubActive = isActive && (
+                                activeTabValue === subtab.tabValue ||
+                                (!activeTabValue && item.subtabs?.[0]?.tabValue === subtab.tabValue)
+                              );
+                              const subtabHref = currentAuditQuery
+                                ? { pathname: item.href, query: { ...currentAuditQuery, [subtab.tabParam]: subtab.tabValue } }
+                                : `${item.href}?${subtab.tabParam}=${subtab.tabValue}`;
+                              return (
+                                <Link
+                                  key={subtab.tabValue}
+                                  href={subtabHref}
+                                  className={cn(
+                                    "rounded-lg px-2 py-1 text-[12px] transition-colors",
+                                    isSubActive
+                                      ? "font-semibold text-[var(--brand-indigo-core)]"
+                                      : "text-[var(--muted)] hover:text-[var(--foreground)]",
+                                  )}
+                                >
+                                  {subtab.label}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
