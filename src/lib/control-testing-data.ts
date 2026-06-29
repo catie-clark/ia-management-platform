@@ -3,6 +3,7 @@ import { loadAuditControlTestingMatrices } from "@/lib/control-testing-matrix-pe
 import { documents, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import { getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
+import { buildPhaseScaler, capOverdueItems, getDemoPhaseDates } from "@/lib/demo-dates";
 import {
   type AuditDocumentRow,
   type AuditRecord,
@@ -174,9 +175,23 @@ async function getLiveControlTestingViewModel({
     }
   }
 
-  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap, relatedRisksByControlId));
-  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
-  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const phaseDates = getDemoPhaseDates();
+  const rawFieldworkDates = [
+    ...(controlsResult.data ?? []).flatMap(c => [c.due_date, c.assigned_due_date]),
+    ...(questionsResult.data ?? []).flatMap(q => [q.date_sent, q.due_date]),
+    ...(requestsResult.data ?? []).flatMap(r => [r.date_requested, r.due_date]),
+  ];
+  const fieldworkScaler = buildPhaseScaler(rawFieldworkDates, phaseDates.fieldworkStartDate, phaseDates.fieldworkEndDate);
+
+  const now = new Date().toISOString();
+  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap, relatedRisksByControlId, fieldworkScaler));
+  const liveQuestions = capOverdueItems(
+    mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap, fieldworkScaler),
+    4,
+    now,
+    phaseDates.fieldworkEndDate,
+  );
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? [], fieldworkScaler);
   const liveUsers = Array.from(userMap.values());
   const syncedHours = getSyncedHoursData({
     budgetByPhase: [],
@@ -199,7 +214,7 @@ async function getLiveControlTestingViewModel({
     documents: mapControlTestingDocuments(
       normalizeAuditDocuments({
         controls: liveControls,
-        documents: (documentsResult.data ?? []).map(mapDocument),
+        documents: (documentsResult.data ?? []).map((doc) => mapDocument(doc, fieldworkScaler)),
         questions: liveQuestions,
         requests: liveRequests,
         users: liveUsers,

@@ -22,6 +22,7 @@ import {
 } from "@/lib/live-audit";
 import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
+import { buildPhaseScaler, capOverdueItems, getDemoPhaseDates } from "@/lib/demo-dates";
 import type { AuditDocument, AuditPhase, Control, ControlException, ControlTestingMatrix, Question, Request, ReviewNote, User } from "@/types/audit";
 
 type RiskControlLinkRow = {
@@ -231,10 +232,24 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
     }
   }
 
-  const liveControls = controlRows.map((control) => mapControl(control, businessUnitMap, relatedRisksByControlId));
+  const phaseDates = getDemoPhaseDates();
+  const rawFieldworkDates = [
+    ...controlRows.flatMap(c => [c.due_date, c.assigned_due_date]),
+    ...(questionsResult.data ?? []).flatMap(q => [q.date_sent, q.due_date]),
+    ...(requestsResult.data ?? []).flatMap(r => [r.date_requested, r.due_date]),
+  ];
+  const fieldworkScaler = buildPhaseScaler(rawFieldworkDates, phaseDates.fieldworkStartDate, phaseDates.fieldworkEndDate);
+
+  const now = new Date().toISOString();
+  const liveControls = controlRows.map((control) => mapControl(control, businessUnitMap, relatedRisksByControlId, fieldworkScaler));
   const controlById = new Map(liveControls.map((control) => [control.id, control]));
-  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
-  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const liveQuestions = capOverdueItems(
+    mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap, fieldworkScaler),
+    4,
+    now,
+    phaseDates.fieldworkEndDate,
+  );
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? [], fieldworkScaler);
   const liveRisks: FieldworkRiskRow[] = riskRows
     .map((risk) => {
       const associatedControls = (linkedControlIdsByRiskId.get(risk.id) ?? [])
@@ -259,7 +274,7 @@ async function getLiveFieldworkViewModel(auditId: string, auditLabel?: string): 
   const normalizedDocuments = mapFieldworkDocuments(
     normalizeAuditDocuments({
       controls: liveControls,
-      documents: (documentsResult.data ?? []).map(mapDocument),
+      documents: (documentsResult.data ?? []).map((doc) => mapDocument(doc, fieldworkScaler)),
       questions: liveQuestions,
       requests: liveRequests,
       users: liveUsers,

@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getDashboardKpis, getExecutiveNarrative, getRiskRows, normalizeAuditPhaseFromAudit } from "@/lib/audit-logic";
 import { controls, documents, milestones, mockNow, questions, requests, users } from "@/lib/data/mock-data";
 import { formatSourceSummary, getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
+import { buildPhaseScaler, capOverdueItems, getDemoPhaseDates } from "@/lib/demo-dates";
 import { buildLivePhaseBudgetPlan, getPrototypePhaseBudgets } from "@/lib/phase-budget";
 import {
   type AuditDocumentRow,
@@ -182,18 +183,31 @@ async function getLiveDashboardViewModel({
   const userMap = new Map((usersResult.data ?? []).map((user) => [user.id, mapUser(user)]));
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
 
+  const phaseDates = getDemoPhaseDates();
+  const rawFieldworkDates = [
+    ...(controlsResult.data ?? []).flatMap(c => [c.due_date, c.assigned_due_date]),
+    ...(questionsResult.data ?? []).flatMap(q => [q.date_sent, q.due_date]),
+    ...(requestsResult.data ?? []).flatMap(r => [r.date_requested, r.due_date]),
+  ];
+  const fieldworkScaler = buildPhaseScaler(rawFieldworkDates, phaseDates.fieldworkStartDate, phaseDates.fieldworkEndDate);
+
   const liveUsers = Array.from(userMap.values());
-  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
-  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
-  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap, undefined, fieldworkScaler));
+  const now = new Date().toISOString();
+  const liveQuestions = capOverdueItems(
+    mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap, fieldworkScaler),
+    4,
+    now,
+    phaseDates.fieldworkEndDate,
+  );
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? [], fieldworkScaler);
   const liveDocuments = normalizeAuditDocuments({
     controls: liveControls,
-    documents: (documentsResult.data ?? []).map(mapDocument),
+    documents: (documentsResult.data ?? []).map((doc) => mapDocument(doc, fieldworkScaler)),
     questions: liveQuestions,
     requests: liveRequests,
     users: liveUsers,
   });
-  const now = new Date().toISOString();
   const phase = phaseOverride ?? normalizeAuditPhaseFromAudit(audit ?? {});
   const phaseBudgets = buildLivePhaseBudgetPlan({
     planning_budget_hours: audit?.planning_budget_hours ?? null,
@@ -215,13 +229,13 @@ async function getLiveDashboardViewModel({
     mode: "live",
   });
   const derivedMilestones = buildAuditLifecycleMilestones({
-    fieldworkEndDate: audit?.fieldwork_end_date ?? null,
-    fieldworkStartDate: audit?.fieldwork_start_date ?? null,
+    fieldworkEndDate: phaseDates.fieldworkEndDate,
+    fieldworkStartDate: phaseDates.fieldworkStartDate,
     phase,
-    planningEndDate: audit?.planning_end_date ?? null,
-    planningStartDate: audit?.planning_start_date ?? null,
-    reportingEndDate: audit?.reporting_end_date ?? null,
-    reportingStartDate: audit?.reporting_start_date ?? null,
+    planningEndDate: phaseDates.planningEndDate,
+    planningStartDate: phaseDates.planningStartDate,
+    reportingEndDate: phaseDates.reportingEndDate,
+    reportingStartDate: phaseDates.reportingStartDate,
     now,
   });
   const context = {
@@ -380,9 +394,9 @@ function buildAuditLifecycleMilestones({
       },
       {
         id: "milestone-fieldwork-start",
-        label: "Fieldwork start",
-        date: fieldworkStartDate,
-        status: getMilestoneStatus(fieldworkStartDate, phase, "Fieldwork", now),
+        label: "Fieldwork close",
+        date: fieldworkEndDate,
+        status: getMilestoneStatus(fieldworkEndDate, phase, "Fieldwork", now),
       },
       {
         id: "milestone-reporting-start",

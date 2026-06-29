@@ -17,8 +17,9 @@ export function LogHubView({
   users,
 }: QuestionLogViewModel) {
   return (
-    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-13rem)]">
+    <div className="flex min-h-0 flex-col gap-4 xl:h-[calc(100dvh-9rem)]">
       <PageHeader
+        eyebrow={auditPeriodLabel ? `Scope period · ${auditPeriodLabel}` : undefined}
         title="Question and Request Log"
         description=""
         phaseStatus={{

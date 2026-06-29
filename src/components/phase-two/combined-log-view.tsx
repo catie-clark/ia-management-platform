@@ -340,7 +340,7 @@ export function CombinedLogView({
   useEffect(() => {
     if (prevPersonaRef.current === activeUser.id) return;
     prevPersonaRef.current = activeUser.id;
-    setAssignedToFilter(activeUser.id === "U2" ? activeUser.name : "ALL");
+    setAssignedToFilter("ALL");
   }, [activeUser.id, activeUser.name]);
 
   function openItem(item: LogItem) {
@@ -675,19 +675,19 @@ export function CombinedLogView({
         </button>
       </div>
 
-      <div className="flex-1 overflow-hidden rounded-[12px] border border-black/6">
+      <div className="flex-1 overflow-hidden rounded-[12px] border border-black/10 bg-white shadow-sm">
       <div className="h-full overflow-auto">
         <table className="min-w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
             <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-              <th className="w-12 border-b border-black/5 px-4 py-3" />
-              <th className="border-b border-black/5 px-4 py-3">Item</th>
-              <th className="border-b border-black/5 px-4 py-3">Tagged person</th>
-              <th className="border-b border-black/5 px-4 py-3">Sent</th>
-              <th className="border-b border-black/5 px-4 py-3">Due</th>
-              <th className="border-b border-black/5 px-4 py-3">Delay impact</th>
-              <th className="border-b border-black/5 px-4 py-3">Status</th>
-              <th className="border-b border-black/5 px-4 py-3">Actions</th>
+              <th className="w-12 border-b border-black/8 px-4 py-3" />
+              <th className="border-b border-black/8 px-4 py-3">Item</th>
+              <th className="border-b border-black/8 px-4 py-3">Tagged person</th>
+              <th className="border-b border-black/8 px-4 py-3">Sent</th>
+              <th className="border-b border-black/8 px-4 py-3">Due</th>
+              <th className="border-b border-black/8 px-4 py-3">Delay impact</th>
+              <th className="border-b border-black/8 px-4 py-3">Status</th>
+              <th className="border-b border-black/8 px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -973,7 +973,7 @@ export function CombinedLogView({
     const rows = [
       <tr
         key={item.key}
-        className={`cursor-pointer border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)] ${level > 0 ? "bg-[var(--surface-soft)]" : ""}`}
+        className={`cursor-pointer border-b border-black/8 transition-colors hover:bg-[var(--surface-soft)] ${level > 0 ? "bg-[var(--surface-soft)]" : "bg-white"}`}
         onClick={() => openItem(item)}
       >
         <td className="px-4 py-4 align-top">
