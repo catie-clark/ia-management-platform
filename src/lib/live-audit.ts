@@ -17,6 +17,9 @@ import type {
   User,
 } from "@/types/audit";
 import { readWorkpaperContent } from "@/lib/workpaper-content";
+import { shiftDemoDate } from "@/lib/demo-dates";
+
+export type DateShifter = (dateStr: string | null) => string | null;
 
 export type DashboardMode = "live";
 
@@ -311,9 +314,10 @@ export function mapControl(
   control: ControlRow,
   businessUnitMap: Map<string, string>,
   relatedRisksByControlId?: Map<string, Array<{ id: string; statement: string }>>,
+  shift: DateShifter = shiftDemoDate,
 ): Control {
-  const importedDueDate = toOptionalIsoDate(control.due_date);
-  const assignedDueDate = toOptionalIsoDate(control.assigned_due_date);
+  const importedDueDate = toOptionalIsoDate(shift(control.due_date));
+  const assignedDueDate = toOptionalIsoDate(shift(control.assigned_due_date));
   const importedPlannedHours = Number(control.planned_hours ?? 0);
   const assignedPlannedHours =
     control.assigned_planned_hours === null || control.assigned_planned_hours === undefined
@@ -366,7 +370,7 @@ export function mapControl(
   };
 }
 
-export function mapQuestion(question: QuestionRow, userMap: Map<string, User>): Question {
+export function mapQuestion(question: QuestionRow, userMap: Map<string, User>, shift: DateShifter = shiftDemoDate): Question {
   return {
     id: question.id,
     controlId: question.control_id ?? "",
@@ -375,16 +379,16 @@ export function mapQuestion(question: QuestionRow, userMap: Map<string, User>): 
     parentRequestId: question.parent_request_id ?? undefined,
     askedBy: question.asked_by_user_id ? userMap.get(question.asked_by_user_id)?.name ?? "Unknown auditor" : "Unknown auditor",
     assignedTo: question.assigned_to,
-    dateSent: ensureIsoDate(question.date_sent),
-    dueDate: ensureIsoDate(question.due_date),
+    dateSent: ensureIsoDate(shift(question.date_sent)),
+    dueDate: ensureIsoDate(shift(question.due_date)),
     status: normalizeQuestionStatus(question.status),
     questionText: question.question_text,
     responseText: question.response_text ?? undefined,
-    responseDate: question.response_date ? ensureIsoDate(question.response_date) : undefined,
+    responseDate: question.response_date ? ensureIsoDate(shift(question.response_date)) : undefined,
   };
 }
 
-export function mapRequest(request: RequestRow): Request {
+export function mapRequest(request: RequestRow, shift: DateShifter = shiftDemoDate): Request {
   return {
     id: request.id,
     controlId: request.control_id ?? undefined,
@@ -393,35 +397,35 @@ export function mapRequest(request: RequestRow): Request {
     parentRequestId: request.parent_request_id ?? undefined,
     description: request.description,
     assignedTo: request.requested_from,
-    dateRequested: ensureIsoDate(request.date_requested),
-    dueDate: ensureIsoDate(request.due_date),
+    dateRequested: ensureIsoDate(shift(request.date_requested)),
+    dueDate: ensureIsoDate(shift(request.due_date)),
     status: normalizeRequestStatus(request.status),
-    completedAt: request.completed_at ? ensureIsoDate(request.completed_at) : undefined,
+    completedAt: request.completed_at ? ensureIsoDate(shift(request.completed_at)) : undefined,
     responseNotes: request.response_notes ?? undefined,
   };
 }
 
-export function mapQuestionsWithDisplayIds(questionRows: QuestionRow[], userMap: Map<string, User>) {
+export function mapQuestionsWithDisplayIds(questionRows: QuestionRow[], userMap: Map<string, User>, shift: DateShifter = shiftDemoDate) {
   return questionRows
     .slice()
     .sort(compareCreatedRecords)
     .map((question, index) => ({
-      ...mapQuestion(question, userMap),
+      ...mapQuestion(question, userMap, shift),
       displayId: formatDisplayId("Q", index),
     }));
 }
 
-export function mapRequestsWithDisplayIds(requestRows: RequestRow[]) {
+export function mapRequestsWithDisplayIds(requestRows: RequestRow[], shift: DateShifter = shiftDemoDate) {
   return requestRows
     .slice()
     .sort(compareCreatedRecords)
     .map((request, index) => ({
-      ...mapRequest(request),
+      ...mapRequest(request, shift),
       displayId: formatDisplayId("R", index),
     }));
 }
 
-export function mapDocument(document: AuditDocumentRow): AuditDocument {
+export function mapDocument(document: AuditDocumentRow, shift: DateShifter = shiftDemoDate): AuditDocument {
   const payload = document.source_payload ?? {};
   const previewSections = readPreviewSections(payload);
   return {
@@ -435,7 +439,7 @@ export function mapDocument(document: AuditDocumentRow): AuditDocument {
     ownerId: document.owner_user_id ?? "",
     status: normalizeDocumentStatus(document.status),
     reviewStatus: normalizeDocumentReviewStatus(readText(payload, ["review_status"])),
-    dueDate: document.due_date ? ensureIsoDate(document.due_date) : undefined,
+    dueDate: document.due_date ? ensureIsoDate(shift(document.due_date)) : undefined,
     templateName: document.template_name ?? undefined,
     reviewComment: readText(payload, ["review_comment"]) ?? undefined,
     reviewCommentAuthor: readText(payload, ["review_comment_author"]) ?? undefined,

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { ArrowRight, ChevronDown, ChevronRight, CircleHelp, Filter, Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ArrowRight, ChevronDown, ChevronRight, Plus, Search, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useActiveUser } from "@/components/layout/active-user-context";
@@ -33,6 +33,7 @@ import { getQuestionLogNow } from "@/lib/question-log-data";
 import type { DashboardMode } from "@/lib/live-audit";
 import { formatDateTime, formatHours, formatShortDate } from "@/lib/utils";
 import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
+import { WorkspaceHelpButton, WorkspacePageHeader } from "@/components/workspace/workspace-ui";
 
 type DueFilter = "ALL" | "OVERDUE" | "NEXT_48_HOURS" | "NEXT_7_DAYS" | "FUTURE";
 type LogSort = "DUE_ASC" | "DUE_DESC" | "CREATED_DESC" | "ASSIGNED_TO_ASC" | "STATUS_ASC";
@@ -117,7 +118,7 @@ export function CombinedLogView({
   const [dueFilter, setDueFilter] = useState<DueFilter>("ALL");
   const [assignedToFilter, setAssignedToFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<LogSort>("DUE_ASC");
-  const [showFilters, setShowFilters] = useState(false);
+  const prevPersonaRef = useRef<string | null>(null);
   const [questionFormOpen, setQuestionFormOpen] = useState(false);
   const [requestFormOpen, setRequestFormOpen] = useState(false);
   const [responseDraft, setResponseDraft] = useState("");
@@ -335,6 +336,12 @@ export function CombinedLogView({
 
   useEffect(() => setQuestionForm(defaultQuestionForm), [defaultQuestionForm]);
   useEffect(() => setRequestForm(defaultRequestForm), [defaultRequestForm]);
+
+  useEffect(() => {
+    if (prevPersonaRef.current === activeUser.id) return;
+    prevPersonaRef.current = activeUser.id;
+    setAssignedToFilter("ALL");
+  }, [activeUser.id, activeUser.name]);
 
   function openItem(item: LogItem) {
     setSelectedItem({ kind: item.kind, id: item.id });
@@ -608,99 +615,79 @@ export function CombinedLogView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-[24px] border border-black/5 bg-white">
-      <div className="flex flex-col gap-3 border-b border-black/5 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-black/5 bg-[var(--surface-tint)] px-3 py-2">
-          <Search size={16} className="text-[var(--muted)]" />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <WorkspacePageHeader
+        title="Question & Request Log"
+        purposeLine="Operating queue for questions, evidence requests, follow-ups, and delays."
+      />
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex min-w-[180px] flex-1 items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-1.5">
+          <Search size={14} className="shrink-0 text-[var(--muted)]" />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
             placeholder="Search questions, requests, assignees, or controls"
           />
+          {search.length > 0 ? (
+            <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="text-[var(--muted)] transition-colors hover:text-[var(--foreground)]">
+              <X size={13} />
+            </button>
+          ) : null}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setShowFilters((current) => !current)}
-            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
-          >
-            <Filter size={15} />
-            Filters
-          </button>
-          <button
-            type="button"
-            onClick={() => openQuestionModal()}
-            className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
-          >
-            <Plus size={15} />
-            New Question
-          </button>
-          <button
-            type="button"
-            onClick={() => openRequestModal()}
-            className="inline-flex items-center gap-2 rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white"
-          >
-            <Plus size={15} />
-            New Request
-          </button>
-        </div>
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as LogStatusFilter)} className="rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[12px] text-[var(--foreground)] outline-none">
+          {statusFilterOptions.map((option) => (
+            <option key={option} value={option}>{formatStatusFilterLabel(option)}</option>
+          ))}
+        </select>
+        <select value={dueFilter} onChange={(event) => setDueFilter(event.target.value as DueFilter)} className="rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[12px] text-[var(--foreground)] outline-none">
+          {dueFilterOptions.map((option) => (
+            <option key={option} value={option}>{formatDueFilterLabel(option)}</option>
+          ))}
+        </select>
+        <select value={assignedToFilter} onChange={(event) => setAssignedToFilter(event.target.value)} className="rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[12px] text-[var(--foreground)] outline-none">
+          <option value="ALL">All assignees</option>
+          {assigneeOptions.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+        <select value={sortBy} onChange={(event) => setSortBy(event.target.value as LogSort)} className="rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[12px] text-[var(--foreground)] outline-none">
+          {sortOptions.map((option) => (
+            <option key={option} value={option}>{formatSortLabel(option)}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => openQuestionModal()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--brand-indigo-core)]"
+        >
+          <Plus size={13} />
+          New question
+        </button>
+        <button
+          type="button"
+          onClick={() => openRequestModal()}
+          className="inline-flex items-center gap-1.5 rounded-md bg-[var(--brand-indigo-core)] px-3 py-1.5 text-[12px] font-semibold text-white"
+        >
+          <Plus size={13} />
+          New request
+        </button>
       </div>
 
-      {showFilters ? (
-        <div className="grid gap-3 border-b border-black/5 bg-[var(--surface-tint)] p-4 md:grid-cols-4">
-          <Field label="Status">
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as LogStatusFilter)} className={fieldControlClass}>
-              {statusFilterOptions.map((option) => (
-                <option key={option} value={option}>
-                  {formatStatusFilterLabel(option)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Due">
-            <select value={dueFilter} onChange={(event) => setDueFilter(event.target.value as DueFilter)} className={fieldControlClass}>
-              {dueFilterOptions.map((option) => (
-                <option key={option} value={option}>
-                  {formatDueFilterLabel(option)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Assigned to">
-            <select value={assignedToFilter} onChange={(event) => setAssignedToFilter(event.target.value)} className={fieldControlClass}>
-              <option value="ALL">All assignees</option>
-              {assigneeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Sort">
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value as LogSort)} className={fieldControlClass}>
-              {sortOptions.map((option) => (
-                <option key={option} value={option}>
-                  {formatSortLabel(option)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-      ) : null}
-
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden rounded-[12px] border border-black/10 bg-white shadow-sm">
+      <div className="h-full overflow-auto">
         <table className="min-w-full border-collapse">
           <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
             <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-              <th className="w-12 border-b border-black/5 px-4 py-3" />
-              <th className="border-b border-black/5 px-4 py-3">Item</th>
-              <th className="border-b border-black/5 px-4 py-3">Tagged person</th>
-              <th className="border-b border-black/5 px-4 py-3">Sent</th>
-              <th className="border-b border-black/5 px-4 py-3">Due</th>
-              <th className="border-b border-black/5 px-4 py-3">Delay impact</th>
-              <th className="border-b border-black/5 px-4 py-3">Status</th>
-              <th className="border-b border-black/5 px-4 py-3">Actions</th>
+              <th className="w-12 border-b border-black/8 px-4 py-3" />
+              <th className="border-b border-black/8 px-4 py-3">Item</th>
+              <th className="border-b border-black/8 px-4 py-3">Tagged person</th>
+              <th className="border-b border-black/8 px-4 py-3">Sent</th>
+              <th className="border-b border-black/8 px-4 py-3">Due</th>
+              <th className="border-b border-black/8 px-4 py-3">Delay impact</th>
+              <th className="border-b border-black/8 px-4 py-3">Status</th>
+              <th className="border-b border-black/8 px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -715,6 +702,7 @@ export function CombinedLogView({
             )}
           </tbody>
         </table>
+      </div>
       </div>
 
       <FormModal
@@ -825,61 +813,59 @@ export function CombinedLogView({
           onClose={closeItem}
           panelClassName="bottom-4 right-4 top-4 h-auto rounded-[28px] border border-black/5 border-l"
         >
-          <div className="grid gap-6">
-            <section className="grid gap-4 md:grid-cols-2">
-              <DetailCard label="Asked by" value={selectedQuestion.askedBy} />
-              <DetailCard label="Tagged person" value={selectedQuestion.assignedTo} />
-              <DetailCard label="Linked control" value={getControlDisplayLabel(selectedQuestion.controlId, controlLabelById)} />
-              <DetailCard label="Phase" value={selectedQuestion.phaseTag ?? "Planning"} />
-              <DetailCard label="Date sent" value={formatDateTime(selectedQuestion.dateSent)} />
-              <DetailCard label="Due date" value={formatDateTime(selectedQuestion.dueDate)} />
-              <DetailCard label="Date answered" value={selectedQuestion.responseDate ? formatDateTime(selectedQuestion.responseDate) : "Pending"} />
-            </section>
+          <div className="grid gap-5">
+            <table className="w-full border-collapse text-[13px]">
+              <tbody className="divide-y divide-black/5">
+                <KvRow label="Type" value="Question" />
+                <KvRow label="Owner" value={selectedQuestion.assignedTo} />
+                <KvRow label="Asked by" value={selectedQuestion.askedBy} />
+                <KvRow label="Control" value={getControlDisplayLabel(selectedQuestion.controlId, controlLabelById)} />
+                <KvRow label="Phase" value={selectedQuestion.phaseTag ?? "Planning"} />
+                <KvRow label="Sent" value={formatShortDate(selectedQuestion.dateSent)} />
+                <KvRow label="Due" value={formatShortDate(selectedQuestion.dueDate)} />
+                <KvRow label="Answered" value={selectedQuestion.responseDate ? formatShortDate(selectedQuestion.responseDate) : "Pending"} />
+                <KvRow
+                  label="Status"
+                  value={selectedDisplayStatus ?? getQuestionDisplayStatus(selectedQuestion, currentNow)}
+                  helpTip="Follow-up pending means this item has one or more open follow-up questions or requests that must be resolved before the chain is complete."
+                />
+                {selectedItemIsRoot ? (
+                  <>
+                    <KvRow
+                      label="Current delay"
+                      value={formatHours(getQuestionCurrentDelayHours(selectedQuestion, currentNow))}
+                      helpTip="Hours currently past the due date. Drops to zero once the item is resolved."
+                    />
+                    <KvRow
+                      label="Realized delay"
+                      value={formatHours(getQuestionRealizedDelayHours(selectedQuestion, visibleQuestions, visibleRequests))}
+                      helpTip="Hours the item ended up late after its response and linked follow-up chain were resolved."
+                    />
+                    <KvRow
+                      label="Chain delay"
+                      value={formatHours(getQuestionChainDelayHours(selectedQuestion, visibleQuestions, visibleRequests, currentNow))}
+                      helpTip="Total delay across this item and any linked follow-ups, from the original due date through the latest resolution."
+                    />
+                  </>
+                ) : null}
+              </tbody>
+            </table>
 
-            {selectedItemIsRoot ? (
-              <section className="grid gap-4 md:grid-cols-3">
-                <DetailCard
-                  label="Current delay"
-                  value={formatHours(getQuestionCurrentDelayHours(selectedQuestion, currentNow))}
-                  helpText="Hours currently past the due date for an open or overdue parent item. This drops to zero once the parent item is resolved."
-                />
-                <DetailCard
-                  label="Realized delay"
-                  value={formatHours(getQuestionRealizedDelayHours(selectedQuestion, visibleQuestions, visibleRequests))}
-                  helpText="Hours the parent item ended up late after its response and linked follow-up chain were resolved, measured from the original due date to the latest response or completion."
-                />
-                <DetailCard
-                  label="Chain delay impact"
-                  value={formatHours(getQuestionChainDelayHours(selectedQuestion, visibleQuestions, visibleRequests, currentNow))}
-                  helpText="Total delay impact across this parent item and any linked follow-up questions or requests, measured from the original due date through the latest resolved follow-up or now if the chain is still open."
-                  helpAlign="end"
-                />
-              </section>
-            ) : null}
-
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Question and response</p>
-              <StatusBadge
-                status={selectedDisplayStatus ?? getQuestionDisplayStatus(selectedQuestion, currentNow)}
-                tone={selectedStatusTone}
-                className="mt-4"
-              />
-              <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
-                {selectedQuestion.responseText ?? "No response captured yet. This item is still blocking control completion."}
+            <section className="border-t border-black/5 pt-4">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Response</p>
+              <p className="text-[13px] leading-6 text-[var(--foreground)]">
+                {selectedQuestion.responseText ?? "No response captured yet."}
               </p>
             </section>
 
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Follow-ups</p>
-                  <p className="mt-2 text-sm text-[var(--muted)]">Follow-up items are nested under this row in the table.</p>
-                </div>
+            <section className="border-t border-black/5 pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Follow-ups</p>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => openQuestionModal(selectedLogItem)} className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]">
+                  <button type="button" onClick={() => openQuestionModal(selectedLogItem)} className="inline-flex items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--brand-indigo-core)]">
                     Follow-up question
                   </button>
-                  <button type="button" onClick={() => openRequestModal(selectedLogItem)} className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white">
+                  <button type="button" onClick={() => openRequestModal(selectedLogItem)} className="inline-flex items-center gap-1.5 rounded-md bg-[var(--brand-indigo-core)] px-3 py-1.5 text-[12px] font-semibold text-white">
                     Follow-up request
                   </button>
                 </div>
@@ -904,60 +890,58 @@ export function CombinedLogView({
           onClose={closeItem}
           panelClassName="bottom-4 right-4 top-4 h-auto rounded-[28px] border border-black/5 border-l"
         >
-          <div className="grid gap-6">
-            <section className="grid gap-4 md:grid-cols-2">
-              <DetailCard label="Tagged person" value={selectedRequest.assignedTo} />
-              <DetailCard label="Linked control" value={getControlDisplayLabel(selectedRequest.controlId, controlLabelById)} />
-              <DetailCard label="Phase" value={selectedRequest.phaseTag ?? "Planning"} />
-              <DetailCard label="Date requested" value={formatDateTime(selectedRequest.dateRequested)} />
-              <DetailCard label="Due date" value={formatDateTime(selectedRequest.dueDate)} />
-              <DetailCard label="Completed at" value={selectedRequest.completedAt ?? selectedRequest.receivedDate ? formatDateTime(selectedRequest.completedAt ?? selectedRequest.receivedDate ?? "") : "Pending"} />
-            </section>
+          <div className="grid gap-5">
+            <table className="w-full border-collapse text-[13px]">
+              <tbody className="divide-y divide-black/5">
+                <KvRow label="Type" value="Request" />
+                <KvRow label="Owner" value={selectedRequest.assignedTo} />
+                <KvRow label="Control" value={getControlDisplayLabel(selectedRequest.controlId, controlLabelById)} />
+                <KvRow label="Phase" value={selectedRequest.phaseTag ?? "Planning"} />
+                <KvRow label="Requested" value={formatShortDate(selectedRequest.dateRequested)} />
+                <KvRow label="Due" value={formatShortDate(selectedRequest.dueDate)} />
+                <KvRow label="Completed" value={selectedRequest.completedAt ?? selectedRequest.receivedDate ? formatShortDate(selectedRequest.completedAt ?? selectedRequest.receivedDate ?? "") : "Pending"} />
+                <KvRow
+                  label="Status"
+                  value={selectedDisplayStatus ?? getRequestDisplayStatus(selectedRequest, currentNow)}
+                  helpTip="Follow-up pending means this request has open follow-ups that must be resolved before the chain is complete."
+                />
+                {selectedItemIsRoot ? (
+                  <>
+                    <KvRow
+                      label="Current delay"
+                      value={formatHours(getRequestCurrentDelayHours(selectedRequest, currentNow))}
+                      helpTip="Hours currently past the due date. Drops to zero once the request is completed."
+                    />
+                    <KvRow
+                      label="Realized delay"
+                      value={formatHours(getRequestRealizedDelayHours(selectedRequest, visibleQuestions, visibleRequests))}
+                      helpTip="Hours the request ended up late after fulfillment and follow-up chain were resolved."
+                    />
+                    <KvRow
+                      label="Chain delay"
+                      value={formatHours(getRequestChainDelayHours(selectedRequest, visibleQuestions, visibleRequests, currentNow))}
+                      helpTip="Total delay across this request and any linked follow-ups, from the original due date through the latest resolution."
+                    />
+                  </>
+                ) : null}
+              </tbody>
+            </table>
 
-            {selectedItemIsRoot ? (
-              <section className="grid gap-4 md:grid-cols-3">
-                <DetailCard
-                  label="Current delay"
-                  value={formatHours(getRequestCurrentDelayHours(selectedRequest, currentNow))}
-                  helpText="Hours currently past the due date for an open or in-progress parent request. This drops to zero once the parent request is completed."
-                />
-                <DetailCard
-                  label="Realized delay"
-                  value={formatHours(getRequestRealizedDelayHours(selectedRequest, visibleQuestions, visibleRequests))}
-                  helpText="Hours the parent request ended up late after its fulfillment and linked follow-up chain were resolved, measured from the original due date to the latest response or completion."
-                />
-                <DetailCard
-                  label="Chain delay impact"
-                  value={formatHours(getRequestChainDelayHours(selectedRequest, visibleQuestions, visibleRequests, currentNow))}
-                  helpText="Total delay impact across this parent request and any linked follow-up questions or requests, measured from the original due date through the latest resolved follow-up or now if the chain is still open."
-                  helpAlign="end"
-                />
-              </section>
-            ) : null}
-
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Fulfillment status</p>
-              <StatusBadge
-                status={selectedDisplayStatus ?? getRequestDisplayStatus(selectedRequest, currentNow)}
-                tone={selectedStatusTone}
-                className="mt-4"
-              />
-              <p className="mt-4 text-sm leading-7 text-[var(--foreground)]">
-                {selectedRequest.responseNotes ?? "Awaiting evidence package. Follow-up remains open in the operating queue."}
+            <section className="border-t border-black/5 pt-4">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Fulfillment notes</p>
+              <p className="text-[13px] leading-6 text-[var(--foreground)]">
+                {selectedRequest.responseNotes ?? "Awaiting evidence package."}
               </p>
             </section>
 
-            <section className="rounded-[24px] border border-black/5 bg-white p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Follow-ups</p>
-                  <p className="mt-2 text-sm text-[var(--muted)]">Follow-up items are nested under this row in the table.</p>
-                </div>
+            <section className="border-t border-black/5 pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Follow-ups</p>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => openQuestionModal(selectedLogItem)} className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]">
+                  <button type="button" onClick={() => openQuestionModal(selectedLogItem)} className="inline-flex items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--brand-indigo-core)]">
                     Follow-up question
                   </button>
-                  <button type="button" onClick={() => openRequestModal(selectedLogItem)} className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white">
+                  <button type="button" onClick={() => openRequestModal(selectedLogItem)} className="inline-flex items-center gap-1.5 rounded-md bg-[var(--brand-indigo-core)] px-3 py-1.5 text-[12px] font-semibold text-white">
                     Follow-up request
                   </button>
                 </div>
@@ -989,7 +973,7 @@ export function CombinedLogView({
     const rows = [
       <tr
         key={item.key}
-        className="cursor-pointer border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]"
+        className={`cursor-pointer border-b border-black/8 transition-colors hover:bg-[var(--surface-soft)] ${level > 0 ? "bg-[var(--surface-soft)]" : "bg-white"}`}
         onClick={() => openItem(item)}
       >
         <td className="px-4 py-4 align-top">
@@ -1058,22 +1042,22 @@ export function CombinedLogView({
 
   function ResponseForm({ label, placeholder }: { label: string; placeholder: string }) {
     return (
-      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{label}</p>
-        <form className="mt-4 grid gap-4" onSubmit={handleSubmitResponse}>
+      <section className="border-t border-black/5 pt-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+        <form className="grid gap-3" onSubmit={handleSubmitResponse}>
           <textarea
             required
-            rows={5}
+            rows={4}
             value={responseDraft}
             onChange={(event) => setResponseDraft(event.target.value)}
-            className={fieldControlClass}
+            className="w-full rounded-md border border-black/10 bg-white px-3 py-2.5 text-[13px] outline-none"
             placeholder={placeholder}
           />
           <div className="flex justify-end">
             <button
               type="submit"
               disabled={isPending || responseDraft.trim().length === 0}
-              className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               Save
             </button>
@@ -1254,38 +1238,38 @@ function compareLogItems(sortBy: LogSort, now: string, childrenByParent: Map<str
 
 function RelatedDocuments({ documents, emptyText }: { documents: AuditDocument[]; emptyText: string }) {
   return (
-    <section className="rounded-[24px] border border-black/5 bg-white p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Related documents</p>
-      <div className="mt-4 grid gap-3">
-        {documents.length > 0 ? (
-          documents.map((document) => (
-            <div key={document.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
-              <p className="text-sm font-semibold text-[var(--foreground)]">{document.title}</p>
-              <p className="mt-1 text-sm text-[var(--muted)]">{document.status.replaceAll("_", " ")}</p>
+    <section className="border-t border-black/5 pt-4">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Related documents</p>
+      {documents.length > 0 ? (
+        <div className="divide-y divide-black/5">
+          {documents.map((document) => (
+            <div key={document.id} className="py-2">
+              <p className="text-[13px] font-medium text-[var(--foreground)]">{document.title}</p>
+              <p className="text-[12px] text-[var(--muted)]">{document.status.replaceAll("_", " ")}</p>
             </div>
-          ))
-        ) : (
-          <p className="text-sm text-[var(--muted)]">{emptyText}</p>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[13px] text-[var(--muted)]">{emptyText}</p>
+      )}
     </section>
   );
 }
 
 function FormActions({ isPending, onCancel, submitLabel }: { isPending: boolean; onCancel: () => void; submitLabel: string }) {
   return (
-    <div className="flex justify-end gap-3 pt-2">
+    <div className="sticky bottom-0 -mx-6 mt-4 flex justify-end gap-3 border-t border-black/6 bg-[#fbfaf7] px-6 py-4">
       <button
         type="button"
         onClick={onCancel}
-        className="rounded-full border border-black/5 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
+        className="rounded-md border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-indigo-core)]"
       >
         Cancel
       </button>
       <button
         type="submit"
         disabled={isPending}
-        className="rounded-full bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-md bg-[var(--brand-indigo-core)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
       >
         {submitLabel}
       </button>
@@ -1312,22 +1296,21 @@ function FormModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[rgba(1,30,65,0.32)] p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-[28px] border border-black/5 bg-[#fbfaf7] p-6 shadow-[0_24px_80px_rgba(1,30,65,0.22)]">
-        <div className="flex items-start justify-between gap-4">
+      <div className="w-full max-w-2xl rounded-[20px] border border-black/5 bg-[#fbfaf7] shadow-[0_24px_80px_rgba(1,30,65,0.22)]">
+        <div className="flex items-start justify-between gap-4 px-6 pt-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Create item</p>
-            <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">{title}</h2>
-            <p className="mt-2 text-sm text-[var(--muted)]">{subtitle}</p>
+            <h2 className="text-[15px] font-semibold text-[var(--foreground)]">{title}</h2>
+            <p className="mt-1 text-[12px] text-[var(--muted)]">{subtitle}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white text-[var(--brand-indigo-core)]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-black/8 bg-white text-[var(--muted)] transition-colors hover:text-[var(--foreground)]"
           >
-            <X size={18} />
+            <X size={15} />
           </button>
         </div>
-        <div className="mt-6">{children}</div>
+        <div className="max-h-[65vh] overflow-y-auto px-6 pt-4">{children}</div>
       </div>
     </div>
   );
@@ -1342,45 +1325,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function DetailCard({
-  label,
-  value,
-  helpText,
-  helpAlign = "center",
-}: {
-  label: string;
-  value: string;
-  helpText?: string;
-  helpAlign?: "center" | "end";
-}) {
+function KvRow({ label, value, helpTip }: { label: string; value: string; helpTip?: string }) {
   return (
-    <div className="min-w-0 rounded-[22px] border border-black/5 bg-white p-4">
-      <div className="flex items-center gap-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
-        {helpText ? <HoverInfoCard text={helpText} align={helpAlign} /> : null}
-      </div>
-      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
-    </div>
-  );
-}
-
-function HoverInfoCard({ text, align = "center" }: { text: string; align?: "center" | "end" }) {
-  return (
-    <span className="group relative inline-flex">
-      <span
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-black/10 bg-white text-[var(--muted)] transition-colors hover:text-[var(--brand-indigo-core)]"
-        aria-label="More information"
-      >
-        <CircleHelp size={12} />
-      </span>
-      <span
-        className={`pointer-events-none absolute top-[calc(100%+0.65rem)] z-20 w-64 max-w-[calc(100vw-6rem)] rounded-[18px] border border-black/5 bg-white px-4 py-3 text-left text-[11px] normal-case tracking-normal text-[var(--foreground)] opacity-0 shadow-[0_18px_40px_rgba(1,30,65,0.14)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 md:w-72 ${
-          align === "end" ? "right-0 translate-x-0" : "left-1/2 -translate-x-1/2"
-        }`}
-      >
-        {text}
-      </span>
-    </span>
+    <tr>
+      <td className="py-2 pr-4 align-top">
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</span>
+          {helpTip ? <WorkspaceHelpButton label={label} tip={helpTip} /> : null}
+        </div>
+      </td>
+      <td className="py-2 text-[13px] text-[var(--foreground)]">{value}</td>
+    </tr>
   );
 }
 

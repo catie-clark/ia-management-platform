@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Bot, ChevronDown, Copy, FileText, Layers3, ShieldAlert, Sparkles, X } from "lucide-react";
+import { ArrowRight, ChevronDown, Copy, Sparkles, X } from "lucide-react";
 
-import { PageHeader } from "@/components/dashboard/page-header";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-card";
+import { WorkspaceKpiGrid, WorkspacePageHeader } from "@/components/workspace/workspace-ui";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { sanitizeDraftMarkdown } from "@/lib/planning-narrative/format";
@@ -121,47 +121,45 @@ export function PlanningView({
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
-      <PageHeader
+      <WorkspacePageHeader
         title="Planning"
-        description=""
-        phaseStatus={{ label: currentPhase === "Planning" ? "Active" : `Current phase: ${currentPhase}`, active: currentPhase === "Planning" }}
-        variant="dashboard-compact"
+        statusBadge={<StatusBadge status={currentPhase === "Planning" ? "Active" : `Phase: ${currentPhase}`} tone={currentPhase === "Planning" ? "success" : "neutral"} />}
+        purposeLine="Source inputs, scope planning, and AI-assisted planning artifact generation."
       />
 
-      <div>
-        <PhaseCompletionCard auditId={auditId} auditLabel={auditLabel} auditStatus={auditStatus} currentPhase={currentPhase} pagePhase="Planning" />
-      </div>
+      <PhaseCompletionCard auditId={auditId} auditLabel={auditLabel} auditStatus={auditStatus} currentPhase={currentPhase} pagePhase="Planning" />
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <PlanningMetric
-          icon={<Layers3 size={18} />}
-          label="Source inputs"
-          value={`${planningSources.length}`}
-          detail="Third parties, applications, issues, monitoring, and external signals"
-          tone="neutral"
-        />
-        <PlanningMetric
-          icon={<ShieldAlert size={18} />}
-          label="High-risk RCSAs"
-          value={`${highRiskCount}`}
-          detail="Residual risk areas shaping scope depth"
-          tone="risk"
-        />
-        <PlanningMetric
-          icon={<Bot size={18} />}
-          label="Scope signals"
-          value={`${currentSignals}`}
-          detail="Current-state indicators feeding the planning scope analysis panel"
-          tone="warning"
-        />
-        <PlanningMetric
-          icon={<FileText size={18} />}
-          label="Draft outputs"
-          value="2"
-          detail="Narrative and tollgate materials are staged below"
-          tone="success"
-        />
-      </section>
+      <WorkspaceKpiGrid
+        cols={4}
+        items={[
+          {
+            label: "Source inputs",
+            value: planningSources.length,
+            detail: "Third parties, applications, issues, monitoring, and external signals",
+            helpTip: "Planning sources loaded for this audit — each informs the scope and narrative drafts.",
+          },
+          {
+            label: "High-risk RCSAs",
+            value: highRiskCount,
+            status: highRiskCount > 0 ? "risk" : "normal",
+            detail: "Residual risk areas shaping scope depth",
+            helpTip: "RCSA records rated HIGH residual risk — these areas should generally be in scope or watchlisted.",
+          },
+          {
+            label: "Scope signals",
+            value: currentSignals,
+            status: currentSignals > 0 ? "warning" : "normal",
+            detail: "Current-state indicators feeding the scope analysis panel",
+            helpTip: "Issues, monitoring findings, prior findings, regulatory updates, and news — active signals that shape scope.",
+          },
+          {
+            label: "Draft outputs",
+            value: 2,
+            detail: "Narrative and tollgate materials are staged below",
+            helpTip: "Planning artifacts that can be generated, edited, and routed for review.",
+          },
+        ]}
+      />
 
       <div className="inline-flex w-fit items-center gap-6">
         {planningSubtabs.map((tab) => (
@@ -183,18 +181,13 @@ export function PlanningView({
 
       {activeSubtab === "planning-inputs" ? (
         <section className="mt-2">
-          <section className="relative flex h-[760px] flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-            <div className="border-b border-black/5 px-5 py-4 sm:px-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Planning inputs</p>
-                <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Source input inventory</h2>
-              </div>
-
+          <section className="relative flex h-[760px] flex-col overflow-hidden border border-black/6 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
+              <h2 className="text-[14px] font-semibold text-[var(--foreground)]">Source input inventory</h2>
               <select
                 value={selectedSourceType}
                 onChange={(event) => setSelectedSourceType(event.target.value as SourceFilter)}
-                className="border border-black/10 bg-white px-4 py-2 text-sm text-[var(--foreground)] outline-none"
+                className="border border-black/10 bg-white px-3 py-1.5 text-[13px] text-[var(--foreground)] outline-none"
               >
                 {sourceFilterOptions.map((option) => (
                   <option key={option} value={option}>
@@ -202,7 +195,6 @@ export function PlanningView({
                   </option>
                 ))}
               </select>
-            </div>
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
@@ -290,14 +282,16 @@ export function PlanningView({
 
                   <div className="mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
                     <div className="grid gap-6">
-                      <section className="grid gap-4 md:grid-cols-2">
-                        <InputInfoCard label="Source type" value={selectedSource.sourceType.replaceAll("_", " ")} />
-                        <InputInfoCard label="Document/data kind" value={selectedSource.dataKind.replaceAll("_", " ")} />
-                        <InputInfoCard label="Artifact name" value={selectedSource.artifactName} />
-                        <InputInfoCard label="Owner" value={selectedSource.owner} />
-                        <InputInfoCard label="Refresh cadence" value={formatCadence(selectedSource.refreshCadence)} />
-                        <InputInfoCard label="Last updated" value={formatDateTime(selectedSource.lastUpdated)} />
-                      </section>
+                      <table className="w-full border-collapse">
+                        <tbody>
+                          <PlanKvRow label="Source type" value={selectedSource.sourceType.replaceAll("_", " ")} />
+                          <PlanKvRow label="Document/data kind" value={selectedSource.dataKind.replaceAll("_", " ")} />
+                          <PlanKvRow label="Artifact name" value={selectedSource.artifactName} />
+                          <PlanKvRow label="Owner" value={selectedSource.owner} />
+                          <PlanKvRow label="Refresh cadence" value={formatCadence(selectedSource.refreshCadence)} />
+                          <PlanKvRow label="Last updated" value={formatDateTime(selectedSource.lastUpdated)} />
+                        </tbody>
+                      </table>
 
                       <section className="border border-black/5 bg-white p-5">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Planning use</p>
@@ -336,24 +330,13 @@ export function PlanningView({
 
       {activeSubtab === "scope-planning" ? (
         <section className="mt-2">
-          <article className="border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[rgba(1,30,65,0.08)] text-[var(--brand-indigo-core)]">
-                  <Bot size={20} />
-                </span>
-                <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                    {isLiveAudit ? "Live AI scope prompt" : "AI scope prompt"}
-                  </p>
-                  <h3 className="mt-2 text-lg font-semibold text-[var(--foreground)]">Generate a scope recommendation prompt</h3>
-                </div>
+          <article className="border border-black/6 bg-white p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-[14px] font-semibold text-[var(--foreground)]">Generate a scope recommendation prompt</h3>
+                <p className="mt-0.5 text-[12px] text-[var(--muted)]">{isLiveAudit ? "Live AI scope prompt" : "AI scope prompt"}</p>
               </div>
-
-              <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(245,168,0,0.18)] bg-[rgba(245,168,0,0.08)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-amber-dark)]">
-                <Bot size={14} />
-                {isLiveAudit ? "Prompt generator" : "AI handoff"}
-              </div>
+              <StatusBadge status={isLiveAudit ? "Prompt generator" : "AI handoff"} tone="warning" />
             </div>
 
             <div
@@ -389,10 +372,10 @@ export function PlanningView({
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <PromptMetaCard label="Planning sources" value={`${promptPackage.metadata.planningSourceCount}`} />
-                  <PromptMetaCard label="RCSA records" value={`${promptPackage.metadata.rcsaCount}`} />
-                  <PromptMetaCard label="Citation excerpts" value={`${promptPackage.metadata.citationCount}`} />
+                <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[12px] text-[var(--muted)]">
+                  <span>Planning sources: <strong className="font-semibold text-[var(--foreground)]">{promptPackage.metadata.planningSourceCount}</strong></span>
+                  <span>RCSA records: <strong className="font-semibold text-[var(--foreground)]">{promptPackage.metadata.rcsaCount}</strong></span>
+                  <span>Citation excerpts: <strong className="font-semibold text-[var(--foreground)]">{promptPackage.metadata.citationCount}</strong></span>
                 </div>
 
                 <div className="mt-4 border border-black/5 bg-white px-4 py-3 text-sm text-[var(--muted)]">
@@ -799,7 +782,7 @@ function PlanningArtifactCard({
   }
 
   return (
-    <article className={`border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)] ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
+    <article className={`border border-black/6 bg-white ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
@@ -901,8 +884,8 @@ function PlanningArtifactCard({
             ) : null}
           </div>
 
-          <div className="mt-5 grid gap-5">
-            <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
+          <div className="mt-4 grid gap-5">
+            <section className="border-t border-black/5 pt-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="mr-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Draft workspace</p>
@@ -962,7 +945,7 @@ function PlanningArtifactCard({
                   onChange={(event) => setMarkdown(event.target.value)}
                   rows={18}
                   placeholder="Generate a draft, then edit it here."
-                  className="mt-4 w-full resize-y rounded-[18px] border border-black/5 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none"
+                  className="mt-4 w-full resize-y border border-black/10 bg-white px-4 py-4 font-mono text-sm leading-7 text-[var(--foreground)] outline-none"
                 />
               ) : previewSections.length > 0 ? (
                 <div className="mt-4 max-h-[520px] overflow-auto">
@@ -999,7 +982,7 @@ function PlanningArtifactCard({
             </section>
 
             {draftDocumentId ? (
-              <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
+              <section className="border-t border-black/5 pt-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Review workflow</p>
@@ -1134,49 +1117,14 @@ function isPlanningDraftLockedForReview(status: DocumentReviewStatus) {
   return status === "AIC_REVIEW" || status === "MANAGER_REVIEW" || status === "DIRECTOR_REVIEW" || status === "APPROVED";
 }
 
-function PlanningMetric({
-  icon,
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-  tone: "neutral" | "warning" | "risk" | "success";
-}) {
+function PlanKvRow({ label, value }: { label: string; value: string }) {
   return (
-    <article className="border border-black/5 bg-white p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-        <span className="text-[var(--brand-indigo-core)]">{icon}</span>
-      </div>
-      <div className="mt-3 flex items-end gap-3">
-        <p className="text-3xl font-semibold text-[var(--foreground)]">{value}</p>
-        <StatusBadge status={label} tone={tone} />
-      </div>
-      <p className="mt-3 text-sm text-[var(--muted)]">{detail}</p>
-    </article>
-  );
-}
-
-function InputInfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-black/5 bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
-    </div>
-  );
-}
-
-function PromptMetaCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-black/5 bg-white px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-      <p className="mt-1.5 text-sm font-semibold text-[var(--foreground)]">{value}</p>
-    </div>
+    <tr>
+      <td className="py-2 pr-4 align-top">
+        <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</span>
+      </td>
+      <td className="py-2 text-[13px] text-[var(--foreground)]">{value}</td>
+    </tr>
   );
 }
 
@@ -1358,7 +1306,7 @@ function AiScopeReviewPanel({ auditId, prompt }: { auditId: string | null; promp
   }
 
   return (
-    <article className="mt-3 border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+    <article className="mt-3 border border-black/6 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">AI scope review</p>

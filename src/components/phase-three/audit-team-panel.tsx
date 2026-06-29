@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Plus, UserPlus2, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { useNotification } from "@/components/ui/notification-provider";
@@ -148,7 +148,7 @@ export function AuditTeamPanel({ auditId }: { auditId: string | null }) {
   }
 
   return (
-    <section className="relative rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+    <section className="relative border border-black/6 bg-white p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Audit team</p>
@@ -181,152 +181,150 @@ export function AuditTeamPanel({ auditId }: { auditId: string | null }) {
         </div>
       </div>
 
-      <section className="mt-5 flex h-[32rem] min-h-0 flex-col rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-[var(--foreground)]">Current audit team</h3>
-          <UserPlus2 size={16} className="text-[var(--brand-indigo-core)]" />
+      {members.length === 0 ? (
+        <div className="mt-4 border border-dashed border-black/10 p-5">
+          <p className="text-sm leading-6 text-[var(--muted)]">
+            No audit-specific team members are assigned yet. Use the add flow to pick an existing user or create a new one for this audit.
+          </p>
         </div>
-
-        {members.length === 0 ? (
-          <div className="mt-4 rounded-[18px] border border-dashed border-black/10 bg-white p-5">
-            <p className="text-sm leading-6 text-[var(--muted)]">
-              No audit-specific team members are assigned yet. Use the add flow to pick an existing user or create a new one for this audit.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="grid gap-3">
+      ) : (
+        <table className="mt-4 w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="border-b border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Name</th>
+              <th className="border-b border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Team</th>
+              <th className="border-b border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Audit role</th>
+              <th className="border-b border-black/5 px-3 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
             {members.map((member) => (
-              <article key={member.id} className="rounded-[18px] border border-black/5 bg-white p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[var(--foreground)]">{member.name}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">{member.email}</p>
-                    {member.companyName ? <p className="mt-1 text-sm text-[var(--muted)]">Company: {member.companyName}</p> : null}
-                    <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                      Global role {member.sourceRole}
-                      {member.team ? ` · ${member.team}` : ""}
-                    </p>
-                  </div>
+              <tr key={member.id} className="border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]">
+                <td className="px-3 py-2.5">
+                  <p className="font-semibold text-[var(--foreground)]">{member.name}</p>
+                  <p className="text-xs text-[var(--muted)]">{member.email}</p>
+                </td>
+                <td className="px-3 py-2.5 text-[var(--muted)]">
+                  <p>{member.team ?? "—"}</p>
+                  <p className="text-xs uppercase tracking-[0.12em]">{member.sourceRole}</p>
+                </td>
+                <td className="px-3 py-2.5">
+                  <select
+                    value={member.role}
+                    disabled={!canManage || isPending}
+                    onChange={(event) =>
+                      startTransition(async () => {
+                        try {
+                          const response = await fetch(`/api/audits/${auditId}/team?membershipId=${encodeURIComponent(member.id)}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ auditRole: event.target.value }),
+                          });
+                          const payload = (await response.json()) as {
+                            error?: string;
+                            members?: AuditTeamMember[];
+                          };
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={member.role}
-                      disabled={!canManage || isPending}
-                      onChange={(event) =>
-                        startTransition(async () => {
-                          try {
-                            const response = await fetch(`/api/audits/${auditId}/team?membershipId=${encodeURIComponent(member.id)}`, {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ auditRole: event.target.value }),
-                            });
-                            const payload = (await response.json()) as {
-                              error?: string;
-                              members?: AuditTeamMember[];
-                            };
-
-                            if (!response.ok) {
-                              throw new Error(payload.error ?? "Unable to update the audit team role.");
-                            }
-
-                            setMembers(payload.members ?? []);
-                            showNotification({
-                              title: "Role updated",
-                              message: `${member.name} now carries the updated audit role.`,
-                              tone: "success",
-                            });
-                            window.dispatchEvent(new CustomEvent("audit-team-updated", { detail: { auditId } }));
-                          } catch (error) {
-                            showNotification({
-                              title: "Unable to update role",
-                              message: error instanceof Error ? error.message : "Unable to update the audit team role.",
-                              tone: "error",
-                            });
+                          if (!response.ok) {
+                            throw new Error(payload.error ?? "Unable to update the audit team role.");
                           }
-                        })
-                      }
-                      className="h-10 rounded-xl border border-black/5 bg-white px-3.5 text-sm outline-none"
-                    >
-                      {roleOptions.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
 
-                    <button
-                      type="button"
-                      disabled={!canManage || isPending}
-                      onClick={() =>
-                        startTransition(async () => {
-                          try {
-                            const response = await fetch(`/api/audits/${auditId}/team?membershipId=${encodeURIComponent(member.id)}`, {
-                              method: "DELETE",
-                            });
-                            const payload = (await response.json()) as {
-                              error?: string;
-                              members?: AuditTeamMember[];
-                            };
+                          setMembers(payload.members ?? []);
+                          showNotification({
+                            title: "Role updated",
+                            message: `${member.name} now carries the updated audit role.`,
+                            tone: "success",
+                          });
+                          window.dispatchEvent(new CustomEvent("audit-team-updated", { detail: { auditId } }));
+                        } catch (error) {
+                          showNotification({
+                            title: "Unable to update role",
+                            message: error instanceof Error ? error.message : "Unable to update the audit team role.",
+                            tone: "error",
+                          });
+                        }
+                      })
+                    }
+                    className="h-8 border border-black/10 bg-[var(--surface-soft)] px-2 text-sm outline-none"
+                  >
+                    {roleOptions.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <button
+                    type="button"
+                    disabled={!canManage || isPending}
+                    onClick={() =>
+                      startTransition(async () => {
+                        try {
+                          const response = await fetch(`/api/audits/${auditId}/team?membershipId=${encodeURIComponent(member.id)}`, {
+                            method: "DELETE",
+                          });
+                          const payload = (await response.json()) as {
+                            error?: string;
+                            members?: AuditTeamMember[];
+                          };
 
-                            if (!response.ok) {
-                              throw new Error(payload.error ?? "Unable to remove the audit team member.");
-                            }
-
-                            const nextMembers = payload.members ?? [];
-                            const userPool = [
-                              ...availableUsers,
-                              ...nextMembers.map((nextMember) => ({
-                                companyName: nextMember.companyName,
-                                email: nextMember.email,
-                                id: nextMember.userId,
-                                name: nextMember.name,
-                                role: nextMember.sourceRole,
-                                team: nextMember.team,
-                              })),
-                              {
-                                companyName: member.companyName,
-                                email: member.email,
-                                id: member.userId,
-                                name: member.name,
-                                role: member.sourceRole,
-                                team: member.team,
-                              },
-                            ];
-                            setMembers(nextMembers);
-                            syncAvailableUsers(nextMembers, userPool);
-                            showNotification({
-                              title: "Team member removed",
-                              message: `${member.name} was removed from the audit team.`,
-                              tone: "success",
-                            });
-                            window.dispatchEvent(new CustomEvent("audit-team-updated", { detail: { auditId } }));
-                          } catch (error) {
-                            showNotification({
-                              title: "Unable to remove member",
-                              message: error instanceof Error ? error.message : "Unable to remove the audit team member.",
-                              tone: "error",
-                            });
+                          if (!response.ok) {
+                            throw new Error(payload.error ?? "Unable to remove the audit team member.");
                           }
-                        })
-                      }
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
-                      aria-label={`Remove ${member.name} from the audit team`}
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              </article>
+
+                          const nextMembers = payload.members ?? [];
+                          const userPool = [
+                            ...availableUsers,
+                            ...nextMembers.map((nextMember) => ({
+                              companyName: nextMember.companyName,
+                              email: nextMember.email,
+                              id: nextMember.userId,
+                              name: nextMember.name,
+                              role: nextMember.sourceRole,
+                              team: nextMember.team,
+                            })),
+                            {
+                              companyName: member.companyName,
+                              email: member.email,
+                              id: member.userId,
+                              name: member.name,
+                              role: member.sourceRole,
+                              team: member.team,
+                            },
+                          ];
+                          setMembers(nextMembers);
+                          syncAvailableUsers(nextMembers, userPool);
+                          showNotification({
+                            title: "Team member removed",
+                            message: `${member.name} was removed from the audit team.`,
+                            tone: "success",
+                          });
+                          window.dispatchEvent(new CustomEvent("audit-team-updated", { detail: { auditId } }));
+                        } catch (error) {
+                          showNotification({
+                            title: "Unable to remove member",
+                            message: error instanceof Error ? error.message : "Unable to remove the audit team member.",
+                            tone: "error",
+                          });
+                        }
+                      })
+                    }
+                    className="inline-flex h-7 w-7 items-center justify-center border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label={`Remove ${member.name} from the audit team`}
+                  >
+                    <X size={14} />
+                  </button>
+                </td>
+              </tr>
             ))}
-            </div>
-          </div>
-        )}
+          </tbody>
+        </table>
+      )}
 
-        {!canManage ? (
-          <p className="mt-4 text-xs uppercase tracking-[0.14em] text-[var(--muted)]">Manager, director, CAE, or AIC access required</p>
-        ) : null}
-      </section>
+      {!canManage ? (
+        <p className="mt-3 text-xs uppercase tracking-[0.14em] text-[var(--muted)]">Manager, director, CAE, or AIC access required</p>
+      ) : null}
 
       <ContainedAdminModal
         open={isAddModalOpen}

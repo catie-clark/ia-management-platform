@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { shiftByOffset } from "@/lib/demo-dates";
 import type { Role } from "@/types/audit";
 
 type NotificationTone = "success" | "warning";
@@ -158,9 +159,12 @@ export async function listNotificationsForRecipient(recipientName: string) {
     throw new Error(countError.message);
   }
 
+  const rows = data ?? [];
+  const demoOffset = computeNotificationDemoOffset(rows[0]?.created_at ?? null);
+
   return {
-    items: (data ?? []).map((item) => ({
-      createdAt: item.created_at as string,
+    items: rows.map((item) => ({
+      createdAt: shiftByOffset(item.created_at as string, demoOffset) ?? (item.created_at as string),
       detail: item.detail as string,
       id: item.id as string,
       linkHref: typeof item.link_href === "string" ? item.link_href : null,
@@ -185,6 +189,15 @@ export async function markNotificationRead(notificationId: string) {
   if (error) {
     throw new Error(error.message);
   }
+}
+
+function computeNotificationDemoOffset(mostRecentCreatedAt: string | null): number {
+  if (!mostRecentCreatedAt) return 0;
+  const anchor = new Date(mostRecentCreatedAt);
+  if (Number.isNaN(anchor.getTime())) return 0;
+  // Make the most recent notification appear ~2 hours ago
+  const target = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  return Math.round((target.getTime() - anchor.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 function readTone(payload: unknown): NotificationTone {

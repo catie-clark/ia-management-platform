@@ -2,16 +2,16 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, ClipboardCheck, Expand, FileSearch, Link2, Workflow, X } from "lucide-react";
+import { ArrowRight, Expand, X } from "lucide-react";
 
 import { AttachmentReferencePanel } from "@/components/attachments/attachment-reference-panel";
-import { PageHeader } from "@/components/dashboard/page-header";
 import { ControlTestingView } from "@/components/phase-two/control-testing-view";
 import { useActiveUser } from "@/components/layout/active-user-context";
 import { PhaseCompletionCard } from "@/components/phase-three/phase-completion-card";
 import { TestExecutionAnalyticsPanel } from "@/components/fieldwork/test-execution-analytics-panel";
 import { useNotification } from "@/components/ui/notification-provider";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { WorkspaceKpiGrid, WorkspacePageHeader } from "@/components/workspace/workspace-ui";
 import { WorkpaperDetailPanel } from "@/components/workpapers/workpaper-detail-panel";
 import { getQuestionDisplayStatus, getRequestDisplayStatus } from "@/lib/audit-logic";
 import {
@@ -139,14 +139,10 @@ export function FieldworkView({
 
   return (
     <div className="flex min-h-0 flex-col gap-4">
-      <PageHeader
+      <WorkspacePageHeader
         title="Fieldwork"
-        description=""
-        phaseStatus={{
-          label: viewModel.currentPhase === "Fieldwork" ? "Active" : `Current phase: ${viewModel.currentPhase}`,
-          active: viewModel.currentPhase === "Fieldwork",
-        }}
-        variant="dashboard-compact"
+        statusBadge={<StatusBadge status={viewModel.currentPhase === "Fieldwork" ? "Active" : `Phase: ${viewModel.currentPhase}`} tone={viewModel.currentPhase === "Fieldwork" ? "success" : "neutral"} />}
+        purposeLine="Control testing, document review, and fieldwork tollgate preparation."
       />
 
       <PhaseCompletionCard
@@ -157,12 +153,15 @@ export function FieldworkView({
         pagePhase="Fieldwork"
       />
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<FileSearch size={18} />} label="Tracked documents" value={`${fieldworkDocuments.length}`} detail="Workpapers and evidence currently active in fieldwork." tone="neutral" />
-        <MetricCard icon={<ClipboardCheck size={18} />} label="Approved workpapers" value={`${approvedCount}`} detail="Workpapers that cleared director review and are ready for reporting use." tone="success" />
-        <MetricCard icon={<Workflow size={18} />} label="In review" value={`${inReviewCount}`} detail="Workpapers currently with AIC, manager, or director review." tone="warning" />
-        <MetricCard icon={<Link2 size={18} />} label="At risk" value={`${atRiskCount}`} detail="Documents with overdue dates or unresolved linked blockers." tone="risk" />
-      </section>
+      <WorkspaceKpiGrid
+        cols={4}
+        items={[
+          { label: "Tracked documents", value: fieldworkDocuments.length, detail: "Workpapers and evidence currently active in fieldwork." },
+          { label: "Approved workpapers", value: approvedCount, status: approvedCount > 0 ? "normal" : "normal", detail: "Workpapers that cleared director review and are ready for reporting.", helpTip: "Workpapers reach Approved once a director marks them complete in the review workflow." },
+          { label: "In review", value: inReviewCount, status: inReviewCount > 0 ? "warning" : "normal", detail: "Workpapers currently with AIC, manager, or director review." },
+          { label: "At risk", value: atRiskCount, status: atRiskCount > 0 ? "risk" : "normal", detail: "Documents with overdue dates or unresolved linked blockers.", helpTip: "A document is at risk when its due date has passed or it has open overdue questions or requests linked to it." },
+        ]}
+      />
 
       <div className="inline-flex w-fit items-center gap-6">
         {fieldworkSubtabs.map((tab) => (
@@ -211,10 +210,9 @@ export function FieldworkView({
       ) : null}
 
       {activeSubtab === "view-risks" ? (
-        <section className="flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-          <div className="border-b border-black/5 px-5 py-4 sm:px-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Imported risk register</p>
-            <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Risks loaded with the audit</h2>
+        <section className="flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/6 bg-white">
+          <div className="flex flex-wrap items-center gap-2 border-b border-black/5 px-4 py-3">
+            <h2 className="text-[14px] font-semibold text-[var(--foreground)]">Imported risk register</h2>
           </div>
           {viewModel.risks.length > 0 ? (
             <div className="min-h-0 flex-1 overflow-auto">
@@ -267,53 +265,57 @@ export function FieldworkView({
 
       {activeSubtab === "document-review" ? (
         <div className="grid gap-6 2xl:grid-cols-[0.78fr_1.22fr]">
-          <section className="flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-            <div className="border-b border-black/5 px-5 py-4 sm:px-6">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Workflow progression</p>
-              <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Review stages across active workpapers</h2>
+          <section className="flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/6 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
+              <h2 className="text-[14px] font-semibold text-[var(--foreground)]">Review stages</h2>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pr-4 sm:px-6">
-              <div className="grid gap-4">
-              {workflowStages.map((stage) => {
-                const stageItems = workpapers.filter((document) => (document.reviewStatus ?? "NOT_SUBMITTED") === stage);
-
-                return (
-                  <div key={stage} className="border border-black/5 bg-[var(--surface-soft)] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--foreground)]">{formatReviewStatus(stage)}</p>
-                        <p className="mt-1 text-sm text-[var(--muted)]">{stageItems.length} workpapers</p>
-                      </div>
-                      <StatusBadge status={`${stageItems.length}`} tone={getReviewTone(stage)} />
-                    </div>
-                    <div className="mt-4 grid gap-2">
-                      {stageItems.length > 0 ? (
-                        stageItems.map((document) => (
-                          <button
-                            key={document.id}
-                            type="button"
-                            onClick={() => setSelectedId(document.id)}
-                            className="border border-black/10 bg-white px-4 py-3 text-left transition-colors hover:bg-[var(--surface-tint)]"
-                          >
-                            <p className="text-sm font-semibold text-[var(--foreground)]">{document.displayId ?? document.id} - {document.title}</p>
-                            <p className="mt-1 text-sm text-[var(--muted)]">{getOwnerName(document.ownerId, viewModel.users)}</p>
-                          </button>
-                        ))
-                      ) : (
-                        <p className="text-sm text-[var(--muted)]">No workpapers currently sit in this stage.</p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <table className="min-w-full border-collapse">
+                <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
+                  <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    <th className="border-b border-black/5 px-4 py-3">Stage</th>
+                    <th className="border-b border-black/5 px-4 py-3">Workpapers</th>
+                    <th className="border-b border-black/5 px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {workflowStages.map((stage) => {
+                    const stageItems = workpapers.filter((document) => (document.reviewStatus ?? "NOT_SUBMITTED") === stage);
+                    return (
+                      <tr key={stage} className="border-b border-black/5">
+                        <td className="px-4 py-3 text-[13px] font-semibold text-[var(--foreground)]">{formatReviewStatus(stage)}</td>
+                        <td className="px-4 py-3">
+                          {stageItems.length > 0 ? (
+                            <div className="grid gap-1">
+                              {stageItems.map((document) => (
+                                <button
+                                  key={document.id}
+                                  type="button"
+                                  onClick={() => setSelectedId(document.id)}
+                                  className="block text-left text-[12px] text-[var(--brand-indigo-core)] hover:underline"
+                                >
+                                  {document.displayId ?? document.id} – {document.title}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-[var(--muted)]">None</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={`${stageItems.length}`} tone={getReviewTone(stage)} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </section>
 
-          <section className="relative flex h-[760px] flex-col overflow-hidden border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
-            <div className="border-b border-black/5 px-5 py-4 sm:px-6">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Execution queue</p>
-              <h2 className="mt-2 text-xl font-semibold text-[var(--foreground)]">Open a fieldwork document and work it directly in the app</h2>
+          <section className="relative flex h-[760px] flex-col overflow-hidden border border-black/6 bg-white">
+            <div className="flex flex-wrap items-center gap-2 border-b border-black/5 px-4 py-3">
+              <h2 className="text-[14px] font-semibold text-[var(--foreground)]">Workpaper execution queue</h2>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               <table className="min-w-full border-collapse">
@@ -733,7 +735,7 @@ function FieldworkTollgateCard({
   }
 
   return (
-    <article className={`border border-black/5 bg-white shadow-[0_10px_28px_rgba(1,30,65,0.05)] ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
+    <article className={`border border-black/6 bg-white ${isCollapsed ? "px-4 py-3" : "p-5"}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Fieldwork tollgate</p>
@@ -833,8 +835,8 @@ function FieldworkTollgateCard({
             ) : null}
           </div>
 
-          <div className="mt-5 grid gap-5">
-            <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
+          <div className="mt-4 grid gap-5">
+            <section className="border-t border-black/5 pt-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="mr-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Draft workspace</p>
@@ -908,7 +910,7 @@ function FieldworkTollgateCard({
             </section>
 
             {draftDocumentId ? (
-              <section className="border border-black/5 bg-[var(--surface-soft)] p-4">
+              <section className="border-t border-black/5 pt-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Review workflow</p>
@@ -1138,40 +1140,14 @@ function FieldworkDraftWorkspace({
   return <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{emptyPreviewMessage}</p>;
 }
 
-function MetricCard({
-  detail,
-  icon,
-  label,
-  tone,
-  value,
-}: {
-  detail: string;
-  icon: React.ReactNode;
-  label: string;
-  tone: "neutral" | "warning" | "risk" | "success";
-  value: string;
-}) {
+function FwKvRow({ label, value }: { label: string; value: string }) {
   return (
-    <article className="border border-black/5 bg-white p-5 shadow-[0_8px_24px_rgba(1,30,65,0.05)]">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-        <span className="text-[var(--brand-indigo-core)]">{icon}</span>
-      </div>
-      <div className="mt-3 flex items-end gap-3">
-        <p className="text-3xl font-semibold text-[var(--foreground)]">{value}</p>
-        <StatusBadge status={label} tone={tone} />
-      </div>
-      <p className="mt-3 text-sm text-[var(--muted)]">{detail}</p>
-    </article>
-  );
-}
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[20px] border border-black/5 bg-[var(--surface-tint)] p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">{value}</p>
-    </div>
+    <tr>
+      <td className="py-2 pr-4 align-top">
+        <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</span>
+      </td>
+      <td className="py-2 text-[13px] text-[var(--foreground)]">{value}</td>
+    </tr>
   );
 }
 
@@ -1187,13 +1163,15 @@ function EvidenceInspectPanel({
   users: User[];
 }) {
   return (
-    <div className="grid gap-6">
-      <section className="grid gap-4 md:grid-cols-2">
-        <InfoCard label="Owner" value={getOwnerName(document.ownerId, users)} />
-        <InfoCard label="Type" value="Evidence support" />
-        <InfoCard label="Due date" value={document.dueDate ? formatDateTime(document.dueDate) : "Not set"} />
-        <InfoCard label="Review stage" value={formatReviewStatus(document.reviewStatus ?? "NOT_SUBMITTED")} />
-      </section>
+    <div className="grid gap-5">
+      <table className="w-full border-collapse">
+        <tbody>
+          <FwKvRow label="Owner" value={getOwnerName(document.ownerId, users)} />
+          <FwKvRow label="Type" value="Evidence support" />
+          <FwKvRow label="Due date" value={document.dueDate ? formatDateTime(document.dueDate) : "Not set"} />
+          <FwKvRow label="Review stage" value={formatReviewStatus(document.reviewStatus ?? "NOT_SUBMITTED")} />
+        </tbody>
+      </table>
 
       {document.attachment ? (
         <AttachmentReferencePanel
@@ -1205,42 +1183,38 @@ function EvidenceInspectPanel({
         />
       ) : null}
 
-      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Preview</p>
-        <p className="mt-3 text-sm leading-6 text-[var(--foreground)]">{document.previewSummary ?? "No preview summary is available for this evidence item."}</p>
-        <div className="mt-4 grid gap-3">
-          {(document.previewSections ?? []).map((section) => (
-            <div key={section.heading} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
-              <p className="text-sm font-semibold text-[var(--foreground)]">{section.heading}</p>
-              <div className="mt-2 grid gap-2">
-                {section.body.map((entry, index) => (
-                  <p key={`${section.heading}-${index}`} className="text-sm leading-6 text-[var(--muted)]">
-                    {entry}
-                  </p>
-                ))}
-              </div>
+      <section className="border-t border-black/5 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Preview</p>
+        <p className="mt-3 text-[13px] leading-6 text-[var(--foreground)]">{document.previewSummary ?? "No preview summary is available for this evidence item."}</p>
+        {(document.previewSections ?? []).map((section) => (
+          <div key={section.heading} className="mt-3 border-t border-black/5 pt-3">
+            <p className="text-[12px] font-semibold text-[var(--foreground)]">{section.heading}</p>
+            <div className="mt-2 grid gap-1">
+              {section.body.map((entry, index) => (
+                <p key={`${section.heading}-${index}`} className="text-[12px] leading-5 text-[var(--muted)]">
+                  {entry}
+                </p>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </section>
 
-      <section className="rounded-[24px] border border-black/5 bg-white p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Linked blockers and evidence context</p>
-        <div className="mt-4 grid gap-3">
+      <section className="border-t border-black/5 pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Linked blockers</p>
+        <div className="mt-3 grid gap-2">
           {linkedBlockers.length > 0 ? (
             linkedBlockers.map((item) => (
-              <div key={item.id} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-[var(--foreground)]">{item.id} - {item.title}</p>
-                  <StatusBadge status={item.status} tone={item.tone} />
+              <div key={item.id} className="flex items-start justify-between gap-3 border-b border-black/5 py-2">
+                <div>
+                  <p className="text-[13px] font-semibold text-[var(--foreground)]">{item.id} – {item.title}</p>
+                  <p className="mt-0.5 text-[12px] text-[var(--muted)]">{item.detail}</p>
                 </div>
-                <p className="mt-1 text-sm text-[var(--muted)]">{item.detail}</p>
+                <StatusBadge status={item.status} tone={item.tone} />
               </div>
             ))
           ) : (
-            <div className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-4 text-sm text-[var(--muted)]">
-              No linked blockers are attached to this evidence item.
-            </div>
+            <p className="text-[12px] text-[var(--muted)]">No linked blockers are attached to this evidence item.</p>
           )}
         </div>
       </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Building2, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 import { useNotification } from "@/components/ui/notification-provider";
 import { formatBusinessContactLabel, type BusinessContact } from "@/lib/business-contacts";
@@ -81,7 +81,7 @@ export function BusinessContactsPanel({ auditId }: { auditId: string | null }) {
   }
 
   return (
-    <section className="relative rounded-[24px] border border-black/5 bg-white p-5 shadow-[0_10px_28px_rgba(1,30,65,0.05)]">
+    <section className="relative border border-black/6 bg-white p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Business contacts</p>
@@ -108,31 +108,32 @@ export function BusinessContactsPanel({ auditId }: { auditId: string | null }) {
         </div>
       </div>
 
-      <section className="mt-5 flex h-[32rem] min-h-0 flex-col rounded-[20px] border border-black/5 bg-[#fcfbf8] p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-[var(--foreground)]">Current business contacts</h3>
-          <Building2 size={16} className="text-[var(--brand-indigo-core)]" />
+      {sortedContacts.length === 0 ? (
+        <div className="mt-4 border border-dashed border-black/10 p-5">
+          <p className="text-sm leading-6 text-[var(--muted)]">
+            No business contacts are defined yet. Use the add flow to link an existing user or create a new routing contact.
+          </p>
         </div>
-
-        {sortedContacts.length === 0 ? (
-          <div className="mt-4 rounded-[18px] border border-dashed border-black/10 bg-white p-5">
-            <p className="text-sm leading-6 text-[var(--muted)]">
-              No business contacts are defined yet. Use the add flow to link an existing user or create a new routing contact.
-            </p>
-          </div>
-        ) : (
-          <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-            <div className="grid gap-3">
+      ) : (
+        <table className="mt-4 w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="border-b border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Name</th>
+              <th className="border-b border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Area</th>
+              <th className="border-b border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Email</th>
+              <th className="border-b border-black/5 px-3 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
             {sortedContacts.map((contact) => (
-              <article key={contact.id} className="rounded-[18px] border border-black/5 bg-white p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[var(--foreground)]">{formatBusinessContactLabel(contact)}</p>
-                    {contact.contactTitle ? <p className="mt-1 text-sm text-[var(--muted)]">{contact.contactTitle}</p> : null}
-                    {contact.contactEmail ? <p className="mt-1 text-sm text-[var(--muted)]">{contact.contactEmail}</p> : null}
-                    {contact.notes ? <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{contact.notes}</p> : null}
-                  </div>
-
+              <tr key={contact.id} className="border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]">
+                <td className="px-3 py-2.5">
+                  <p className="font-semibold text-[var(--foreground)]">{formatBusinessContactLabel(contact)}</p>
+                  {contact.contactTitle ? <p className="text-xs text-[var(--muted)]">{contact.contactTitle}</p> : null}
+                </td>
+                <td className="px-3 py-2.5 text-[var(--muted)]">{contact.functionalArea}</td>
+                <td className="px-3 py-2.5 text-[var(--muted)]">{contact.contactEmail || "—"}</td>
+                <td className="px-3 py-2.5 text-right">
                   <button
                     type="button"
                     disabled={isPending}
@@ -165,18 +166,17 @@ export function BusinessContactsPanel({ auditId }: { auditId: string | null }) {
                         }
                       })
                     }
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-7 w-7 items-center justify-center border border-[rgba(229,55,107,0.18)] bg-[rgba(229,55,107,0.08)] text-[var(--brand-coral)] disabled:cursor-not-allowed disabled:opacity-60"
                     aria-label={`Remove ${contact.contactName}`}
                   >
-                    <X size={16} />
+                    <X size={14} />
                   </button>
-                </div>
-              </article>
+                </td>
+              </tr>
             ))}
-            </div>
-          </div>
-        )}
-      </section>
+          </tbody>
+        </table>
+      )}
 
       <ContainedAdminModal
         open={isAddModalOpen}

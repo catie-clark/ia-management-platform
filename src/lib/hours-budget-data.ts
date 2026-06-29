@@ -2,6 +2,7 @@ import { getControlVariance } from "@/lib/audit-logic";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
 import { controls, users } from "@/lib/data/mock-data";
 import { getNormalizedSyncCount, getSyncedHoursData } from "@/lib/demo-time-sync";
+import { buildPhaseScaler, getDemoPhaseDates } from "@/lib/demo-dates";
 import {
   formatAuditScopePeriod,
   mapControl,
@@ -177,7 +178,10 @@ async function getLiveHoursBudgetViewModel({
 
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
   const liveUsers = (usersResult.data ?? []).map(mapUser);
-  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
+  const demoPhaseDates = getDemoPhaseDates();
+  const rawControlDates = (controlsResult.data ?? []).flatMap(c => [c.due_date, c.assigned_due_date]);
+  const fieldworkScaler = buildPhaseScaler(rawControlDates, demoPhaseDates.fieldworkStartDate, demoPhaseDates.fieldworkEndDate);
+  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap, undefined, fieldworkScaler));
   const controlTestBudgets = getControlTestBudgets({ controls: liveControls, matrices: testingMatrices });
   const currentPhase = phaseOverride ?? normalizeAuditPhase(auditResult.data?.active_phase);
   const phaseBudgetPlan = buildLivePhaseBudgetPlan({
@@ -221,17 +225,17 @@ async function getLiveHoursBudgetViewModel({
     controlTestBudgets,
     currentPhase,
     currentPhaseVariance: currentPhaseBudget.actualHours - currentPhaseBudget.plannedHours,
-    fieldworkEndDate: auditResult.data?.fieldwork_end_date ?? null,
-    fieldworkStartDate: auditResult.data?.fieldwork_start_date ?? null,
+    fieldworkEndDate: demoPhaseDates.fieldworkEndDate,
+    fieldworkStartDate: demoPhaseDates.fieldworkStartDate,
     hoursByTester: hasImportedTimeEntries ? getHoursByTesterFromEntries(liveUsers, mappedTimeEntries) : getHoursByTester(liveUsers, fallbackSyncedHours.controls),
     hoursEntryRows: getHoursEntryRows(liveUsers, hasImportedTimeEntries ? mappedTimeEntries : fallbackSyncedHours.timeEntries, fallbackSyncedHours.controls),
     lastSyncedAt: hasImportedTimeEntries ? getLatestAuditTimeEntryTimestamp(timeEntriesResult.data ?? []) : fallbackSyncedHours.lastSyncedAt,
     mode: "live" as const,
     phaseBudgets,
-    planningEndDate: auditResult.data?.planning_end_date ?? null,
-    planningStartDate: auditResult.data?.planning_start_date ?? null,
-    reportingEndDate: auditResult.data?.reporting_end_date ?? null,
-    reportingStartDate: auditResult.data?.reporting_start_date ?? null,
+    planningEndDate: demoPhaseDates.planningEndDate,
+    planningStartDate: demoPhaseDates.planningStartDate,
+    reportingEndDate: demoPhaseDates.reportingEndDate,
+    reportingStartDate: demoPhaseDates.reportingStartDate,
     sourceSummaries: hasImportedTimeEntries
       ? [{ source: "Recorded" as const, entryCount: mappedTimeEntries.length, totalHours: totalActual }]
       : fallbackSyncedHours.sourceSummaries,

@@ -18,6 +18,7 @@ import {
 } from "@/lib/live-audit";
 import { normalizeAuditDocuments } from "@/lib/document-normalization";
 import { normalizeAuditPhase } from "@/lib/audit-phase";
+import { buildPhaseScaler, capOverdueItems, getDemoPhaseDates } from "@/lib/demo-dates";
 import type { AuditDocument, AuditPhase, Control, Question, Request, User } from "@/types/audit";
 
 export type QuestionLogViewModel = {
@@ -105,9 +106,23 @@ async function getLiveQuestionLogViewModel({
   const userMap = new Map((usersResult.data ?? []).map((user) => [user.id, mapUser(user)]));
   const businessUnitMap = new Map((businessUnitsResult.data ?? []).map((unit) => [unit.id, unit.name]));
 
-  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap));
-  const liveQuestions = mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap);
-  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? []);
+  const phaseDates = getDemoPhaseDates();
+  const rawFieldworkDates = [
+    ...(questionsResult.data ?? []).flatMap(q => [q.date_sent, q.due_date]),
+    ...(requestsResult.data ?? []).flatMap(r => [r.date_requested, r.due_date]),
+    ...(controlsResult.data ?? []).flatMap(c => [c.due_date, c.assigned_due_date]),
+  ];
+  const fieldworkScaler = buildPhaseScaler(rawFieldworkDates, phaseDates.fieldworkStartDate, phaseDates.fieldworkEndDate);
+
+  const now = new Date().toISOString();
+  const liveControls = (controlsResult.data ?? []).map((control) => mapControl(control, businessUnitMap, undefined, fieldworkScaler));
+  const liveQuestions = capOverdueItems(
+    mapQuestionsWithDisplayIds(questionsResult.data ?? [], userMap, fieldworkScaler),
+    4,
+    now,
+    phaseDates.fieldworkEndDate,
+  );
+  const liveRequests = mapRequestsWithDisplayIds(requestsResult.data ?? [], fieldworkScaler);
   const liveUsers = Array.from(userMap.values());
 
   return {
@@ -121,7 +136,7 @@ async function getLiveQuestionLogViewModel({
     currentPhase: normalizeAuditPhase(auditResult.data?.active_phase),
     documents: normalizeAuditDocuments({
       controls: liveControls,
-      documents: (documentsResult.data ?? []).map(mapDocument),
+      documents: (documentsResult.data ?? []).map((doc) => mapDocument(doc, fieldworkScaler)),
       questions: liveQuestions,
       requests: liveRequests,
       users: liveUsers,

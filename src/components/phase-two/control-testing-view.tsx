@@ -390,21 +390,10 @@ export function ControlTestingView({
       <section
         className={
           embedded
-            ? "relative flex h-[760px] min-h-0 flex-col overflow-hidden rounded-[20px] border border-black/5 bg-white p-4 shadow-[0_14px_34px_rgba(1,30,65,0.07)]"
-            : "flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-black/5 bg-white p-4 shadow-[0_14px_34px_rgba(1,30,65,0.07)]"
+            ? "relative flex h-[760px] min-h-0 flex-col overflow-hidden border border-black/6 bg-white p-4"
+            : "flex min-h-0 flex-1 flex-col overflow-hidden border border-black/6 bg-white p-4"
         }
       >
-        {embedded ? (
-          <div className="mb-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">Control testing</p>
-            <h2 className="mt-3 text-2xl font-semibold text-[var(--foreground)]">Manage control execution</h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              {workspaceSettings.showControlBudgetHours
-                ? "Monitor control completion, linked support, due dates, budget variance, and blockers without leaving the Fieldwork tab."
-                : "Monitor control completion, linked support, due dates, and blockers without leaving the Fieldwork tab."}
-            </p>
-          </div>
-        ) : null}
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="relative w-full xl:max-w-xl">
@@ -413,7 +402,7 @@ export function ControlTestingView({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search controls, reference IDs, or business units"
-                className="w-full rounded-[16px] border border-black/5 bg-[var(--surface-tint)] px-10 py-2.5 text-[13px] outline-none"
+                className="w-full border border-black/10 bg-[var(--surface-soft)] px-10 py-2 text-[13px] outline-none"
               />
             </div>
 
@@ -465,21 +454,21 @@ export function ControlTestingView({
         </div>
 
         <div className={embedded ? "mt-4 overflow-auto" : "mt-4 min-h-0 flex-1 overflow-auto"}>
-          <table className="min-w-full border-separate border-spacing-y-2">
-            <thead className="sticky top-0 z-10 bg-[#fbfaf7]">
+          <table className="min-w-full border-collapse">
+            <thead className="sticky top-0 z-10 bg-[var(--surface-strong)]">
               <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
-                <th className="bg-white px-3 py-2">Control</th>
-                <th className="bg-white px-3 py-2">Owner</th>
-                <th className="bg-white px-3 py-2">
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Control</th>
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Owner</th>
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">
                   <span className="inline-flex items-center gap-2">
                     Status
                     <HoverInfoCard text="Overdue controls show Blocked when any linked question, request, or document is also overdue. If the control is overdue but no linked items are overdue, status shows In Progress." />
                   </span>
                 </th>
-                <th className="bg-white px-3 py-2">Due</th>
-                {workspaceSettings.showControlBudgetHours ? <th className="bg-white px-3 py-2">Hours</th> : null}
-                <th className="bg-white px-3 py-2">Scope</th>
-                <th className="bg-white px-3 py-2">
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Due</th>
+                {workspaceSettings.showControlBudgetHours ? <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Hours</th> : null}
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Scope</th>
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">
                   <span className="inline-flex items-center gap-2">
                     Risk
                     <HoverInfoCard
@@ -491,7 +480,7 @@ export function ControlTestingView({
                     />
                   </span>
                 </th>
-                <th className="bg-white px-3 py-2">Actions</th>
+                <th className="border-b border-black/5 px-3 py-2.5 shadow-[inset_0_-1px_0_rgba(1,30,65,0.07)]">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -506,10 +495,10 @@ export function ControlTestingView({
                 return (
                   <tr
                     key={control.id}
-                    className="cursor-pointer bg-[#fcfbf8] shadow-[0_10px_24px_rgba(1,30,65,0.06)] transition-transform duration-200 hover:-translate-y-0.5"
+                    className="cursor-pointer border-b border-black/5 transition-colors hover:bg-[var(--surface-soft)]"
                     onClick={() => setSelectedId(control.id)}
                   >
-                    <td className={cn("rounded-l-[18px] px-3 py-3", overdue && "control-cell-overdue control-cell-overdue-first")}>
+                    <td className={cn("px-3 py-3", overdue && "control-cell-overdue control-cell-overdue-first")}>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-[13px] font-semibold text-[var(--foreground)]">{control.referenceId ?? control.id}</p>
                         {overdue ? <StatusBadge status="Overdue" tone="risk" className="animate-pulse" /> : null}
@@ -545,7 +534,7 @@ export function ControlTestingView({
                     <td className={cn("px-3 py-3", overdue && "control-cell-overdue")}>
                       <StatusBadge status={derivedRiskLevel} tone={riskTone} />
                     </td>
-                    <td className={cn("rounded-r-[18px] px-3 py-3", overdue && "control-cell-overdue control-cell-overdue-last")}>
+                    <td className={cn("px-3 py-3", overdue && "control-cell-overdue control-cell-overdue-last")}>
                       <div className="flex items-center gap-2">
                         <ReminderButton visible={shouldShowReminder(control, currentNow)} tooltip="Deadline approaching" />
                         <button
@@ -566,7 +555,7 @@ export function ControlTestingView({
               })}
               {filteredControls.length === 0 ? (
                 <tr>
-                  <td colSpan={workspaceSettings.showControlBudgetHours ? 8 : 7} className="rounded-[18px] bg-[var(--surface-tint)] px-4 py-6 text-center text-[13px] text-[var(--muted)]">
+                  <td colSpan={workspaceSettings.showControlBudgetHours ? 8 : 7} className="px-4 py-6 text-center text-[13px] text-[var(--muted)]">
                     No controls match the current filters.
                   </td>
                 </tr>
