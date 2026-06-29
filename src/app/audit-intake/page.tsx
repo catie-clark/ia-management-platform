@@ -737,9 +737,9 @@ function getRequirementLabel(requirementId: UploadRequirement["id"]) {
 
 const PERSONAS = {
   manager: {
-    name: "Jordan Lee",
-    role: "Audit in Charge",
-    initials: "JL",
+    name: "Elena Martin",
+    role: "Manager",
+    initials: "EM",
     accent: "amber" as const,
   },
   staff: {
