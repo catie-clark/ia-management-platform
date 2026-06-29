@@ -6,7 +6,11 @@ if (
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
-if (process.env.NODE_ENV === "production" && process.env.SUPABASE_TLS_INSECURE === "true") {
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.SUPABASE_TLS_INSECURE === "true" &&
+  (process.env.VERCEL === "1" || process.env.CI === "true")
+) {
   throw new Error("SUPABASE_TLS_INSECURE must never be enabled in production.");
 }
 

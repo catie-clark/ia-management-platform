@@ -817,6 +817,29 @@ function ManagerAddButton({ onAdd }: { onAdd: () => void }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AuditWorkspacePage() {
+  return (
+    <Suspense fallback={<AuditWorkspacePageSkeleton />}>
+      <AuditWorkspacePageInner />
+    </Suspense>
+  );
+}
+
+function AuditWorkspacePageSkeleton() {
+  return (
+    <div className="min-h-screen bg-[var(--background)]">
+      <header className="border-b border-[rgba(255,255,255,0.08)] bg-[var(--brand-indigo-dark)]">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <div className="h-6 w-28 rounded bg-white/10" />
+        </div>
+      </header>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-10">
+        <SkeletonTable />
+      </main>
+    </div>
+  );
+}
+
+function AuditWorkspacePageInner() {
   const searchParams = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [auditRows, setAuditRows] = useState<AuditWorkspaceRow[]>([]);
