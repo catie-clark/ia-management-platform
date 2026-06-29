@@ -16,7 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowUpRight, CheckCircle2, ChevronDown, FolderOpen, Plus, Search, Upload, X } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, ChevronDown, FolderOpen, Lock, Plus, Search, Upload, X } from "lucide-react";
 
 import { DEFAULT_COMPANY_NAME } from "@/lib/company";
 
@@ -109,6 +109,80 @@ type AuditWorkspaceRow = {
   fieldworkBudgetHours: number | null;
   reportingBudgetHours: number | null;
 };
+
+type LockedAuditRow = {
+  id: string;
+  name: string;
+  companyName: string;
+  scopePeriod: string;
+  auditTimeframe: string;
+  activePhase: string;
+  status: string;
+  budget: string;
+};
+
+const LOCKED_AUDIT_ROWS: LockedAuditRow[] = [
+  {
+    id: "locked-1",
+    name: "FY2024 IT General Controls Audit",
+    companyName: "First National Corp",
+    scopePeriod: "Jan 1, 2024 – Dec 31, 2024",
+    auditTimeframe: "Feb 3, 2025 – Apr 18, 2025",
+    activePhase: "Reporting",
+    status: "completed",
+    budget: "320h",
+  },
+  {
+    id: "locked-2",
+    name: "Q3 SOX ITGC Control Testing",
+    companyName: "Meridian Financial Group",
+    scopePeriod: "Jul 1, 2024 – Sep 30, 2024",
+    auditTimeframe: "Oct 14, 2024 – Dec 6, 2024",
+    activePhase: "Reporting",
+    status: "completed",
+    budget: "210h",
+  },
+  {
+    id: "locked-3",
+    name: "Annual Cybersecurity Controls Review",
+    companyName: "Hartwell Industries",
+    scopePeriod: "Jan 1, 2024 – Dec 31, 2024",
+    auditTimeframe: "Jan 20, 2025 – Mar 28, 2025",
+    activePhase: "Fieldwork",
+    status: "active",
+    budget: "275h",
+  },
+  {
+    id: "locked-4",
+    name: "ITGC Readiness Assessment",
+    companyName: "Summit Healthcare Systems",
+    scopePeriod: "Jan 1, 2025 – Jun 30, 2025",
+    auditTimeframe: "May 5, 2025 – Jun 20, 2025",
+    activePhase: "Planning",
+    status: "active",
+    budget: "180h",
+  },
+  {
+    id: "locked-5",
+    name: "Third-Party Risk Controls Audit",
+    companyName: "Lakeview Capital Partners",
+    scopePeriod: "Jul 1, 2024 – Dec 31, 2024",
+    auditTimeframe: "Jan 8, 2025 – Feb 21, 2025",
+    activePhase: "Reporting",
+    status: "completed",
+    budget: "155h",
+  },
+  {
+    id: "locked-6",
+    name: "SOC 2 Readiness & Controls Gap Review",
+    companyName: "Veridian Technologies",
+    scopePeriod: "Jan 1, 2025 – Dec 31, 2025",
+    auditTimeframe: "Mar 3, 2025 – May 9, 2025",
+    activePhase: "Fieldwork",
+    status: "active",
+    budget: "240h",
+  },
+];
 
 type FolderMappedFile = {
   id: string;
@@ -493,7 +567,7 @@ function getRequiredUploadRequirementIds(files: UploadedFiles): UploadRequiremen
   return requiredIds;
 }
 
-function mapApiItemToRow(audit: AuditApiItem): AuditWorkspaceRow {
+function mapApiItemToRow(audit: AuditApiItem, persona?: string | null): AuditWorkspaceRow {
   const scopeStart = audit.scope_period_start ?? audit.period_start;
   const scopeEnd = audit.scope_period_end ?? audit.period_end;
   const companyName = audit.company_name ?? DEFAULT_COMPANY_NAME;
@@ -506,6 +580,10 @@ function mapApiItemToRow(audit: AuditApiItem): AuditWorkspaceRow {
     companyName,
     scopePeriodLabel,
   });
+
+  if (persona === "manager" || persona === "staff") {
+    params.set("persona", persona);
+  }
 
   return {
     id: audit.id,
@@ -739,6 +817,7 @@ function ManagerAddButton({ onAdd }: { onAdd: () => void }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AuditWorkspacePage() {
+  const searchParams = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [auditRows, setAuditRows] = useState<AuditWorkspaceRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -798,10 +877,16 @@ export default function AuditWorkspacePage() {
 
   const counts = useMemo(
     () => ({
-      active: auditRows.length,
-      planning: auditRows.filter((r) => r.activePhase.toLowerCase() === "planning").length,
-      fieldwork: auditRows.filter((r) => r.activePhase.toLowerCase() === "fieldwork").length,
-      reporting: auditRows.filter((r) => r.activePhase.toLowerCase() === "reporting").length,
+      active: auditRows.length + LOCKED_AUDIT_ROWS.length,
+      planning:
+        auditRows.filter((r) => r.activePhase.toLowerCase() === "planning").length +
+        LOCKED_AUDIT_ROWS.filter((r) => r.activePhase.toLowerCase() === "planning").length,
+      fieldwork:
+        auditRows.filter((r) => r.activePhase.toLowerCase() === "fieldwork").length +
+        LOCKED_AUDIT_ROWS.filter((r) => r.activePhase.toLowerCase() === "fieldwork").length,
+      reporting:
+        auditRows.filter((r) => r.activePhase.toLowerCase() === "reporting").length +
+        LOCKED_AUDIT_ROWS.filter((r) => r.activePhase.toLowerCase() === "reporting").length,
     }),
     [auditRows],
   );
@@ -824,7 +909,7 @@ export default function AuditWorkspacePage() {
             : "Failed to load audits.",
         );
       }
-      setAuditRows(payload.map(mapApiItemToRow));
+      setAuditRows(payload.map((audit) => mapApiItemToRow(audit, searchParams.get("role"))));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Failed to load audits.");
     } finally {
@@ -1012,7 +1097,7 @@ export default function AuditWorkspacePage() {
           </div>
 
           {/* Summary strip */}
-          {!isLoading && auditRows.length > 0 && (
+          {!isLoading && (auditRows.length > 0 || LOCKED_AUDIT_ROWS.length > 0) && (
             <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-[var(--border-subtle)] pb-5">
               <SummaryItem label="Active" count={counts.active} accent="indigo" />
               <div className="h-4 w-px bg-[var(--border-subtle)]" aria-hidden="true" />
@@ -1082,10 +1167,10 @@ export default function AuditWorkspacePage() {
           <div className="mt-4">
             {isLoading ? (
               <SkeletonTable />
-            ) : filteredRows.length === 0 ? (
+            ) : filteredRows.length === 0 && LOCKED_AUDIT_ROWS.length === 0 ? (
               <EmptyState onAdd={openModal} hasFilter={searchQuery !== "" || stageFilter !== "all"} />
             ) : (
-              <AuditTable rows={filteredRows} />
+              <AuditTable rows={filteredRows} lockedRows={LOCKED_AUDIT_ROWS} />
             )}
           </div>
         </main>
@@ -1119,7 +1204,7 @@ export default function AuditWorkspacePage() {
 
 // ── Table ─────────────────────────────────────────────────────────────────────
 
-function AuditTable({ rows }: { rows: AuditWorkspaceRow[] }) {
+function AuditTable({ rows, lockedRows }: { rows: AuditWorkspaceRow[]; lockedRows: LockedAuditRow[] }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-white">
       <div className="overflow-x-auto">
@@ -1149,6 +1234,9 @@ function AuditTable({ rows }: { rows: AuditWorkspaceRow[] }) {
           <tbody className="divide-y divide-[var(--border-subtle)]">
             {rows.map((row) => (
               <AuditTableRow key={row.id} row={row} />
+            ))}
+            {lockedRows.map((row) => (
+              <LockedAuditTableRow key={row.id} row={row} />
             ))}
           </tbody>
         </table>
@@ -1187,6 +1275,32 @@ function AuditTableRow({ row }: { row: AuditWorkspaceRow }) {
           Open
           <ArrowUpRight size={12} />
         </a>
+      </td>
+    </tr>
+  );
+}
+
+function LockedAuditTableRow({ row }: { row: LockedAuditRow }) {
+  return (
+    <tr className="group opacity-60">
+      <td className="pl-5 pr-4 py-3.5">
+        <p className="font-semibold text-[var(--brand-indigo-dark)]">{row.name}</p>
+      </td>
+      <td className="px-4 py-3.5 text-[var(--muted)]">{row.companyName}</td>
+      <td className="px-4 py-3.5 whitespace-nowrap text-[var(--muted)]">{row.scopePeriod}</td>
+      <td className="px-4 py-3.5 whitespace-nowrap text-[var(--muted)]">{row.auditTimeframe}</td>
+      <td className="px-4 py-3.5">
+        <StageBadge phase={row.activePhase} />
+      </td>
+      <td className="px-4 py-3.5">
+        <StatusBadge status={row.status} />
+      </td>
+      <td className="px-4 py-3.5 whitespace-nowrap text-[var(--muted)]">{row.budget}</td>
+      <td className="py-3.5 pl-4 pr-5">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+          <Lock size={11} />
+          Locked
+        </span>
       </td>
     </tr>
   );
